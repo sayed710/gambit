@@ -11,7 +11,8 @@ import { useProfile } from '../state/ProfileContext';
 import { loadJSON, saveJSON } from '../lib/storage';
 import { ChevronLeft, ChevronRight, XIcon } from '../components/Icons';
 import type { GameReport, MoveClass, PlyEval } from '../lib/review';
-import { buildReport, CLASSIFICATION_META, evalToUnit, toPlyEval } from '../lib/review';
+import { CLASSIFICATION_META, evalToUnit } from '../lib/review';
+import { runGameAnalysis, plyEvalFromEngineResult } from '../lib/reviewRunner';
 import type { EvalResult } from '../lib/engine/engine';
 
 const ANALYSIS_DEPTH = 12;
@@ -68,40 +69,33 @@ export default function Review() {
     const isStale = () => runTokenRef.current !== token;
     setAnalyzing(true);
     setReport(null);
-    const total = plies.length + 1;
-    setAnalysis({ done: 0, total });
-    const evals: (PlyEval | null)[] = [];
-    for (let i = 0; i < total; i++) {
-      if (isStale()) {
-        setAnalyzing(false);
-        return;
-      }
-      try {
-        const res = await engine.evaluate(fens[i], ANALYSIS_DEPTH);
-        if (res) {
-          evals.push(
-            toPlyEval({
-              cpWhite: res.cp >= 9000 ? 10000 : res.cp <= -9000 ? -10000 : res.cp,
-              matePlies: res.mateIn !== null ? (res.cp > 0 ? res.mateIn : -res.mateIn) * 2 : null,
-              bestSan: res.bestSan,
-              bestUci: null,
-              depth: res.depth,
-            }),
-          );
-        } else {
-          evals.push(null);
-        }
-      } catch {
-        evals.push(null);
-      }
-      setAnalysis({ done: i + 1, total });
-    }
-    if (isStale()) return;
-    const finalReport = buildReport(plies, evals);
-    setReport(finalReport);
-    setAnalyzing(false);
-    if (record?.id) saveJSON(`review.${record.id}`, finalReport);
-  }, [plies, fens, engine, analyzing]);
+    await runGameAnalysis(
+      plies,
+      fens,
+      (fen, depth) => engine.evaluate(fen, depth),
+      (res) =>
+        plyEvalFromEngineResult({
+          cp: res.cp >= 9000 ? 10_000 : res.cp <= -9000 ? -10_000 : res.cp,
+          mateIn: res.mateIn,
+          bestSan: res.bestSan,
+        }),
+      {
+        isStale,
+        onProgress: (done, total) => {
+          if (isStale()) return;
+          setAnalysis({ done, total });
+        },
+        onComplete: (rep) => {
+          if (isStale()) return;
+          setReport(rep);
+          setAnalyzing(false);
+          if (record?.id) saveJSON(`review.${record.id}`, rep);
+        },
+        // a stale run owns no UI state: the newest run (or unmount) does
+        onAbort: () => {},
+      },
+    );
+  }, [plies, fens, engine, analyzing, record?.id]);
 
   // run the game report automatically, like chess.com
   useEffect(() => {

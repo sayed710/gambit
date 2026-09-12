@@ -98,7 +98,9 @@ export function useGame({ config, engineSearch, onGameOver, resume, initialFen }
       playerColorRef.current = color;
       setPlayerColor(color);
       clock.reset(initialMs);
-      if (!unlimited && color !== 'w') clock.start('w');
+      // White's clock runs from the start in every timed mode (resume below
+      // re-baselines to the saved turn when applicable).
+      if (!unlimited) clock.start('w');
 
       // restore a saved game: replay the PGN, fast-forward clocks
       if (resume) {

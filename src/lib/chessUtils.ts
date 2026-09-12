@@ -116,37 +116,78 @@ export const SHORT_DATE = new Intl.DateTimeFormat(undefined, { month: 'short', d
 export const FULL_DATE = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' });
 
 /**
- * FIDE-style timeout check: a player on time loses only if the opponent could
- * still checkmate by SOME series of legal moves (Article 6.9). We approximate
- * "some series" with standard material criteria:
- *  - any pawn, rook or queen: mate is possible
- *  - bishop AND knight, or two knights: helpmates exist
- *  - two or more bishops on opposite square colors: mate possible
- *  - a single minor piece, or bishops all on one color: no mate possible
- *  - additionally, if BOTH sides lack mating material, the game is a draw
- * Known approximation: KNN vs bare king is treated as mating material even
- * though only helpmates (not forced mates) exist in most positions.
+ * Timeout adjudication helper for the flag-fall rule (FIDE Article 6.9: a
+ * player who runs out of time loses unless the opponent CANNOT checkmate by
+ * any possible series of legal moves from the current position).
+ *
+ * ⚠️ This helper is a CONSERVATIVE approximation, not a full FIDE solver:
+ * deciding "mate possible by any series" exactly requires endgame tables. The
+ * rule below only answers "is mate clearly impossible?" and answers with
+ * "play on" (mate possible) in every case where a legal mating sequence is
+ * known to exist, so it never awards a false draw. It errs in the direction
+ * of longer games, never in the direction of stealing a win.
+ *
+ * Draw is declared (returns false) only for these provably mateless cases:
+ *   - the non-flagged side has a bare king (a king alone can never mate);
+ *   - K+N vs K: no mating position exists — a corner king always has an
+ *     escape square no arrangement of knight + king can cover;
+ *   - two (or more) bishops of ONE square color vs a bare king: they can
+ *     never control squares of the opposite color, so no corner can be sealed;
+ *   - KB vs KB with both bishops on the same square color and no other
+ *     material: neither side can ever mate.
+ * Everything else returns true ("play on"), including the easy-to-miss cases:
+ *   - K+B vs K: mating positions exist (e.g. white Kb6, Bb7# vs Ka8);
+ *   - K+N vs K + any enemy piece: the enemy piece can self-blockade a flight
+ *     square, so helpmates exist;
+ *   - K+2N vs K: mating positions exist (e.g. white Kg6, Nf6, Nf7# vs Kh8).
  */
 export function hasMatingMaterial(fen: string, color: Color): boolean {
   const game = new Chess(fen);
-  const board = game.board();
-  let knights = 0;
-  let bishops = 0;
-  const bishopColors = new Set<string>();
-  let others = 0;
-  for (const row of board) {
-    for (const sq of row) {
-      if (!sq || sq.color !== color || sq.type === 'k') continue;
-      if (sq.type === 'n') knights++;
-      else if (sq.type === 'b') {
-        bishops++;
-        bishopColors.add((('abcdefgh'.indexOf(sq.square[0]) + parseInt(sq.square[1], 10)) % 2).toString());
-      } else others++;
+  const collect = (side: Color) => {
+    let knights = 0;
+    let bishops = 0;
+    let pawnMajor = 0; // pawns, rooks, queens
+    const bishopColors = new Set<string>();
+    for (const row of game.board()) {
+      for (const sq of row) {
+        if (!sq || sq.color !== side || sq.type === 'k') continue;
+        if (sq.type === 'n') knights++;
+        else if (sq.type === 'b') {
+          bishops++;
+          bishopColors.add((('abcdefgh'.indexOf(sq.square[0]) + parseInt(sq.square[1], 10)) % 2).toString());
+        } else pawnMajor++;
+      }
     }
+    return { knights, bishops, pawnMajor, bishopColors, nonKing: knights + bishops + pawnMajor };
+  };
+  const side = collect(color);
+  const other = collect(color === 'w' ? 'b' : 'w');
+
+  if (side.nonKing === 0) return false; // bare king can never mate
+
+  // KB vs KB on one square color with nothing else: provably dead drawn.
+  if (
+    side.pawnMajor === 0 && other.pawnMajor === 0 &&
+    side.knights === 0 && other.knights === 0 &&
+    side.bishops === 1 && other.bishops === 1 &&
+    side.bishopColors.size === 1 &&
+    [...side.bishopColors][0] === [...other.bishopColors][0]
+  ) {
+    return false;
   }
-  if (others > 0) return true; // pawn, rook or queen
-  if (knights >= 1 && bishops >= 1) return true; // BN helpmates
-  if (knights >= 2) return true; // KNN helpmates exist (documented approximation)
-  if (bishops >= 2 && bishopColors.size >= 2) return true; // opposite-color bishops
-  return false; // lone king, single minor, or same-colored bishops only
+
+  if (side.pawnMajor > 0) return true;
+
+  if (side.knights + side.bishops >= 2) {
+    if (side.knights >= 1 && side.bishops >= 1) return true; // BN mates exist
+    if (side.bishops >= 2 && side.bishopColors.size >= 2) return true; // opposite colors: box mate exists
+    if (side.knights >= 2) return true; // KNN mates exist (e.g. Kg6/Nf6/Nf7# vs Kh8)
+    // two bishops on one color complex: no mate vs a bare king, but any enemy
+    // piece can self-blockade a flight square, so helpmates may exist
+    return other.nonKing > 0;
+  }
+
+  // exactly one minor
+  if (side.bishops === 1) return true; // KB vs K has mating positions (Bb7# pattern)
+  return other.nonKing > 0; // KN vs K: provably mateless; with enemy material: helpmates exist
 }

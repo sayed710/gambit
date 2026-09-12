@@ -9,9 +9,15 @@ export interface ClockState {
 /**
  * Chess clock with increment. Ticks only while a game is live and a side is to move.
  * `paused` is used while a promotion dialog is open.
+ *
+ * `clocksRef` is the synchronous source of truth: `switchTo` must decide
+ * flag-fall at call time (React state updates are async, and the UCI-style
+ * decision "did the mover flag before the move completed?" cannot wait for a
+ * render). Every mutation goes through `apply`, which keeps both in step.
  */
 export function useClock(initialMs: number, incrementMs: number) {
-  const [clocks, setClocks] = useState<ClockState>({ w: initialMs, b: initialMs });
+  const clocksRef = useRef<ClockState>({ w: initialMs, b: initialMs });
+  const [clocks, setClocks] = useState<ClockState>(clocksRef.current);
   const runningRef = useRef(false);
   const [runningSide, setRunningSide] = useState<Color | null>(null);
   const lastTickRef = useRef<number>(0);
@@ -21,6 +27,11 @@ export function useClock(initialMs: number, incrementMs: number) {
   incrementRef.current = incrementMs;
 
   const lowTimePlayed = useRef<Record<Color, boolean>>({ w: false, b: false });
+
+  const apply = useCallback((next: ClockState) => {
+    clocksRef.current = next;
+    setClocks(next);
+  }, []);
 
   useEffect(() => {
     if (!runningSide || flagged) return;
@@ -34,10 +45,8 @@ export function useClock(initialMs: number, incrementMs: number) {
       // A paused clock (promotion dialog open) keeps the loop alive but bills
       // nothing, and keeps lastTick fresh so resume never charges hidden time.
       if (dt > 0 && !pausedRef.current) {
-        setClocks((c) => {
-          const next = { ...c, [runningSide]: Math.max(0, c[runningSide] - dt) } as ClockState;
-          return next;
-        });
+        const c = clocksRef.current;
+        apply({ ...c, [runningSide]: Math.max(0, c[runningSide] - dt) } as ClockState);
       }
       raf = requestAnimationFrame(tick);
     };
@@ -46,9 +55,9 @@ export function useClock(initialMs: number, incrementMs: number) {
       runningRef.current = false;
       cancelAnimationFrame(raf);
     };
-  }, [runningSide, flagged]);
+  }, [runningSide, flagged, apply]);
 
-  // flag detection
+  // flag detection for time lost while ticking normally
   useEffect(() => {
     if (flagged) return;
     if (runningSide && clocks[runningSide] <= 0) {
@@ -64,24 +73,42 @@ export function useClock(initialMs: number, incrementMs: number) {
   }, []);
 
   /**
-   * Called after a move by `side`: charge the mover's real elapsed wall time
-   * (covers frames the browser throttled in a hidden tab), add the increment
-   * exactly once, then hand the clock to the opponent.
+   * Called after a move by `side`. Order of operations is the correctness
+   * contract:
+   *   1. charge the mover's real elapsed wall time (covers throttled
+   *      background frames),
+   *   2. if that exhausts the mover's clock, flag them — no increment, no
+   *      opponent clock, the caller adjudicates (win vs. insufficient material),
+   *   3. otherwise apply the increment exactly once and hand over.
+   * Returns true when the mover flagged during this move.
    */
-  const switchTo = useCallback((side: Color, withIncrementFor: Color | null) => {
-    const now = performance.now();
-    const elapsed = Math.max(0, now - lastTickRef.current);
-    lastTickRef.current = now;
-    setClocks((c) => {
-      const next = { ...c };
-      if (withIncrementFor) {
-        next[withIncrementFor] = Math.max(0, next[withIncrementFor] - elapsed + incrementRef.current);
+  const switchTo = useCallback(
+    (side: Color, withIncrementFor: Color | null): boolean => {
+      const now = performance.now();
+      const elapsed = Math.max(0, now - lastTickRef.current);
+      lastTickRef.current = now;
+      pausedRef.current = false;
+
+      if (!withIncrementFor) {
+        setRunningSide(side);
+        return false;
       }
-      return next;
-    });
-    pausedRef.current = false;
-    setRunningSide(side);
-  }, []);
+
+      const remaining = clocksRef.current[withIncrementFor] - elapsed;
+      if (remaining <= 0) {
+        // Flag fall takes precedence over increment: a move completed after
+        // the flag fell cannot revive the mover.
+        apply({ ...clocksRef.current, [withIncrementFor]: 0 });
+        setFlagged(withIncrementFor);
+        return true;
+      }
+
+      apply({ ...clocksRef.current, [withIncrementFor]: remaining + incrementRef.current });
+      setRunningSide(side);
+      return false;
+    },
+    [apply],
+  );
 
   const stop = useCallback(() => {
     setRunningSide(null);
@@ -96,26 +123,35 @@ export function useClock(initialMs: number, incrementMs: number) {
     pausedRef.current = false;
   }, []);
 
-  const reset = useCallback((ms: number) => {
-    setClocks({ w: ms, b: ms });
-    setFlagged(null);
-    setRunningSide(null);
-    lowTimePlayed.current = { w: false, b: false };
-  }, []);
+  const reset = useCallback(
+    (ms: number) => {
+      apply({ w: ms, b: ms });
+      // the game (re)starts now: baseline the charge clock so the first
+      // switchTo bills only the time actually spent before that move
+      lastTickRef.current = performance.now();
+      setFlagged(null);
+      setRunningSide(null);
+      lowTimePlayed.current = { w: false, b: false };
+    },
+    [apply],
+  );
 
   /** Restore both sides' clocks after an undo; resume for `resumeSide` if given. */
-  const restore = useCallback((ms: { w: number; b: number }, resumeSide: Color | null) => {
-    setFlagged(null);
-    setClocks({ w: ms.w, b: ms.b });
-    lowTimePlayed.current = { w: false, b: false };
-    if (resumeSide) {
-      lastTickRef.current = performance.now();
-      pausedRef.current = false;
-      setRunningSide(resumeSide);
-    } else {
-      setRunningSide(null);
-    }
-  }, []);
+  const restore = useCallback(
+    (ms: { w: number; b: number }, resumeSide: Color | null) => {
+      setFlagged(null);
+      apply({ w: ms.w, b: ms.b });
+      lowTimePlayed.current = { w: false, b: false };
+      if (resumeSide) {
+        lastTickRef.current = performance.now();
+        pausedRef.current = false;
+        setRunningSide(resumeSide);
+      } else {
+        setRunningSide(null);
+      }
+    },
+    [apply],
+  );
 
   const shouldPlayLow = useCallback((side: Color, ms: number, threshold = 10_000) => {
     if (ms < threshold && ms > 0 && !lowTimePlayed.current[side]) {
