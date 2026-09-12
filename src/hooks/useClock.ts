@@ -23,7 +23,7 @@ export function useClock(initialMs: number, incrementMs: number) {
   const lowTimePlayed = useRef<Record<Color, boolean>>({ w: false, b: false });
 
   useEffect(() => {
-    if (!runningSide || pausedRef.current || flagged) return;
+    if (!runningSide || flagged) return;
     runningRef.current = true;
     lastTickRef.current = performance.now();
     let raf = 0;
@@ -31,7 +31,9 @@ export function useClock(initialMs: number, incrementMs: number) {
       const now = performance.now();
       const dt = now - lastTickRef.current;
       lastTickRef.current = now;
-      if (dt > 0) {
+      // A paused clock (promotion dialog open) keeps the loop alive but bills
+      // nothing, and keeps lastTick fresh so resume never charges hidden time.
+      if (dt > 0 && !pausedRef.current) {
         setClocks((c) => {
           const next = { ...c, [runningSide]: Math.max(0, c[runningSide] - dt) } as ClockState;
           return next;
@@ -61,14 +63,23 @@ export function useClock(initialMs: number, incrementMs: number) {
     setRunningSide(side);
   }, []);
 
-  /** Called after a move by `side`: add increment, switch to opponent. */
+  /**
+   * Called after a move by `side`: charge the mover's real elapsed wall time
+   * (covers frames the browser throttled in a hidden tab), add the increment
+   * exactly once, then hand the clock to the opponent.
+   */
   const switchTo = useCallback((side: Color, withIncrementFor: Color | null) => {
+    const now = performance.now();
+    const elapsed = Math.max(0, now - lastTickRef.current);
+    lastTickRef.current = now;
     setClocks((c) => {
       const next = { ...c };
-      if (withIncrementFor) next[withIncrementFor] = next[withIncrementFor] + incrementRef.current;
+      if (withIncrementFor) {
+        next[withIncrementFor] = Math.max(0, next[withIncrementFor] - elapsed + incrementRef.current);
+      }
       return next;
     });
-    lastTickRef.current = performance.now();
+    pausedRef.current = false;
     setRunningSide(side);
   }, []);
 

@@ -114,3 +114,39 @@ export function winnerOf(termination: string, game: Chess): Color | null {
 
 export const SHORT_DATE = new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric' });
 export const FULL_DATE = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' });
+
+/**
+ * FIDE-style timeout check: a player on time loses only if the opponent could
+ * still checkmate by SOME series of legal moves (Article 6.9). We approximate
+ * "some series" with standard material criteria:
+ *  - any pawn, rook or queen: mate is possible
+ *  - bishop AND knight, or two knights: helpmates exist
+ *  - two or more bishops on opposite square colors: mate possible
+ *  - a single minor piece, or bishops all on one color: no mate possible
+ *  - additionally, if BOTH sides lack mating material, the game is a draw
+ * Known approximation: KNN vs bare king is treated as mating material even
+ * though only helpmates (not forced mates) exist in most positions.
+ */
+export function hasMatingMaterial(fen: string, color: Color): boolean {
+  const game = new Chess(fen);
+  const board = game.board();
+  let knights = 0;
+  let bishops = 0;
+  const bishopColors = new Set<string>();
+  let others = 0;
+  for (const row of board) {
+    for (const sq of row) {
+      if (!sq || sq.color !== color || sq.type === 'k') continue;
+      if (sq.type === 'n') knights++;
+      else if (sq.type === 'b') {
+        bishops++;
+        bishopColors.add((('abcdefgh'.indexOf(sq.square[0]) + parseInt(sq.square[1], 10)) % 2).toString());
+      } else others++;
+    }
+  }
+  if (others > 0) return true; // pawn, rook or queen
+  if (knights >= 1 && bishops >= 1) return true; // BN helpmates
+  if (knights >= 2) return true; // KNN helpmates exist (documented approximation)
+  if (bishops >= 2 && bishopColors.size >= 2) return true; // opposite-color bishops
+  return false; // lone king, single minor, or same-colored bishops only
+}

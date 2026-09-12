@@ -245,6 +245,7 @@ function GameScreen({
     canUndo,
     resign,
     offerDraw,
+    getMoves,
   } = game;
 
   const [recordId, setRecordId] = useState<string | null>(null);
@@ -275,7 +276,9 @@ function GameScreen({
       opponentRating,
       result,
       reason: info.reason,
-      moves: plies.map((p) => p.san),
+      // authoritative: gameRef already contains the final move when the
+      // game-over callback fires (state may lag one move behind)
+      moves: getMoves(),
       pgn: game.pgn(),
       ratingBefore: profile.rating,
       ratingAfter: profile.rating + delta,

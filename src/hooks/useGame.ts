@@ -3,7 +3,7 @@ import { Chess } from 'chess.js';
 import type { Color, Square } from 'chess.js';
 import type { Move } from 'chess.js';
 import type { GameConfig, Ply } from '../lib/types';
-import { capturedFromFen, pliesFromGame } from '../lib/chessUtils';
+import { capturedFromFen, hasMatingMaterial, pliesFromGame } from '../lib/chessUtils';
 import { playSound } from '../lib/sound';
 import { useClock } from './useClock';
 
@@ -33,18 +33,21 @@ interface UseGameOptions {
   onGameOver?: (info: GameOverInfo) => void;
   /** restore a previously saved game instead of starting fresh */
   resume?: SavedGame | null;
+  /** start from a specific position (tests and analysis); ignored when resume is given */
+  initialFen?: string;
 }
 
-export function useGame({ config, engineSearch, onGameOver, resume }: UseGameOptions) {
+export function useGame({ config, engineSearch, onGameOver, resume, initialFen }: UseGameOptions) {
   const unlimited = config.timeControl.minutes === 0 && config.timeControl.increment === 0;
   const initialMs = config.timeControl.minutes * 60_000;
   const incrementMs = config.timeControl.increment * 1000;
 
-  const gameRef = useRef(new Chess());
+  const startFenRef = useRef<string | null>(initialFen ?? null);
+  const gameRef = useRef(new Chess(initialFen ?? undefined));
   const [fen, setFen] = useState(gameRef.current.fen());
   const [plies, setPlies] = useState<Ply[]>([]);
   const [lastMove, setLastMove] = useState<{ from: Square; to: Square } | null>(null);
-  const [turn, setTurn] = useState<Color>('w');
+  const [turn, setTurn] = useState<Color>(() => new Chess(startFenRef.current ?? undefined).turn());
   const [pendingPromotion, setPendingPromotion] = useState<PendingPromotion | null>(null);
   const [thinking, setThinking] = useState(false);
   const [over, setOver] = useState<GameOverInfo | null>(null);
@@ -75,7 +78,7 @@ export function useGame({ config, engineSearch, onGameOver, resume }: UseGameOpt
   // ---- new game / restart ----
   const newGame = useCallback(
     (cfg?: Partial<GameConfig>) => {
-      gameRef.current = new Chess();
+      gameRef.current = new Chess(startFenRef.current ?? undefined);
       clockSnapshots.current = [];
       overRef.current = null;
       setOver(null);
@@ -187,46 +190,65 @@ export function useGame({ config, engineSearch, onGameOver, resume }: UseGameOpt
     [checkTermination, clock, soundForMove, unlimited],
   );
 
-  /** Try to play from→to. Returns 'ok' | 'promote' | 'illegal'. */
-  const tryMove = useCallback(
-    (from: Square, to: Square, promotion?: 'q' | 'r' | 'b' | 'n'): 'ok' | 'promote' | 'illegal' => {
-      if (overRef.current || pendingPromotion) return 'illegal';
+  // Promotion gate must be readable at call time — gating on the state value
+  // races against React's commit, which broke choosePromotion entirely.
+  const pendingPromotionRef = useRef<PendingPromotion | null>(null);
+
+  const setPending = useCallback((p: PendingPromotion | null) => {
+    pendingPromotionRef.current = p;
+    setPendingPromotion(p);
+  }, []);
+
+  /** Apply a fully-specified legal move. Assumes no pending promotion. */
+  const applyMove = useCallback(
+    (from: Square, to: Square, promotion?: 'q' | 'r' | 'b' | 'n'): 'ok' | 'illegal' => {
       const game = gameRef.current;
-      const legal = game.moves({ verbose: true }).filter((mv) => mv.from === from && mv.to === to);
-      if (legal.length === 0) return 'illegal';
-      const needsPromotion = legal.some((mv) => mv.promotion);
-      if (needsPromotion && !promotion) {
-        clock.pause();
-        setPendingPromotion({ from, to, color: game.get(from)?.color ?? 'w' });
-        return 'promote';
-      }
       try {
         const m = game.move({ from, to, promotion: promotion ?? 'q' });
-        setPendingPromotion(null);
         commitMove(m);
         return 'ok';
       } catch {
         return 'illegal';
       }
     },
-    [commitMove, pendingPromotion],
+    [commitMove],
+  );
+
+  /** Try to play from→to. Returns 'ok' | 'promote' | 'illegal'. */
+  const tryMove = useCallback(
+    (from: Square, to: Square, promotion?: 'q' | 'r' | 'b' | 'n'): 'ok' | 'promote' | 'illegal' => {
+      if (overRef.current || pendingPromotionRef.current) return 'illegal';
+      const game = gameRef.current;
+      const legal = game.moves({ verbose: true }).filter((mv) => mv.from === from && mv.to === to);
+      if (legal.length === 0) return 'illegal';
+      const needsPromotion = legal.some((mv) => mv.promotion);
+      if (needsPromotion && !promotion) {
+        clock.pause();
+        setPending({ from, to, color: game.get(from)?.color ?? 'w' });
+        return 'promote';
+      }
+      if (applyMove(from, to, promotion) === 'ok') return 'ok';
+      return 'illegal';
+    },
+    [applyMove, clock, setPending],
   );
 
   const choosePromotion = useCallback(
     (piece: 'q' | 'r' | 'b' | 'n') => {
-      const p = pendingPromotion;
+      const p = pendingPromotionRef.current;
       if (!p) return;
+      setPending(null); // clear the gate before re-applying — no stale closure possible
       clock.resume();
-      setPendingPromotion(null);
-      tryMove(p.from, p.to, piece);
+      applyMove(p.from, p.to, piece);
     },
-    [pendingPromotion, clock, tryMove],
+    [applyMove, clock, setPending],
   );
 
   const cancelPromotion = useCallback(() => {
+    if (!pendingPromotionRef.current) return;
+    setPending(null);
     clock.resume();
-    setPendingPromotion(null);
-  }, [clock]);
+  }, [clock, setPending]);
 
   // Latest-ref so per-frame clock re-renders never restart the engine search.
   const commitMoveRef = useRef(commitMove);
@@ -275,6 +297,12 @@ export function useGame({ config, engineSearch, onGameOver, resume }: UseGameOpt
   useEffect(() => {
     if (!clock.flagged || overRef.current) return;
     const winner: Color = clock.flagged === 'w' ? 'b' : 'w';
+    // FIDE 6.9: no loss on time if the opponent cannot possibly checkmate
+    if (!hasMatingMaterial(gameRef.current.fen(), winner)) {
+      playSound('draw');
+      finish({ winnerColor: null, reason: 'Time out — insufficient material to mate' });
+      return;
+    }
     playSound(playerColorRef.current === winner ? 'win' : 'lose');
     finish({ winnerColor: winner, reason: 'On time' });
   }, [clock.flagged, finish]);
@@ -367,6 +395,9 @@ export function useGame({ config, engineSearch, onGameOver, resume }: UseGameOpt
     offerDraw,
     newGame,
     pgn: () => gameRef.current.pgn(),
+    /** authoritative SAN list for the played game (source for saved records) */
+    getMoves: (): string[] => gameRef.current.history(),
+    getFen: (): string => gameRef.current.fen(),
     moveCount: plies.length,
   };
 }

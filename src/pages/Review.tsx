@@ -51,7 +51,7 @@ export default function Review() {
   const [report, setReport] = useState<GameReport | null>(null);
   const [analysis, setAnalysis] = useState<{ done: number; total: number } | null>(null);
   const [analyzing, setAnalyzing] = useState(false);
-  const analysisCancelled = useRef(false);
+  const runTokenRef = useRef(0); // increments per run; stale runs self-abort
 
   // fens before each ply (index 0 = start position)
   const fens = useMemo(() => [START_FEN, ...plies.map((p) => p.fenAfter)], [plies]);
@@ -64,14 +64,15 @@ export default function Review() {
       setReport(cached);
       return;
     }
-    analysisCancelled.current = false;
+    const token = ++runTokenRef.current; // stale runs (StrictMode remount, redo) self-abort
+    const isStale = () => runTokenRef.current !== token;
     setAnalyzing(true);
     setReport(null);
     const total = plies.length + 1;
     setAnalysis({ done: 0, total });
     const evals: (PlyEval | null)[] = [];
     for (let i = 0; i < total; i++) {
-      if (analysisCancelled.current) {
+      if (isStale()) {
         setAnalyzing(false);
         return;
       }
@@ -95,7 +96,7 @@ export default function Review() {
       }
       setAnalysis({ done: i + 1, total });
     }
-    if (analysisCancelled.current) return;
+    if (isStale()) return;
     const finalReport = buildReport(plies, evals);
     setReport(finalReport);
     setAnalyzing(false);
@@ -106,7 +107,7 @@ export default function Review() {
   useEffect(() => {
     runAnalysis();
     return () => {
-      analysisCancelled.current = true;
+      runTokenRef.current++; // unmount cancels the in-flight run
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [record?.id]);

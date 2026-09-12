@@ -1,4 +1,6 @@
+import { Chess } from 'chess.js';
 import type { Ply } from './types';
+import { PIECE_CP } from './chessUtils';
 import type { SFEval } from './engine/stockfish';
 
 /** chess.com-style move classifications. */
@@ -67,6 +69,37 @@ export function classifyMove(cpl: number, isEngineBest: boolean): MoveClass {
   return 'blunder';
 }
 
+/**
+ * Material-offer test for the Brilliant heuristic: after the move, an enemy
+ * piece attacks the destination square and the cheapest attacker is strictly
+ * weaker than the moved piece — i.e. the opponent can win material by
+ * capturing it. Equal-value trades (pawn takes pawn) are NOT offers.
+ *
+ * This is a static, intentionally conservative approximation of
+ * chess.com's proprietary Brilliant rule: we do not run a full SEE, so quiet
+ * sacrifices that only pay off after later moves are missed. Combined with
+ * "the engine's top choice" and "still at least equal afterwards" it stays
+ * rare and honest rather than flattering.
+ */
+export function isMaterialOffer(ply: Ply): boolean {
+  try {
+    const g = new Chess(ply.fenAfter);
+    const moved = g.get(ply.to);
+    if (!moved || PIECE_CP[moved.type] < 3) return false; // minor piece or more
+    const enemy: 'w' | 'b' = moved.color === 'w' ? 'b' : 'w';
+    const attackers = g.attackers(ply.to, enemy);
+    if (attackers.length === 0) return false;
+    let cheapest = Infinity;
+    for (const a of attackers) {
+      const p = g.get(a);
+      if (p) cheapest = Math.min(cheapest, PIECE_CP[p.type]);
+    }
+    return cheapest < PIECE_CP[moved.type];
+  } catch {
+    return false;
+  }
+}
+
 /** Lichess-style accuracy model: 103.17·e^(−0.04354·avgCPL) − 3.17, clamped to [0,100]. */
 export function accuracyFromCpl(avgCpl: number): number {
   const acc = 103.1668 * Math.exp(-0.04354 * avgCpl) - 3.1669;
@@ -85,9 +118,17 @@ export function buildReport(plies: Ply[], evals: (PlyEval | null)[]): GameReport
   plies.forEach((ply, i) => {
     const cpl = cplFor(evals, i);
     const before = evals[i];
+    const after = evals[i + 1];
     const played = ply.san;
     const isBest = (before?.bestSan != null && before.bestSan === played) || cpl <= 10;
-    const classification = classifyMove(cpl, isBest);
+    let classification = classifyMove(cpl, isBest);
+    // Brilliant: engine's top choice AND a real material offer AND the position
+    // afterwards is still at least equal for the mover.
+    if (classification === 'best' && after && isMaterialOffer(ply)) {
+      const moverIsWhite = ply.color === 'w';
+      const afterMover = moverIsWhite ? evalToCp(after) : -evalToCp(after);
+      if (afterMover >= -50) classification = 'brilliant';
+    }
     reviews.push({ san: played, color: ply.color, cpl, classification });
     counts[ply.color][classification]++;
     cplSum[ply.color] += cpl;
