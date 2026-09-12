@@ -20,6 +20,7 @@ export function useClock(initialMs: number, incrementMs: number) {
   const [clocks, setClocks] = useState<ClockState>(clocksRef.current);
   const runningRef = useRef(false);
   const [runningSide, setRunningSide] = useState<Color | null>(null);
+  const runningSideRef = useRef<Color | null>(null);
   const lastTickRef = useRef<number>(0);
   const [flagged, setFlagged] = useState<Color | null>(null);
   const pausedRef = useRef(false);
@@ -27,6 +28,11 @@ export function useClock(initialMs: number, incrementMs: number) {
   incrementRef.current = incrementMs;
 
   const lowTimePlayed = useRef<Record<Color, boolean>>({ w: false, b: false });
+
+  const setRunning = useCallback((side: Color | null) => {
+    runningSideRef.current = side;
+    setRunningSide(side);
+  }, []);
 
   const apply = useCallback((next: ClockState) => {
     clocksRef.current = next;
@@ -62,14 +68,14 @@ export function useClock(initialMs: number, incrementMs: number) {
     if (flagged) return;
     if (runningSide && clocks[runningSide] <= 0) {
       setFlagged(runningSide);
-      setRunningSide(null);
+      setRunning(null);
     }
-  }, [clocks, runningSide, flagged]);
+  }, [clocks, runningSide, flagged, setRunning]);
 
   const start = useCallback((side: Color) => {
     pausedRef.current = false;
     lastTickRef.current = performance.now();
-    setRunningSide(side);
+    setRunning(side);
   }, []);
 
   /**
@@ -104,15 +110,25 @@ export function useClock(initialMs: number, incrementMs: number) {
       }
 
       apply({ ...clocksRef.current, [withIncrementFor]: remaining + incrementRef.current });
-      setRunningSide(side);
+      setRunning(side);
       return false;
     },
     [apply],
   );
 
   const stop = useCallback(() => {
-    setRunningSide(null);
+    setRunning(null);
   }, []);
+
+  /** Force-flag a side whose effective remaining time has reached zero
+   *  (pre-commit gate): zero the display and raise the flag in one step. */
+  const flagMover = useCallback(
+    (side: Color) => {
+      apply({ ...clocksRef.current, [side]: 0 });
+      setFlagged(side);
+    },
+    [apply],
+  );
 
   const pause = useCallback(() => {
     pausedRef.current = true;
@@ -153,6 +169,17 @@ export function useClock(initialMs: number, incrementMs: number) {
     [apply],
   );
 
+  /**
+   * The mover's real remaining time at this instant: clock state minus the
+   * not-yet-billed elapsed time since the last tick. Synchronous, so a move
+   * can be adjudicated against it BEFORE it is allowed to touch the board.
+   */
+  const moverRemaining = useCallback((side: Color): number => {
+    const base = clocksRef.current[side];
+    if (runningSideRef.current !== side || pausedRef.current || flagged === side) return base;
+    return Math.max(0, base - Math.max(0, performance.now() - lastTickRef.current));
+  }, [flagged]);
+
   const shouldPlayLow = useCallback((side: Color, ms: number, threshold = 10_000) => {
     if (ms < threshold && ms > 0 && !lowTimePlayed.current[side]) {
       lowTimePlayed.current[side] = true;
@@ -165,7 +192,7 @@ export function useClock(initialMs: number, incrementMs: number) {
   // every animation frame while running — without memoization that would tear
   // down in-flight work (e.g. engine searches) on every tick.
   return useMemo(
-    () => ({ clocks, runningSide, flagged, start, switchTo, stop, pause, resume, reset, restore, shouldPlayLow }),
-    [clocks, runningSide, flagged, start, switchTo, stop, pause, resume, reset, restore, shouldPlayLow],
+    () => ({ clocks, runningSide, flagged, moverRemaining, flagMover, start, switchTo, stop, pause, resume, reset, restore, shouldPlayLow }),
+    [clocks, runningSide, flagged, moverRemaining, flagMover, start, switchTo, stop, pause, resume, reset, restore, shouldPlayLow],
   );
 }

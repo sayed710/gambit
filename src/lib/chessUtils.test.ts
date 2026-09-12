@@ -7,7 +7,7 @@ describe('hasMatingMaterial (FIDE 6.9 timeout rule)', () => {
     ['7k/8/8/8/8/8/R7/K7 b - - 0 1', 'w', true, 'rook mates'],
     ['k7/8/8/8/8/8/Q7/K7 b - - 0 1', 'w', true, 'queen mates'],
     ['k7/8/8/8/8/8/P7/K7 b - - 0 1', 'w', true, 'pawn mates (promotion)'],
-    ['k7/8/8/8/8/8/B7/K7 b - - 0 1', 'w', true, 'single bishop mates in the right corner (Bb7# pattern)'],
+    ['k7/8/8/8/8/8/B7/K7 b - - 0 1', 'w', false, 'single bishop vs bare king cannot mate'],
     ['k7/8/8/8/8/8/N7/K7 b - - 0 1', 'w', false, 'single knight cannot mate'],
     // two bishops on opposite colors: mate exists
     ['k7/8/8/8/8/8/1B6/K6B w - - 0 1', 'w', true, 'opposite-color bishops mate'],

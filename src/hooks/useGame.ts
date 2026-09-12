@@ -75,6 +75,28 @@ export function useGame({ config, engineSearch, onGameOver, resume, initialFen }
     [clock],
   );
 
+  // ---- flag fall adjudication (FIDE 6.9 material check) ----
+  const adjudicateFlag = useCallback(
+    (loser: Color) => {
+      if (overRef.current) return;
+      const winner: Color = loser === 'w' ? 'b' : 'w';
+      if (!hasMatingMaterial(gameRef.current.fen(), winner)) {
+        playSound('draw');
+        finish({ winnerColor: null, reason: 'Time out — insufficient material to mate' });
+        return;
+      }
+      playSound(playerColorRef.current === winner ? 'win' : 'lose');
+      finish({ winnerColor: winner, reason: 'On time' });
+    },
+    [finish],
+  );
+
+  // tick-path flag fall: the tick loop set clock.flagged
+  useEffect(() => {
+    if (!clock.flagged) return;
+    adjudicateFlag(clock.flagged);
+  }, [clock.flagged, adjudicateFlag]);
+
   // ---- new game / restart ----
   const newGame = useCallback(
     (cfg?: Partial<GameConfig>) => {
@@ -201,10 +223,21 @@ export function useGame({ config, engineSearch, onGameOver, resume, initialFen }
     setPendingPromotion(p);
   }, []);
 
-  /** Apply a fully-specified legal move. Assumes no pending promotion. */
+  /**
+   * Apply a fully-specified legal move. Assumes no pending promotion.
+   * Clock invariant: the mover's remaining time is adjudicated BEFORE the
+   * move touches the board — a move completed after the mover's clock
+   * expired is rejected outright (no history entry, no check/mate, no
+   * increment, no opponent clock) and the timeout is decided immediately.
+   */
   const applyMove = useCallback(
     (from: Square, to: Square, promotion?: 'q' | 'r' | 'b' | 'n'): 'ok' | 'illegal' => {
       const game = gameRef.current;
+      if (!unlimited && clock.moverRemaining(game.turn()) <= 0) {
+        clock.flagMover(game.turn());
+        adjudicateFlag(game.turn());
+        return 'illegal';
+      }
       try {
         const m = game.move({ from, to, promotion: promotion ?? 'q' });
         commitMove(m);
@@ -213,7 +246,7 @@ export function useGame({ config, engineSearch, onGameOver, resume, initialFen }
         return 'illegal';
       }
     },
-    [commitMove],
+    [adjudicateFlag, clock, unlimited],
   );
 
   /** Try to play from→to. Returns 'ok' | 'promote' | 'illegal'. */
@@ -295,19 +328,7 @@ export function useGame({ config, engineSearch, onGameOver, resume, initialFen }
     };
   }, [config.mode, config.aiLevel, turn, playerColor, over, pendingPromotion, engineSearch]);
 
-  // ---- flag ----
-  useEffect(() => {
-    if (!clock.flagged || overRef.current) return;
-    const winner: Color = clock.flagged === 'w' ? 'b' : 'w';
-    // FIDE 6.9: no loss on time if the opponent cannot possibly checkmate
-    if (!hasMatingMaterial(gameRef.current.fen(), winner)) {
-      playSound('draw');
-      finish({ winnerColor: null, reason: 'Time out — insufficient material to mate' });
-      return;
-    }
-    playSound(playerColorRef.current === winner ? 'win' : 'lose');
-    finish({ winnerColor: winner, reason: 'On time' });
-  }, [clock.flagged, finish]);
+
 
   // ---- undo ----
   const canUndo = plies.length > 0 && !over && !pendingPromotion && !thinking;

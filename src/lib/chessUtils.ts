@@ -129,16 +129,22 @@ export const FULL_DATE = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium
  *
  * Draw is declared (returns false) only for these provably mateless cases:
  *   - the non-flagged side has a bare king (a king alone can never mate);
- *   - K+N vs K: no mating position exists — a corner king always has an
- *     escape square no arrangement of knight + king can cover;
+ *   - K+N vs K: no mating position exists — a corner king always keeps one
+ *     flight square that neither the knight nor the king can cover;
+ *   - K+B vs K: no mating position exists — the only checking square against
+ *     a corner king leaves the opposite flight square uncovered, and the
+ *     checking bishop standing next to the king would be captured (the
+ *     often-quoted "Bb7#" fails to b8 in every arrangement);
  *   - two (or more) bishops of ONE square color vs a bare king: they can
  *     never control squares of the opposite color, so no corner can be sealed;
  *   - KB vs KB with both bishops on the same square color and no other
  *     material: neither side can ever mate.
- * Everything else returns true ("play on"), including the easy-to-miss cases:
- *   - K+B vs K: mating positions exist (e.g. white Kb6, Bb7# vs Ka8);
- *   - K+N vs K + any enemy piece: the enemy piece can self-blockade a flight
+ * Everything else returns true ("play on"), including:
+ *   - K+B vs K + any enemy piece: the enemy piece can self-blockade a flight
  *     square, so helpmates exist;
+ *   - K+N vs K + any enemy piece: same blockade reasoning;
+ *   - K+2B on opposite colors vs K: box mate exists;
+ *   - K+B+N vs K: mates exist;
  *   - K+2N vs K: mating positions exist (e.g. white Kg6, Nf6, Nf7# vs Kh8).
  */
 export function hasMatingMaterial(fen: string, color: Color): boolean {
@@ -187,7 +193,8 @@ export function hasMatingMaterial(fen: string, color: Color): boolean {
     return other.nonKing > 0;
   }
 
-  // exactly one minor
-  if (side.bishops === 1) return true; // KB vs K has mating positions (Bb7# pattern)
-  return other.nonKing > 0; // KN vs K: provably mateless; with enemy material: helpmates exist
+  // exactly one minor: provably mateless against a bare king (see notes on
+  // K+N and K+B above), but with ANY enemy piece on the board the flagged
+  // side can self-blockade a flight square, so helpmates may exist
+  return other.nonKing > 0;
 }
