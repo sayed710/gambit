@@ -3,6 +3,7 @@ import { NavLink, Link, Outlet, useLocation } from 'react-router-dom';
 import { useSettings } from '../state/SettingsContext';
 import { GearIcon, KnightMark, MenuIcon, XIcon } from './Icons';
 import { NAV_SECTIONS, sectionMatches } from '../lib/navSection';
+import { unlockAudio } from '../lib/sound';
 
 const BOARD_SWATCHES: { id: 'glacier' | 'seaice' | 'polarnight' | 'aurora' | 'frost' | 'walnut'; label: string; light: string; dark: string }[] = [
   { id: 'glacier', label: 'Glacier', light: '#C7D9E6', dark: '#3E637F' },
@@ -141,6 +142,17 @@ export default function Layout() {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
+  }, []);
+
+  // browsers gate audio until a user gesture — unlock on the very first one
+  useEffect(() => {
+    const unlock = () => unlockAudio();
+    window.addEventListener('pointerdown', unlock, { once: true });
+    window.addEventListener('keydown', unlock, { once: true });
+    return () => {
+      window.removeEventListener('pointerdown', unlock);
+      window.removeEventListener('keydown', unlock);
+    };
   }, []);
 
   const p = location.pathname;
