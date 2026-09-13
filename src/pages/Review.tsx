@@ -905,19 +905,6 @@ function InsightsPanel({
 
 /* ---------- board-adjacent review chrome ---------- */
 
-const VERDICT_GLYPH: Record<MoveClass, string> = {
-  brilliant: '!!',
-  great: '!',
-  best: '★',
-  excellent: '!',
-  good: '',
-  book: '▤',
-  inaccuracy: '?!',
-  mistake: '?',
-  miss: '⁇',
-  blunder: '??',
-};
-
 const VERDICT_COPY: Record<MoveClass, string> = {
   brilliant: 'A sacrifice — and the engine’s first choice.',
   great: 'The only move that keeps the advantage.',
