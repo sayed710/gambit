@@ -59,6 +59,19 @@ function SettingsModal({ onClose }: { onClose: () => void }) {
             <input type="checkbox" checked={settings.soundOn} onChange={(e) => settings.set('soundOn', e.target.checked)} />
             Sound effects
           </label>
+          <div className="field">
+            <label htmlFor="set-volume">Master sound volume · {settings.volume}%</label>
+            <input
+              id="set-volume"
+              type="range"
+              min={0}
+              max={100}
+              step={5}
+              value={settings.volume}
+              onChange={(e) => settings.set('volume', Number(e.target.value))}
+              aria-label="Master sound volume"
+            />
+          </div>
           <label className="check-row">
             <input
               type="checkbox"

@@ -2,7 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState } 
 import type { ReactNode } from 'react';
 import type { Theme } from '../lib/types';
 import { loadJSON, saveJSON } from '../lib/storage';
-import { setSoundEnabled } from '../lib/sound';
+import { setSoundEnabled, setSoundVolume } from '../lib/sound';
 
 export type BoardTheme = 'glacier' | 'seaice' | 'polarnight' | 'aurora' | 'frost' | 'walnut';
 export type AnimationSpeed = 'slow' | 'normal' | 'fast' | 'off';
@@ -11,6 +11,7 @@ export const ANIMATION_MS: Record<AnimationSpeed, number> = { slow: 320, normal:
 
 interface Settings {
   theme: Theme | 'system';
+  volume: number;
   boardTheme: BoardTheme;
   soundOn: boolean;
   showLegalHints: boolean;
@@ -22,6 +23,7 @@ interface Settings {
 
 const DEFAULTS: Settings = {
   theme: 'system',
+  volume: 35,
   boardTheme: 'glacier',
   soundOn: true,
   showLegalHints: true,
@@ -53,6 +55,10 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     setSoundEnabled(settings.soundOn);
   }, [settings.soundOn]);
+
+  useEffect(() => {
+    setSoundVolume(settings.volume);
+  }, [settings.volume]);
 
   useEffect(() => {
     saveJSON('settings', settings);
