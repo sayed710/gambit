@@ -1,3 +1,4 @@
+import { Link } from 'react-router-dom';
 import { useCallback, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useProfile } from '../state/ProfileContext';
@@ -135,6 +136,9 @@ export default function Profile() {
           <div className="pname">{settings.name || 'You'}</div>
           <div className="ptag">Every game stored locally, no account, no server.</div>
         </div>
+        <Link className="btn btn-ghost btn-sm" to="/library" style={{ marginLeft: 'auto' }}>
+          Open library
+        </Link>
       </div>
       <p className="sub mb-2">
         Ratings move with Elo math against the engine’s level and puzzle difficulty.
