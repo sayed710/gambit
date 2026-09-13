@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
   applySan,
   createTree,
@@ -178,5 +178,46 @@ describe('PGN with variations — import/export round trip', () => {
     const again = fromPgn(pgn);
     expect(again.tree.startFen).toBe(fen);
     expect(treeKey(again.tree)).toBe(treeKey(tree));
+  });
+});
+
+describe('tree ids — persistence safety', () => {
+  it('new ids never collide with ids stored before a reload', async () => {
+    // 1. create a tree with the current module instance and "store" it
+    const first = await import('./gameTree');
+    const stored = JSON.stringify(line(['e4', 'e5', 'Nf3']).tree);
+
+    // 2. simulate a browser reload: reset module state, re-import, reload the tree
+    vi.resetModules();
+    const second = await import('./gameTree');
+    const revived = JSON.parse(stored) as GameTreeData;
+
+    // 3. add more moves and a side variation with the fresh module
+    let parent: string | null = revived.moves[0].children[0].id;
+    const r1 = second.applySan(revived, parent, 'Nf3');
+    expect(r1.ok).toBe(true);
+    if (!r1.ok) return;
+    const r2 = second.applySan(revived, r1.id, 'Nc6');
+    expect(r2.ok).toBe(true);
+    const mainlineEnd = second.mainline(revived);
+    parent = mainlineEnd[mainlineEnd.length - 1].id;
+    const r3 = second.applySan(revived, parent, 'Bb5');
+    expect(r3.ok).toBe(true);
+
+    // 4. every node id in the whole tree is unique
+    const ids: string[] = [];
+    const stack = [...revived.moves];
+    while (stack.length) {
+      const n = stack.pop()!;
+      ids.push(n.id);
+      stack.push(...n.children);
+    }
+    expect(new Set(ids).size).toBe(ids.length);
+
+    // 5. navigation and annotation still hit the right node
+    const sicilianTarget = revived.moves[0].children[1];
+    second.setComment(revived, sicilianTarget.id, 'side variation');
+    expect(sicilianTarget.comment).toBe('side variation');
+    expect(second.lineTo(revived, sicilianTarget.id).map((n) => n.san)).toEqual(['e4', 'c5']);
   });
 });

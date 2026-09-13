@@ -37,9 +37,18 @@ export interface GameTreeData {
 export type TreeHeaders = Record<string, string>;
 
 let idCounter = 0;
-function nextId(): string {
-  idCounter += 1;
-  return `n${idCounter}`;
+/**
+ * Collision-resistant node id. Module counters reset on reload, so persisted
+ * trees (studies, repertoires) would collide with fresh `n1, n2, ...` ids —
+ * instead the id carries time + randomness, and applySan verifies it against
+ * the live tree before attaching the node.
+ */
+function nextId(tree?: GameTreeData): string {
+  for (;;) {
+    idCounter += 1;
+    const id = `n${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}${(idCounter % 1296).toString(36)}`;
+    if (!tree || !findNode(tree, id)) return id;
+  }
 }
 
 function numberAt(fen: string): number {
@@ -80,7 +89,7 @@ export function applySan(tree: GameTreeData, parentId: string | null, sanInput: 
   if (existing) return { ok: true, id: existing.id, created: false };
 
   const node: TreeNode = {
-    id: nextId(),
+    id: nextId(tree),
     san: move.san,
     from: move.from as Square,
     to: move.to as Square,
