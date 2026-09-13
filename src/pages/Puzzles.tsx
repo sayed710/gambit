@@ -1,3 +1,4 @@
+import { Link } from 'react-router-dom';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Chess } from 'chess.js';
 import type { Square } from 'chess.js';
@@ -41,6 +42,11 @@ function shuffle(arr: number[]): number[] {
 export default function Puzzles() {
   const { profile, recordPuzzle } = useProfile();
   const [theme, setTheme] = useState<PuzzleTheme | 'all'>('all');
+  const [mode, setMode] = useState<'normal' | 'rush' | 'survival'>('normal');
+  const [rushLeft, setRushLeft] = useState(60);
+  const [lives, setLives] = useState(3);
+  const [solvedCount, setSolvedCount] = useState(0);
+  const [over, setOver] = useState<null | { reason: string }>(null);
   const pool = useMemo(() => PUZZLES.filter((p) => theme === 'all' || p.theme === theme), [theme]);
 
   const [session, setSession] = useState<Session>(() => ({ order: shuffle(PUZZLES.map((_, i) => i)), index: 0, streak: 0 }));
@@ -48,6 +54,21 @@ export default function Puzzles() {
   const [attempted, setAttempted] = useState(false);
   const [hintSquare, setHintSquare] = useState<Square | null>(null);
   const [wrongMove, setWrongMove] = useState<Square | null>(null);
+
+  // timed rush: one shared clock, session ends at zero
+  useEffect(() => {
+    if (mode !== 'rush' || over) return;
+    const t = window.setInterval(() => {
+      setRushLeft((v) => {
+        if (v <= 1) {
+          setOver({ reason: `Time — ${solvedCount} solved` });
+          return 0;
+        }
+        return v - 1;
+      });
+    }, 1000);
+    return () => window.clearInterval(t);
+  }, [mode, over, solvedCount]);
 
   // rebuild the session whenever the theme filter changes
   useEffect(() => {
@@ -108,7 +129,14 @@ export default function Puzzles() {
     playSound('lose');
     recordPuzzle(false, puzzleRating, session.streak, puzzle.theme);
     setSession((s) => ({ ...s, streak: 0 }));
-  }, [phase, attempted, recordPuzzle, puzzleRating, session.streak, puzzle.theme]);
+    if (mode === 'survival') {
+      setLives((v) => {
+        const left = v - 1;
+        if (left <= 0) setOver({ reason: `Out of lives — streak ${session.streak}` });
+        return Math.max(0, left);
+      });
+    }
+  }, [phase, attempted, recordPuzzle, puzzleRating, session.streak, puzzle.theme, mode]);
 
   const succeed = useCallback(() => {
     setPhase('solved');
@@ -116,6 +144,7 @@ export default function Puzzles() {
     const newStreak = session.streak + 1;
     recordPuzzle(true, puzzleRating, newStreak, puzzle.theme);
     setSession((s) => ({ ...s, streak: newStreak }));
+    setSolvedCount((n) => n + 1);
   }, [recordPuzzle, puzzleRating, session.streak, puzzle.theme]);
 
   const handleMove = useCallback(
@@ -268,14 +297,40 @@ export default function Puzzles() {
 
           <aside className="puzzle-side">
             <div className="panel panel-pad">
-              <div className="section-label">Session</div>
+              <div className="section-label">
+                Session
+                <span className="row" style={{ gap: 2 }}>
+                  {(['normal', 'rush', 'survival'] as const).map((m) => (
+                    <button
+                      key={m}
+                      className={`theme-chip${mode === m ? ' on' : ''}`}
+                      style={{ padding: '0.12rem 0.5rem', fontSize: '0.72rem' }}
+                      onClick={() => {
+                        setMode(m);
+                        setSolvedCount(0);
+                        setRushLeft(60);
+                        setLives(3);
+                        setOver(null);
+                      }}
+                      aria-pressed={mode === m}
+                    >
+                      {m}
+                    </button>
+                  ))}
+                </span>
+              </div>
+              {over && (
+                <div className="status-banner mb-1" role="status">
+                  {over.reason} · restart in the filter bar
+                </div>
+              )}
               <div className="row between">
                 <div className="streak">
-                  {session.streak}
-                  <small>current streak</small>
+                  {mode === 'rush' ? rushLeft : mode === 'survival' ? lives : session.streak}
+                  <small>{mode === 'rush' ? 'seconds left' : mode === 'survival' ? 'lives' : 'current streak'}</small>
                 </div>
                 <div className="right small muted">
-                  Puzzle {session.index + 1} of {session.order.length}
+                  solved {solvedCount} this run
                   <br />
                   best streak {profile.puzzle.bestStreak}
                 </div>
@@ -295,7 +350,12 @@ export default function Puzzles() {
             </div>
 
             <div className="panel panel-pad">
-              <div className="section-label">By theme</div>
+              <div className="section-label">
+                By theme
+                <Link to="/coordinates" className="small muted" style={{ textDecoration: 'none' }}>
+                  coordinates drill →
+                </Link>
+              </div>
               <div className="col" style={{ gap: '0.3rem' }}>
                 {ALL_THEMES.map((t) => {
                   const st = profile.puzzle.byTheme?.[t] ?? { solved: 0, failed: 0 };
@@ -326,9 +386,13 @@ export default function Puzzles() {
               </button>
               <button
                 className="btn btn-ghost btn-sm"
-                onClick={() =>
-                  setSession({ order: shuffle(pool.map((p) => PUZZLES.indexOf(p))), index: 0, streak: 0 })
-                }
+                onClick={() => {
+                  setSession({ order: shuffle(pool.map((p) => PUZZLES.indexOf(p))), index: 0, streak: 0 });
+                  setSolvedCount(0);
+                  setRushLeft(60);
+                  setLives(3);
+                  setOver(null);
+                }}
               >
                 <PlayIcon /> New set
               </button>

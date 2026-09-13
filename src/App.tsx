@@ -10,6 +10,7 @@ const Editor = lazy(() => import('./pages/Editor'));
 const Studies = lazy(() => import('./pages/Studies').then((m) => ({ default: m.Studies })));
 const StudyDetail = lazy(() => import('./pages/Studies').then((m) => ({ default: m.StudyDetail })));
 const RepertoireList = lazy(() => import('./pages/Repertoire').then((m) => ({ default: m.RepertoireList })));
+const Coordinates = lazy(() => import('./pages/Coordinates'));
 const RepertoireDetail = lazy(() => import('./pages/Repertoire').then((m) => ({ default: m.RepertoireDetail })));
 const Analysis = lazy(() => import('./pages/Analysis'));
 const Profile = lazy(() => import('./pages/Profile'));
@@ -66,6 +67,14 @@ export default function App() {
           element={
             <Suspense fallback={<PageLoading label="Loading repertoire…" />}>
               <RepertoireDetail />
+            </Suspense>
+          }
+        />
+        <Route
+          path="/coordinates"
+          element={
+            <Suspense fallback={<PageLoading label="Loading trainer…" />}>
+              <Coordinates />
             </Suspense>
           }
         />

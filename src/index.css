@@ -501,6 +501,15 @@ textarea.input { font-family: var(--mono); font-size: 0.82rem; line-height: 1.5;
 .chapter-row:hover .chapter-ops, .chapter-row.on .chapter-ops { opacity: 1; }
 .chapter-ops .icon-btn { width: 1.8rem; height: 1.8rem; font-size: 0.85rem; }
 
+/* ---------- coordinates trainer ---------- */
+.coords-layout { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 1.5rem; align-items: start; }
+@media (max-width: 980px) { .coords-layout { grid-template-columns: 1fr; } }
+.coords-target {
+  font-family: var(--serif); font-size: 3rem; font-weight: 700; letter-spacing: 0.04em;
+  text-align: center; padding: 1rem 0; border: 1px solid var(--border); border-radius: var(--radius-lg);
+  background: var(--bg-raised);
+}
+
 /* ---------- engine controls ---------- */
 .engine-select { width: auto; padding: 0.25rem 0.5rem; font-size: 0.85rem; }
 
