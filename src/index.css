@@ -501,6 +501,20 @@ textarea.input { font-family: var(--mono); font-size: 0.82rem; line-height: 1.5;
 .chapter-row:hover .chapter-ops, .chapter-row.on .chapter-ops { opacity: 1; }
 .chapter-ops .icon-btn { width: 1.8rem; height: 1.8rem; font-size: 0.85rem; }
 
+/* ---------- review insights + drill ---------- */
+.phase-row { display: flex; gap: 2rem; padding: 0.5rem 0; }
+.phase-cell .v { font-family: var(--serif); font-size: 1.45rem; font-weight: 700; font-variant-numeric: tabular-nums; }
+.phase-cell .k { font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.1em; color: var(--muted); }
+.material-graph { width: 100%; height: 44px; display: block; }
+.swing-row {
+  display: flex; justify-content: space-between; align-items: center; width: 100%;
+  padding: 0.3rem 0.45rem; border: 1px solid var(--border); border-radius: 8px;
+  background: var(--bg-raised); font-size: 0.85rem; color: var(--ink-soft);
+  transition: border-color 0.12s;
+}
+.swing-row:hover { border-color: var(--border-strong); color: var(--ink); }
+.swing-delta { font-family: var(--mono); color: var(--ice); font-variant-numeric: tabular-nums; }
+
 /* ---------- repertoire ---------- */
 .repertoire-layout { display: grid; grid-template-columns: 300px minmax(0, 1fr); gap: 1.25rem; align-items: start; }
 @media (max-width: 1080px) { .repertoire-layout { grid-template-columns: 1fr; } }

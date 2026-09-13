@@ -8,13 +8,15 @@ import EvalBar from '../components/EvalBar';
 import { useEngine } from '../lib/engine/useEngine';
 import { START_FEN, FULL_DATE } from '../lib/chessUtils';
 import { playSound } from '../lib/sound';
+import { useToast } from '../components/Toast';
 import { useProfile } from '../state/ProfileContext';
 import { loadJSON, saveJSON } from '../lib/storage';
 import { ChevronLeft, ChevronRight, XIcon } from '../components/Icons';
 import type { GameReport, MoveClass, PlyEval } from '../lib/review';
 import { evalToUnit } from '../lib/review';
 import { runGameAnalysis, plyEvalFromEngineResult } from '../lib/reviewRunner';
-import { criticalMoments, refineGreatMoves, CLASSIFICATION_META } from '../lib/review';
+import { criticalMoments, refineGreatMoves, CLASSIFICATION_META, CRITICAL_CLASSES } from '../lib/review';
+import { biggestSwings, materialSeries, phaseAccuracies } from '../lib/reviewInsights';
 import { identifyOpening } from '../lib/openings';
 import { useClickToMove } from '../hooks/useClickToMove';
 import { sfSearch } from '../lib/engine/stockfish';
@@ -53,6 +55,7 @@ export default function Review() {
     return out;
   }, [record]);
 
+  const { toast } = useToast();
   const [plyIndex, setPlyIndex] = useState(plies.length); // 0 = start
   const [report, setReport] = useState<GameReport | null>(null);
   const [analysis, setAnalysis] = useState<{ done: number; total: number } | null>(null);
@@ -64,6 +67,11 @@ export default function Review() {
   const [practiceFen, setPracticeFen] = useState<string | null>(null);
   const [practiceHistory, setPracticeHistory] = useState<{ san: string; fenAfter: string }[]>([]);
   const [practiceFeedback, setPracticeFeedback] = useState<string | null>(null);
+  // mistake-drill session: a queue of the player's critical positions
+  const [revealBest, setRevealBest] = useState(false);
+  const [drillQueue, setDrillQueue] = useState<number[] | null>(null);
+  const [drillIdx, setDrillIdx] = useState(0);
+  const [drillFirstTry, setDrillFirstTry] = useState<boolean[]>([]);
   const [greatPass, setGreatPass] = useState(false);
 
   // fens before each ply (index 0 = start position)
@@ -219,11 +227,63 @@ export default function Review() {
     setPracticeFeedback(null);
   }, [plyIndex, plies, report]);
 
+  const startDrill = useCallback(() => {
+    if (!report) return;
+    const you = record?.playerColor ?? 'w';
+    const queue = criticalPlys.filter((ply) => {
+      const r = report.reviews[ply - 1];
+      return r && r.color === you && CRITICAL_CLASSES.includes(r.classification);
+    });
+    if (queue.length === 0) {
+      toast('No mistakes to drill — clean game.');
+      return;
+    }
+    const trimmed = queue.slice(0, 6);
+    setDrillQueue(trimmed);
+    setDrillIdx(0);
+    setDrillFirstTry([]);
+    setPractice({ startPly: trimmed[0] });
+    setPracticeFen(plies[trimmed[0] - 1].fenAfter);
+    setPracticeHistory([]);
+    setPracticeFeedback(null);
+  }, [report, record?.playerColor, criticalPlys, plies, toast]);
+
+  const retryDrillPosition = useCallback(() => {
+    if (!drillQueue) return;
+    const ply = drillQueue[drillIdx];
+    setPractice({ startPly: ply });
+    setPracticeFen(plies[ply - 1].fenAfter);
+    setPracticeHistory([]);
+    setPracticeFeedback(null);
+    setRevealBest(false);
+  }, [drillQueue, drillIdx, plies]);
+
+  const nextDrillPosition = useCallback(() => {
+    if (!drillQueue) return;
+    if (drillIdx + 1 >= drillQueue.length) {
+      exitPractice();
+      setDrillQueue(null);
+      toast('Drill complete.');
+      return;
+    }
+    setDrillIdx((i) => i + 1);
+    const ply = drillQueue[drillIdx + 1];
+    setPractice({ startPly: ply });
+    setPracticeFen(plies[ply - 1].fenAfter);
+    setPracticeHistory([]);
+    setPracticeFeedback(null);
+    setRevealBest(false);
+  }, [drillQueue, drillIdx, plies, toast]);
+
   const exitPractice = useCallback(() => {
     setPractice(null);
     setPracticeFen(null);
     setPracticeHistory([]);
     setPracticeFeedback(null);
+    setDrillQueue(null);
+    setDrillIdx(0);
+    setDrillFirstTry([]);
+    setRevealBest(false);
   }, []);
 
   const onPracticeMove = useCallback(
@@ -243,6 +303,10 @@ export default function Review() {
       // grade against the engine eval of the position before the move
       const before = practice.startPly + practiceHistory.length > 0 ? report.evals[practice.startPly + practiceHistory.length] : report.evals[practice.startPly];
       const expected = before?.bestSan ?? null;
+      const isFirstMove = practiceHistory.length === 0;
+      if (drillQueue && isFirstMove) {
+        setDrillFirstTry((arr) => [...arr, expected !== null && playedSan === expected]);
+      }
       if (expected && playedSan === expected) {
         setPracticeFeedback('Best, that is exactly what Stockfish wanted.');
         playSound('promote');
@@ -401,13 +465,49 @@ export default function Review() {
             </div>
           </div>
           {practiceActive && (
-            <div className="status-banner mt-2" role="status">
+            <div className="status-banner mt-2" role="status" style={{ flexWrap: 'wrap', gap: '0.5rem' }}>
               <span>
+                {drillQueue && (
+                  <strong className="mono" style={{ marginRight: '0.6rem' }}>
+                    {drillIdx + 1}/{drillQueue.length}
+                  </strong>
+                )}
+                {drillQueue && drillFirstTry.length > 0 && (
+                  <span className="small muted" style={{ marginRight: '0.5rem' }}>
+                    first-try {drillFirstTry.filter(Boolean).length}/{drillFirstTry.length}
+                  </span>
+                )}
                 {practiceFeedback ?? 'Your move, find the best continuation.'}
               </span>
-              <button className="btn btn-ghost btn-sm" style={{ marginLeft: 'auto' }} onClick={exitPractice}>
-                Exit practice
-              </button>
+              <span className="row" style={{ gap: '0.35rem', marginLeft: 'auto', flexWrap: 'wrap' }}>
+                {drillQueue && (
+                  <>
+                    <button className="btn btn-ghost btn-sm" onClick={retryDrillPosition}>
+                      Retry
+                    </button>
+                    {practiceFeedback && practiceFeedback.startsWith('Best') && (
+                      <button className="btn btn-accent btn-sm" onClick={nextDrillPosition}>
+                        {drillIdx + 1 >= drillQueue.length ? 'Finish' : 'Next position'}
+                      </button>
+                    )}
+                  </>
+                )}
+                <button
+                  className="btn btn-ghost btn-sm"
+                  onClick={() => {
+                    const expected = report?.evals[practice.startPly]?.bestSan ?? null;
+                    setRevealBest((v) => !v);
+                    if (!revealBest && expected) {
+                      setPracticeFeedback(`Stockfish preferred ${expected}.`);
+                    }
+                  }}
+                >
+                  {revealBest ? 'Hide best' : 'Show best'}
+                </button>
+                <button className="btn btn-ghost btn-sm" onClick={exitPractice}>
+                  Exit
+                </button>
+              </span>
             </div>
           )}
 
@@ -484,9 +584,14 @@ export default function Review() {
                   Columns count your moves and the engine’s. Percentages come from average centipawn loss at depth{' '}
                   {ANALYSIS_DEPTH}.
                 </p>
+                <button className="btn btn-accent btn-sm mt-2" onClick={startDrill} disabled={!report || analyzing}>
+                  Learn from your mistakes
+                </button>
               </>
             )}
           </div>
+
+          {report && fens.length > 1 && <InsightsPanel report={report} fens={fens} onJump={(ply) => setPlyIndex(ply)} />}
 
           <div className="panel panel-pad">
             <div className="section-label">
@@ -685,6 +790,64 @@ function EvalGraph({
           />
         )}
       </svg>
+    </div>
+  );
+}
+
+function InsightsPanel({
+  report,
+  fens,
+  onJump,
+}: {
+  report: GameReport;
+  fens: string[];
+  onJump: (ply: number) => void;
+}) {
+  const phases = useMemo(() => phaseAccuracies(report, fens), [report, fens]);
+  const swings = useMemo(() => biggestSwings(report, 3), [report]);
+  const material = useMemo(() => materialSeries(fens), [fens]);
+  const maxPly = fens.length;
+
+  // sparkline points for the material balance (white - black, clamped)
+  const w = 100;
+  const h = 34;
+  const clamp = (v: number) => Math.max(-12, Math.min(12, v));
+  const pts = material
+    .map((v, i) => `${(i / Math.max(1, maxPly - 1)) * w},${h / 2 - (clamp(v) / 12) * (h / 2 - 2)}`)
+    .join(' ');
+
+  return (
+    <div className="panel panel-pad">
+      <div className="section-label">Insights</div>
+      <div className="phase-row">
+        {(['opening', 'middlegame', 'endgame'] as const).map((p) => (
+          <div key={p} className="phase-cell">
+            <div className="v">{phases[p] !== null ? `${phases[p]}%` : '—'}</div>
+            <div className="k">{p}</div>
+          </div>
+        ))}
+      </div>
+      <p className="small muted mt-1" style={{ marginBottom: 0 }}>
+        Phase heuristic: opening is moves 1–10; endgame when non-king material ≤ 14 points or after move 40.
+      </p>
+      <div className="mt-2">
+        <div className="lbl small muted mb-1">Material balance (white − black)</div>
+        <svg viewBox={`0 0 ${w} ${h}`} className="material-graph" aria-hidden="true">
+          <line x1="0" y1={h / 2} x2={w} y2={h / 2} stroke="var(--border-strong)" strokeWidth="0.5" />
+          <polyline points={pts} fill="none" stroke="var(--ice)" strokeWidth="1.4" />
+        </svg>
+      </div>
+      <div className="mt-2">
+        <div className="lbl small muted mb-1">Largest evaluation swings</div>
+        <div className="col" style={{ gap: '0.25rem' }}>
+          {swings.map((sw) => (
+            <button key={sw.ply} className="swing-row" onClick={() => onJump(sw.ply)}>
+              <span className="mono">move {Math.ceil(sw.ply / 2)}</span>
+              <span className="swing-delta">{(sw.delta / 100).toFixed(1)} pawns</span>
+            </button>
+          ))}
+        </div>
+      </div>
     </div>
   );
 }
