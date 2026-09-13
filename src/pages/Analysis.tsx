@@ -8,10 +8,7 @@ import { useToast } from '../components/Toast';
 import { fromPgn, createTree, type GameTreeData } from '../lib/gameTree';
 import { normalizeFen } from '../lib/pgn';
 import type { EvalResult } from '../lib/engine/engine';
-import type { SFLine } from '../lib/engine/stockfish';
-
-const ANALYSIS_DEPTH = 14;
-const LINES = 3;
+import { sfStop, type SFLine } from '../lib/engine/stockfish';
 
 export default function Analysis() {
   const location = useLocation();
@@ -24,6 +21,10 @@ export default function Analysis() {
   const [lines, setLines] = useState<SFLine[]>([]);
   const [thinking, setThinking] = useState(false);
   const [selectedLine, setSelectedLine] = useState(0);
+  const [multipv, setMultipv] = useState(3);
+  const [depth, setDepth] = useState(14);
+  const [showEngine, setShowEngine] = useState(true);
+  const [runToken, setRunToken] = useState(0);
 
   const current = currentId ? findNodeLocal(tree, currentId) : null;
   const fen = current ? current.fenAfter : tree.startFen;
@@ -57,7 +58,7 @@ export default function Analysis() {
     const timer = window.setTimeout(async () => {
       setThinking(true);
       try {
-        const res = await engine.evaluate(fen, ANALYSIS_DEPTH);
+        const res = await engine.evaluate(fen, depth);
         if (!cancelled) setEvalResult(res);
       } catch {
         if (!cancelled) setEvalResult(null);
@@ -68,7 +69,7 @@ export default function Analysis() {
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [fen, engine]);
+  }, [fen, engine, depth, runToken]);
 
   // MultiPV lines: separate request so the main evaluation stays snappy
   useEffect(() => {
@@ -76,7 +77,7 @@ export default function Analysis() {
     const timer = window.setTimeout(async () => {
       try {
         const { sfSearch } = await import('../lib/engine/stockfish');
-        const res = await sfSearch(fen, { depth: 12, movetime: 1200, multipv: LINES, fullStrength: true });
+        const res = await sfSearch(fen, { depth: Math.max(8, depth - 4), movetime: 1400, multipv, fullStrength: true });
         if (!cancelled && res) {
           setLines(res.lines);
           setSelectedLine(0);
@@ -89,7 +90,7 @@ export default function Analysis() {
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [fen]);
+  }, [fen, multipv, depth, runToken]);
 
   const bestArrow = useMemo(() => {
     const line = lines[selectedLine] ?? lines[0];
@@ -103,11 +104,44 @@ export default function Analysis() {
     }
   }, [lines, selectedLine, fen]);
 
-  const enginePanel = (
+  const enginePanel = showEngine ? (
     <div className="panel panel-pad">
       <div className="section-label">
         Engine lines
-        <span className="small muted">{thinking ? 'thinking…' : evalResult ? `depth ${evalResult.depth}` : 'idle'}</span>
+        <span className="small muted">
+          {thinking ? 'thinking…' : evalResult ? `depth ${evalResult.depth}` : 'idle'}
+        </span>
+      </div>
+      <div className="engine-controls row" style={{ gap: '0.4rem', flexWrap: 'wrap', marginBottom: '0.6rem' }}>
+        <label className="small muted">
+          Lines{' '}
+          <select className="input engine-select" value={multipv} onChange={(e) => setMultipv(Number(e.target.value))} aria-label="MultiPV lines">
+            {[1, 2, 3, 4, 5].map((n) => (
+              <option key={n} value={n}>
+                {n}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="small muted">
+          Depth{' '}
+          <select className="input engine-select" value={depth} onChange={(e) => setDepth(Number(e.target.value))} aria-label="Analysis depth">
+            {[10, 14, 18, 22].map((n) => (
+              <option key={n} value={n}>
+                {n}
+              </option>
+            ))}
+          </select>
+        </label>
+        <button className="btn btn-ghost btn-sm" onClick={() => { sfStop(); setRunToken((t) => t + 1); }} title="Stop and restart the current search">
+          Stop
+        </button>
+        <button className="btn btn-ghost btn-sm" onClick={() => setRunToken((t) => t + 1)}>
+          Re-run
+        </button>
+        <button className="btn btn-ghost btn-sm" onClick={() => setShowEngine(false)}>
+          Hide
+        </button>
       </div>
       <div className="engine-rows">
         {lines.length === 0 && (
@@ -122,6 +156,15 @@ export default function Analysis() {
       <p className="small muted mt-1" style={{ marginBottom: 0 }}>
         Click a line to show it on the board.
       </p>
+    </div>
+  ) : (
+    <div className="panel panel-pad row between">
+      <span className="small muted" style={{ margin: 0 }}>
+        Engine hidden.
+      </span>
+      <button className="btn btn-ghost btn-sm" onClick={() => setShowEngine(true)}>
+        Show engine
+      </button>
     </div>
   );
 

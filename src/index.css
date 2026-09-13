@@ -501,6 +501,9 @@ textarea.input { font-family: var(--mono); font-size: 0.82rem; line-height: 1.5;
 .chapter-row:hover .chapter-ops, .chapter-row.on .chapter-ops { opacity: 1; }
 .chapter-ops .icon-btn { width: 1.8rem; height: 1.8rem; font-size: 0.85rem; }
 
+/* ---------- engine controls ---------- */
+.engine-select { width: auto; padding: 0.25rem 0.5rem; font-size: 0.85rem; }
+
 /* ---------- review insights + drill ---------- */
 .phase-row { display: flex; gap: 2rem; padding: 0.5rem 0; }
 .phase-cell .v { font-family: var(--serif); font-size: 1.45rem; font-weight: 700; font-variant-numeric: tabular-nums; }

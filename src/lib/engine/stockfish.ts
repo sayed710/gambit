@@ -191,6 +191,15 @@ function parseInfo(line: string): InfoLine | null {
   };
 }
 
+/** Ask the engine to finish the current search early (UCI stop). */
+export function sfStop(): void {
+  try {
+    worker?.postMessage('stop');
+  } catch {
+    /* engine not started */
+  }
+}
+
 export interface SFOptions {
   level?: Level;
   /** fixed depth (used by analysis); overrides the level's depth when given */
