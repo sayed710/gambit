@@ -8,7 +8,7 @@ import {
   saveRepertoires,
   setPreferredChild,
 } from './repertoireStore';
-import { trainerStep, trainables } from './repertoireTrain';
+import { advanceToRepertoireSide, expectedSanAt, trainerStep } from './repertoireTrain';
 
 function line(sans: string[]) {
   const tree = createTree();
@@ -62,52 +62,101 @@ describe('preferred moves', () => {
   });
 });
 
-describe('trainer walk', () => {
-  it('asks the repertoire side, auto-plays the opponent, ends the line', () => {
+describe('trainer walk — side aware', () => {
+  it('white repertoire: prompts at the root, auto-plays the reply', () => {
     const { tree, ids } = line(['e4', 'e5', 'Nf3']);
     const rep = createRepertoire('R', 'w');
     rep.lines[0].tree = tree;
 
-    // at root: white to move — the trainer expects e4
-    const step1 = trainerStep(rep.lines[0], null, 'e4');
+    // at the root it is White's turn — the trainer expects e4
+    const step1 = trainerStep(rep.lines[0], null, 'e4', 'w');
     expect(step1.status).toBe('correct');
     if (step1.status !== 'correct') return;
-    // after e4, black's e5 is auto-played
     expect(step1.oppReply?.san).toBe('e5');
 
-    // deviation: at root, d4 is legal but not the repertoire move
-    const dev = trainerStep(rep.lines[0], null, 'd4');
+    const dev = trainerStep(rep.lines[0], null, 'd4', 'w');
     expect(dev.status).toBe('deviation');
     if (dev.status === 'deviation') expect(dev.expectedSan).toBe('e4');
 
-    // continue the line: after e4 e5 the trainer asks for Nf3
-    const step2 = trainerStep(rep.lines[0], ids[1], 'Nf3');
+    // after 1.e4 e5 White is asked again for Nf3
+    const step2 = trainerStep(rep.lines[0], ids[1], 'Nf3', 'w');
     expect(step2.status).toBe('correct');
     if (step2.status !== 'correct') return;
-    // line ends: Nf3 has no continuation
-    const step3 = trainerStep(rep.lines[0], step2.nodeId ?? ids[2], 'anything');
+    const step3 = trainerStep(rep.lines[0], step2.nodeId ?? ids[2], 'anything', 'w');
     expect(step3.status).toBe('line-end');
   });
 
-  it('uses the preferred child over the mainline when marked', () => {
-    const { tree } = line(['e4', 'e5']);
-    const queensPawn = applySan(tree, null, 'd4'); // root-level alternative to 1. e4
-    if (!queensPawn.ok) throw new Error('d4 failed');
-    const rep = createRepertoire('R', 'w');
+  it('black repertoire: the opponent white move is played first, then Black is asked', () => {
+    const { tree, ids } = line(['e4', 'c5', 'Nf3', 'd6']);
+    const rep = createRepertoire('R', 'b');
     rep.lines[0].tree = tree;
-    setPreferredChild(rep.lines[0], null, queensPawn.id); // prefer 1. d4 over 1. e4
-    const keep = trainerStep(rep.lines[0], null, 'd4');
-    expect(keep.status).toBe('correct');
-    const dev = trainerStep(rep.lines[0], null, 'e4');
-    expect(dev.status).toBe('deviation');
-    if (dev.status === 'deviation') expect(dev.expectedSan).toBe('d4');
+
+    // from the root it is White's turn: the trainer auto-advances past e4
+    const advanced = advanceToRepertoireSide(rep.lines[0], null, 'b');
+    expect(advanced.ended).toBe(false);
+    expect(advanced.replies.map((r) => r.san)).toEqual(['e4']);
+    expect(advanced.nodeId).toBe(ids[0]);
+
+    // now Black is asked for the Sicilian
+    const step = trainerStep(rep.lines[0], advanced.nodeId, 'c5', 'b');
+    expect(step.status).toBe('correct');
+    if (step.status !== 'correct') return;
+    expect(step.oppReply?.san).toBe('Nf3');
+
+    // and after Nf3, Black is asked for d6
+    const step2 = trainerStep(rep.lines[0], step.oppReply!.id, 'd6', 'b');
+    expect(step2.status).toBe('correct');
   });
 
-  it('reports trainable positions for the repertoire side', () => {
-    const { tree } = line(['e4', 'e5', 'Nf3', 'Nc6']);
-    const rep = createRepertoire('R', 'w');
+  it('longer black repertoire keeps asking only on Black turns', () => {
+    const { tree, ids } = line(['e4', 'c5', 'Nf3', 'd6', 'd4', 'cxd4', 'Nxd4', 'Nf6']);
+    const rep = createRepertoire('R', 'b');
     rep.lines[0].tree = tree;
-    // white to move at root and after 1... e5 → two trainable positions
-    expect(trainables(rep.lines[0]).length).toBe(2);
+    let nodeId: string | null = null;
+    let asked = 0;
+    for (;;) {
+      const adv = advanceToRepertoireSide(rep.lines[0], nodeId, 'b');
+      nodeId = adv.nodeId;
+      if (adv.ended) break;
+      asked += 1;
+      const expected = expectedSanAt(rep.lines[0], nodeId);
+      if (!expected) break;
+      const step = trainerStep(rep.lines[0], nodeId, expected, 'b');
+      if (step.status !== 'correct') break;
+      nodeId = step.oppReply ? step.oppReply.id : step.nodeId;
+      if (!step.oppReply) break;
+    }
+    // Black answers: c5, d6, cxd4, Nf6
+    expect(asked).toBe(4);
+    expect(nodeId).toBe(ids[7]);
+  });
+
+  it('opponent continuation respects a preferred child', () => {
+    const { tree, ids } = line(['e4', 'c5']);
+    const scandinavian = applySan(tree, null, 'd4'); // root-level alternative to 1. e4
+    if (!scandinavian.ok) throw new Error('d4 failed');
+    const rep = createRepertoire('R', 'b');
+    rep.lines[0].tree = tree;
+    setPreferredChild(rep.lines[0], null, scandinavian.id);
+    const advanced = advanceToRepertoireSide(rep.lines[0], null, 'b');
+    expect(advanced.replies.map((r) => r.san)).toEqual(['d4']);
+    expect(advanced.nodeId).toBe(scandinavian.id);
+    void ids;
+  });
+
+  it('deviations reveal the expected move at a black turn', () => {
+    const { tree, ids } = line(['e4', 'c5', 'Nf3']);
+    const rep = createRepertoire('R', 'b');
+    rep.lines[0].tree = tree;
+    const step = trainerStep(rep.lines[0], ids[0], 'e6', 'b');
+    expect(step.status).toBe('deviation');
+    if (step.status === 'deviation') expect(step.expectedSan).toBe('c5');
+  });
+
+  it('empty line and malformed node end the drill', () => {
+    const rep = createRepertoire('Empty', 'b');
+    expect(advanceToRepertoireSide(rep.lines[0], null, 'b').ended).toBe(true);
+    expect(trainerStep(rep.lines[0], null, 'e4', 'b').status).toBe('line-end');
+    expect(trainerStep(rep.lines[0], 'missing-node', 'e4', 'b').status).toBe('line-end');
   });
 });

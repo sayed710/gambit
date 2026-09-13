@@ -17,7 +17,7 @@ import {
   setPreferredChild,
   type Repertoire,
 } from '../lib/repertoireStore';
-import { trainerStep } from '../lib/repertoireTrain';
+import { advanceToRepertoireSide, sideToMoveAt, trainerStep } from '../lib/repertoireTrain';
 
 export function RepertoireList() {
   const { toast } = useToast();
@@ -345,9 +345,24 @@ function Trainer({ rep }: { rep: Repertoire }) {
   const [drill, setDrill] = useState<DrillState>({ nodeId: null, asked: 0, correct: 0, deviations: 0, lastDeviation: null, done: false });
   const [reveal, setReveal] = useState<string | null>(null);
 
+  // the trainer always auto-plays opponent moves until the repertoire side is to move
+  const awaitingSide = sideToMoveAt(line, drill.nodeId) === mySide && !drill.done;
+  useEffect(() => {
+    if (drill.done) return;
+    const adv = advanceToRepertoireSide(line, drill.nodeId, mySide);
+    if (adv.ended) {
+      setDrill((d) => ({ ...d, done: true }));
+      return;
+    }
+    if (adv.nodeId !== drill.nodeId) {
+      setDrill((d) => ({ ...d, nodeId: adv.nodeId }));
+    }
+  }, [line, drill.nodeId, drill.done, mySide]);
+
   const current = drill.nodeId ? findNode(line.tree, drill.nodeId) : null;
   const fen = current ? current.fenAfter : line.tree.startFen;
-  const done = drill.nodeId ? findNode(line.tree, drill.nodeId)?.children.length === 0 : line.tree.moves.length === 0;
+  const done = drill.done;
+  const promptTurn = awaitingSide;
 
   const tryMove = useCallback(
     (from: Square, to: Square): 'ok' | 'illegal' => {
@@ -363,7 +378,7 @@ function Trainer({ rep }: { rep: Repertoire }) {
       } catch {
         return 'illegal';
       }
-      const step = trainerStep(line, drill.nodeId, m.san);
+      const step = trainerStep(line, drill.nodeId, m.san, mySide);
       if (step.status === 'line-end') return 'illegal';
       if (step.status === 'deviation') {
         playSound('illegal');
@@ -387,7 +402,7 @@ function Trainer({ rep }: { rep: Repertoire }) {
 
   const click = useClickToMove({
     fen,
-    movableColor: mySide,
+    movableColor: promptTurn ? mySide : null,
     tryMove,
   });
 
