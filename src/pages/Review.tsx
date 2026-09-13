@@ -7,14 +7,17 @@ import MoveList from '../components/MoveList';
 import EvalBar from '../components/EvalBar';
 import { useEngine } from '../lib/engine/useEngine';
 import { START_FEN, FULL_DATE } from '../lib/chessUtils';
+import { playSound } from '../lib/sound';
 import { useProfile } from '../state/ProfileContext';
 import { loadJSON, saveJSON } from '../lib/storage';
 import { ChevronLeft, ChevronRight, XIcon } from '../components/Icons';
 import type { GameReport, MoveClass, PlyEval } from '../lib/review';
-import { CLASSIFICATION_META, evalToUnit } from '../lib/review';
+import { evalToUnit } from '../lib/review';
 import { runGameAnalysis, plyEvalFromEngineResult } from '../lib/reviewRunner';
-import { criticalMoments } from '../lib/review';
+import { criticalMoments, refineGreatMoves, CLASSIFICATION_META } from '../lib/review';
 import { identifyOpening } from '../lib/openings';
+import { useClickToMove } from '../hooks/useClickToMove';
+import { sfSearch } from '../lib/engine/stockfish';
 import type { EvalResult } from '../lib/engine/engine';
 
 const ANALYSIS_DEPTH = 12;
@@ -57,6 +60,11 @@ export default function Review() {
   const criticalPlys = useMemo(() => (report ? criticalMoments(report, 99).sort((a, b) => a - b) : []), [report]);
   const [analyzing, setAnalyzing] = useState(false);
   const runTokenRef = useRef(0); // increments per run; stale runs self-abort
+  const [practice, setPractice] = useState<{ startPly: number } | null>(null);
+  const [practiceFen, setPracticeFen] = useState<string | null>(null);
+  const [practiceHistory, setPracticeHistory] = useState<{ san: string; fenAfter: string }[]>([]);
+  const [practiceFeedback, setPracticeFeedback] = useState<string | null>(null);
+  const [greatPass, setGreatPass] = useState(false);
 
   // fens before each ply (index 0 = start position)
   const fens = useMemo(() => [START_FEN, ...plies.map((p) => p.fenAfter)], [plies]);
@@ -94,12 +102,44 @@ export default function Review() {
           setReport(rep);
           setAnalyzing(false);
           if (record?.id) saveJSON(`review.${record.id}`, rep);
+          refineGreat(rep)
+            .then((refined) => {
+              if (isStale()) return;
+              setGreatPass(true);
+              setReport(refined);
+              if (record?.id) saveJSON(`review.${record.id}`, refined);
+            })
+            .catch(() => {});
         },
         // a stale run owns no UI state: the newest run (or unmount) does
         onAbort: () => {},
       },
     );
   }, [plies, fens, engine, analyzing, record?.id]);
+
+  // second pass: mark Great moves (top choice with a much worse alternative)
+  const refineGreat = useCallback(
+    async (base: GameReport) => {
+      const candidates = base.reviews
+        .map((_, i) => ({ i, fen: fens[i] }))
+        .filter(({ i }) => base.reviews[i].classification === 'best')
+        .slice(0, 24); // bounded: keeps the pass fast
+      if (candidates.length === 0) return base;
+      const secondLines = new Map<number, { best: number | null; second: number | null }>();
+      for (const { i, fen } of candidates) {
+        try {
+          const res = await sfSearch(fen, { depth: 10, movetime: 700, multipv: 2, fullStrength: true });
+          if (res && res.lines.length >= 2) {
+            secondLines.set(i, { best: res.lines[0].cp, second: res.lines[1].cp });
+          }
+        } catch {
+          // line unavailable — this move simply stays 'best'
+        }
+      }
+      return refineGreatMoves(base, secondLines);
+    },
+    [fens],
+  );
 
   // run the game report automatically, like chess.com
   useEffect(() => {
@@ -159,6 +199,94 @@ export default function Review() {
       setPlyIndex((i) => Math.max(0, Math.min(plies.length, i + delta)));
     },
     [plies.length],
+  );
+
+  // ---- practice-from-mistake: replay the position against the engine's known bests ----
+  const practiceActive = practice !== null && practiceFen !== null;
+  const practiceGame = useMemo(() => {
+    try {
+      return new Chess(practiceFen ?? START_FEN);
+    } catch {
+      return new Chess(START_FEN);
+    }
+  }, [practiceFen]);
+
+  const startPractice = useCallback(() => {
+    if (plyIndex === 0 || !report) return;
+    setPractice({ startPly: plyIndex });
+    setPracticeFen(plies[plyIndex - 1].fenAfter);
+    setPracticeHistory([]);
+    setPracticeFeedback(null);
+  }, [plyIndex, plies, report]);
+
+  const exitPractice = useCallback(() => {
+    setPractice(null);
+    setPracticeFen(null);
+    setPracticeHistory([]);
+    setPracticeFeedback(null);
+  }, []);
+
+  const onPracticeMove = useCallback(
+    async (from: Square, to: Square, promotion?: string) => {
+      if (!practice || !report) return false;
+      const g = practiceGame;
+      let m;
+      try {
+        m = g.move({ from, to, promotion: promotion ?? 'q' });
+      } catch {
+        return false;
+      }
+      const playedSan = m.san;
+      const fenAfterPlayer = g.fen();
+      const historyAfter = [...practiceHistory, { san: playedSan, fenAfter: fenAfterPlayer }];
+
+      // grade against the engine eval of the position before the move
+      const before = practice.startPly + practiceHistory.length > 0 ? report.evals[practice.startPly + practiceHistory.length] : report.evals[practice.startPly];
+      const expected = before?.bestSan ?? null;
+      if (expected && playedSan === expected) {
+        setPracticeFeedback('Best — that is exactly what Stockfish wanted.');
+        playSound('promote');
+      } else if (expected) {
+        setPracticeFeedback(`Not the best — Stockfish preferred ${expected}.`);
+        playSound('illegal');
+      } else {
+        setPracticeFeedback('Move played.');
+      }
+
+      setPracticeHistory(historyAfter);
+      setPracticeFen(fenAfterPlayer);
+
+      // engine replies with the known best from the resulting position (free — already analyzed)
+      const after = report.evals[practice.startPly + practiceHistory.length + 1];
+      if (after?.bestSan && !g.isGameOver()) {
+        try {
+          const reply = g.move(after.bestSan);
+          setPracticeHistory((h) => [...h, { san: reply.san, fenAfter: g.fen() }]);
+          setPracticeFen(g.fen());
+        } catch {
+          // reply unavailable — practice stays on the player's move
+        }
+      }
+      return true;
+    },
+    [practice, practiceGame, practiceHistory, report],
+  );
+
+  const practiceMovable: 'w' | 'b' | null = practiceActive ? practiceGame.turn() : null;
+  const practiceClick = useClickToMove({
+    fen: practiceFen ?? START_FEN,
+    movableColor: practiceMovable,
+    tryMove: (from, to) => {
+      void onPracticeMove(from, to);
+      return 'ok';
+    },
+  });
+  const practiceDrop = useCallback(
+    (from: Square, to: Square) => {
+      void onPracticeMove(from, to);
+      return true;
+    },
+    [onPracticeMove],
   );
 
   const jumpToCritical = useCallback(
@@ -246,18 +374,42 @@ export default function Review() {
       <div className="review-layout">
         <div>
           <div className="row" style={{ alignItems: 'stretch', gap: '0.6rem' }}>
-            <EvalBar evaluation={evaluation} thinking={analyzing} />
+            {!practiceActive && <EvalBar evaluation={evaluation} thinking={analyzing} />}
             <div className="grow">
-              <GameBoard
-                boardId="review"
-                fen={fen}
-                orientation={orientation}
-                lastMove={lastMove}
-                checkSquare={checkSquare}
-                movableColor={null}
-              />
+              {practiceActive ? (
+                <GameBoard
+                  boardId="practice"
+                  fen={practiceFen ?? START_FEN}
+                  orientation={orientation}
+                  lastMove={practiceHistory.length > 0 ? null : null}
+                  movableColor={practiceMovable}
+                  onSquareClick={practiceClick.onSquareClick}
+                  selected={practiceClick.selected}
+                  legalTargets={practiceClick.legalTargets}
+                  onDrop={practiceDrop}
+                />
+              ) : (
+                <GameBoard
+                  boardId="review"
+                  fen={fen}
+                  orientation={orientation}
+                  lastMove={lastMove}
+                  checkSquare={checkSquare}
+                  movableColor={null}
+                />
+              )}
             </div>
           </div>
+          {practiceActive && (
+            <div className="status-banner mt-2" role="status">
+              <span>
+                {practiceFeedback ?? 'Your move — find the best continuation.'}
+              </span>
+              <button className="btn btn-ghost btn-sm" style={{ marginLeft: 'auto' }} onClick={exitPractice}>
+                Exit practice
+              </button>
+            </div>
+          )}
 
           {report && (
             <EvalGraph
@@ -289,6 +441,11 @@ export default function Review() {
                 </span>
               )}
             </div>
+            {greatPass && (
+              <p className="small muted mt-1" style={{ marginBottom: 0 }}>
+                Great moves marked with a second MultiPV pass.
+              </p>
+            )}
             {!report ? (
               <p className="small muted m-0">
                 {analyzing
@@ -365,6 +522,12 @@ export default function Review() {
                 })()}
               </div>
             )}
+            <div className="row between" style={{ gap: '0.4rem', marginTop: '0.4rem' }}>
+              <button className="btn btn-accent btn-sm" onClick={startPractice} disabled={plyIndex === 0 || plyIndex === plies.length}>
+                Practice from here
+              </button>
+              <span className="small muted">learn from your mistakes</span>
+            </div>
             <div className="nav-steps">
               <button className="icon-btn" onClick={() => setPlyIndex(0)} aria-label="Go to start" disabled={plyIndex === 0}>
                 <ChevronLeft />

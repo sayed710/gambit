@@ -155,6 +155,20 @@ export default function Profile() {
               <div className="k">Peak</div>
             </div>
             <div className="score-item">
+              <div className="v">
+                <span className="form-chips">
+                  {stats.form.map((f, i) => (
+                    <span key={i} className={`form-chip form-${f}`}>{f === 'win' ? 'W' : f === 'loss' ? 'L' : 'D'}</span>
+                  ))}
+                  {stats.form.length === 0 && '—'}
+                </span>
+              </div>
+              <div className="k">Recent form</div>
+              <div className="note">
+                best +{stats.best} · worst {stats.worst}
+              </div>
+            </div>
+            <div className="score-item">
               <div className="v">{games.length}</div>
               <div className="k">Games</div>
             </div>
@@ -181,7 +195,7 @@ export default function Profile() {
             </div>
           </div>
           <div className="score-spark">
-            <Sparkline points={profile.ratingHistory.length > 1 ? profile.ratingHistory : [profile.rating, profile.rating]} />
+            <RatingGraph points={profile.ratingHistory} />
             {profile.ratingHistory.length <= 2 && (
               <p className="small muted mt-1">Play a few rated engine games and your rating curve will draw itself here.</p>
             )}
@@ -407,29 +421,32 @@ export default function Profile() {
   );
 }
 
-function Sparkline({ points }: { points: number[] }) {
-  const path = useMemo(() => {
-    if (points.length < 2) return null;
-    const min = Math.min(...points);
-    const max = Math.max(...points);
-    const span = max - min || 1;
-    const w = 100;
-    const h = 26;
-    const pad = 2;
-    return points.map((p, i) => `${(i / (points.length - 1)) * w},${pad + (h - ((p - min) / span) * h)}`).join(' ');
-  }, [points]);
+function RatingGraph({ points }: { points: number[] }) {
+  const series = points.length > 1 ? points : [points[0] ?? 1200, points[0] ?? 1200];
+  const min = Math.min(...series);
+  const max = Math.max(...series);
+  const span = max - min || 1;
+  const w = 600;
+  const h = 120;
+  const pad = 10;
+  const step = w / (series.length - 1);
+  const coords = series.map((p, i) => ({ x: i * step, y: pad + (h - pad * 2 - ((p - min) / span) * (h - pad * 2)) }));
+  const line = coords.map((c) => `${c.x},${c.y}`).join(' L');
+  const area = `M0,${h} L${line.replace(/ L/g, ' L')} L${w},${h} Z`;
+  const last = coords[coords.length - 1];
 
-  if (!path) {
-    return (
-      <svg className="spark" viewBox="0 0 100 30" preserveAspectRatio="none" aria-hidden>
-        <line className="base" x1="0" y1="15" x2="100" y2="15" />
-      </svg>
-    );
-  }
   return (
-    <svg className="spark" viewBox="0 0 100 30" preserveAspectRatio="none" aria-hidden>
-      <line className="base" x1="0" y1="15" x2="100" y2="15" />
-      <polyline points={path} vectorEffect="non-scaling-stroke" />
+    <svg className="rating-graph" viewBox={`0 0 ${w} ${h}`} preserveAspectRatio="none" role="img" aria-label="Rating history graph">
+      <defs>
+        <linearGradient id="rg-fill" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor="var(--accent)" stopOpacity={0.28} />
+          <stop offset="100%" stopColor="var(--accent)" stopOpacity={0.02} />
+        </linearGradient>
+      </defs>
+      <line x1="0" y1={h - pad} x2={w} y2={h - pad} stroke="var(--border-strong)" strokeWidth="1" />
+      <path d={area} fill="url(#rg-fill)" />
+      <path d={`M${line}`} fill="none" stroke="var(--accent)" strokeWidth="2" vectorEffect="non-scaling-stroke" />
+      {series.length > 1 && <circle cx={last.x} cy={last.y} r="4" fill="var(--accent)" stroke="var(--surface)" strokeWidth="1.5" />}
     </svg>
   );
 }

@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react';
 import type { Ply } from '../lib/types';
-import { CLASSIFICATION_META } from '../lib/review';
+import { CLASSIFICATION_META, CLASSIFICATION_SYMBOL } from '../lib/review';
 
 interface MoveListProps {
   plies: Ply[];
@@ -43,8 +43,13 @@ export default function MoveList({ plies, currentPly = null, onSelect, resultLab
           {rows.map((r) => {
             const meta = (cls?: string) =>
               cls ? (CLASSIFICATION_META as Record<string, { label: string; color: string }>)[cls] : null;
-            const wMeta = meta(markers?.[r.wi]);
-            const bMeta = markers?.[r.bi] ? meta(markers?.[r.bi]) : null;
+            const wCls = markers?.[r.wi];
+            const bCls = markers?.[r.bi];
+            const sym = (cls?: string) => (cls ? CLASSIFICATION_SYMBOL[cls as keyof typeof CLASSIFICATION_SYMBOL] : null);
+            const wMeta = meta(wCls);
+            const bMeta = bCls ? meta(bCls) : null;
+            const wSym = sym(wCls);
+            const bSym = sym(bCls);
             return (
               <tr key={r.no}>
                 <td className="mv-no">{r.no}.</td>
@@ -54,6 +59,7 @@ export default function MoveList({ plies, currentPly = null, onSelect, resultLab
                 >
                   {wMeta && <span className="mv-dot" style={{ background: wMeta.color }} title={wMeta.label} />}
                   {r.white?.san}
+                  {wMeta && wSym && <span className="mv-sym">{wSym}</span>}
                 </td>
                 <td
                   className={`mv${currentPly === r.bi ? ' current' : ''}${selectable ? ' selectable' : ''}`}
@@ -61,6 +67,7 @@ export default function MoveList({ plies, currentPly = null, onSelect, resultLab
                 >
                   {bMeta && <span className="mv-dot" style={{ background: bMeta.color }} title={bMeta.label} />}
                   {r.black?.san ?? ''}
+                  {bMeta && bSym && <span className="mv-sym">{bSym}</span>}
                 </td>
               </tr>
             );

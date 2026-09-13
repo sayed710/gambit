@@ -164,8 +164,20 @@ export default function Layout() {
     return () => window.removeEventListener('keydown', onKey);
   }, []);
 
+  const page = location.pathname.startsWith('/play')
+    ? 'play'
+    : location.pathname.startsWith('/analysis')
+      ? 'analysis'
+      : location.pathname.startsWith('/review')
+        ? 'review'
+        : location.pathname.startsWith('/puzzles')
+          ? 'puzzles'
+          : location.pathname.startsWith('/profile')
+            ? 'profile'
+            : 'home';
+
   return (
-    <>
+    <div data-page={page} style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: '100dvh' }}>
       <header className="site-header">
         <div className="container inner">
           <Link to="/" className="brand" aria-label="Gambit home">
@@ -222,7 +234,7 @@ export default function Layout() {
       </footer>
 
       {settingsOpen && <SettingsModal onClose={() => setSettingsOpen(false)} />}
-    </>
+    </div>
   );
 }
 

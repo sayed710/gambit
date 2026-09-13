@@ -60,6 +60,7 @@ colors:
   check-amber-tint-dark-2: "rgba(255, 150, 80, 0.32)"
   eval-tick-shadow: "rgba(0, 0, 0, 0.35)"
   pv-arrow: "rgba(108, 92, 231, 0.85)"
+  class-great: "#5c8bb0"
   class-brilliant: "#26c2a3"
   class-book: "#a8bfd0"
   class-best: "#81b64c"
@@ -296,6 +297,7 @@ typography:
     lineHeight: 1.4
 rounded:
   focus: "4px"
+  cell: "6px"
   sm: "8px"
   btn: "9px"
   md: "10px"

@@ -7,6 +7,7 @@ import type { SFEval } from './engine/stockfish';
 /** chess.com-style move classifications. */
 export type MoveClass =
   | 'brilliant'
+  | 'great'
   | 'book'
   | 'best'
   | 'excellent'
@@ -18,6 +19,7 @@ export type MoveClass =
 
 export const CLASSIFICATION_META: Record<MoveClass, { label: string; color: string }> = {
   brilliant: { label: 'Brilliant', color: '#26c2a3' },
+  great: { label: 'Great', color: '#5c8bb0' },
   book: { label: 'Book', color: '#a8bfd0' },
   best: { label: 'Best', color: '#81b64c' },
   excellent: { label: 'Excellent', color: '#95bb4a' },
@@ -30,6 +32,64 @@ export const CLASSIFICATION_META: Record<MoveClass, { label: string; color: stri
 
 /** Classifications that mark a move worth revisiting. */
 export const CRITICAL_CLASSES: MoveClass[] = ['inaccuracy', 'mistake', 'miss', 'blunder'];
+
+/**
+ * Standard annotation symbols (Numeral Convention Guidelines):
+ * brilliant !!, great !, excellent !, inaccuracy ?!, miss ?!, mistake ?, blunder ??.
+ * Best/book/excellent-by-threshold carry no symbol.
+ */
+export const CLASSIFICATION_SYMBOL: Partial<Record<MoveClass, string>> = {
+  brilliant: '!!',
+  great: '!',
+  excellent: '!',
+  inaccuracy: '?!',
+  miss: '?!',
+  mistake: '?',
+  blunder: '??',
+};
+
+/**
+ * Second-pass Great refinement. A "great" move is the engine's top choice
+ * whose only real alternative is significantly worse — i.e. the position had
+ * exactly one good move. Documented heuristic: played move is 'best' AND the
+ * second MultiPV line is at least GREAT_GAP centipawns worse than the first
+ * (both from the mover's perspective). This is not chess.com's proprietary
+ * definition; it is an honest, checkable approximation.
+ */
+export const GREAT_GAP_CP = 120;
+
+export function refineGreatMoves(
+  report: GameReport,
+  secondLines: Map<number, { best: number | null; second: number | null }>,
+): GameReport {
+  const reviews = report.reviews.map((r, i) => {
+    if (r.classification !== 'best') return r;
+    const lines = secondLines.get(i);
+    if (!lines || lines.best == null || lines.second == null) return r;
+    const gap = lines.best - lines.second;
+    if (gap >= GREAT_GAP_CP) return { ...r, classification: 'great' as MoveClass };
+    return r;
+  });
+  const counts = { w: emptyCounts(), b: emptyCounts() };
+  const cplSum = { w: 0, b: 0 };
+  const cplN = { w: 0, b: 0 };
+  for (const r of reviews) {
+    counts[r.color][r.classification]++;
+    if (r.classification !== 'book') {
+      cplSum[r.color] += r.cpl;
+      cplN[r.color]++;
+    }
+  }
+  return {
+    ...report,
+    reviews,
+    counts,
+    accuracy: {
+      w: cplN.w > 0 ? accuracyFromCpl(cplSum.w / cplN.w) : 100,
+      b: cplN.b > 0 ? accuracyFromCpl(cplSum.b / cplN.b) : 100,
+    },
+  };
+}
 
 /** Evaluation of one position, white perspective, from the analysis run. */
 export interface PlyEval {
@@ -193,7 +253,7 @@ export function buildReport(plies: Ply[], evals: (PlyEval | null)[]): GameReport
 }
 
 function emptyCounts(): Record<MoveClass, number> {
-  return { brilliant: 0, book: 0, best: 0, excellent: 0, good: 0, inaccuracy: 0, miss: 0, mistake: 0, blunder: 0 };
+  return { brilliant: 0, great: 0, book: 0, best: 0, excellent: 0, good: 0, inaccuracy: 0, miss: 0, mistake: 0, blunder: 0 };
 }
 
 /** Convert an SF eval to the report's white-perspective PlyEval. */
