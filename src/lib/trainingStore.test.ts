@@ -5,7 +5,7 @@ import {
   recordEndgameAttempt,
   scheduleSr,
   type EndgameProgress,
-  type SrGrade,
+
   type SrRecord,
 } from './trainingStore';
 
