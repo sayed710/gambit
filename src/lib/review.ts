@@ -30,6 +30,23 @@ export const CLASSIFICATION_META: Record<MoveClass, { label: string; color: stri
   blunder: { label: 'Blunder', color: '#fa412d' },
 };
 
+/**
+ * One source of truth for classification punctuation. The board verdict,
+ * the move list and the graph markers all read from here.
+ */
+export const CLASSIFICATION_GLYPH: Record<MoveClass, string> = {
+  brilliant: '!!',
+  great: '!',
+  best: '\u2605',
+  excellent: '!',
+  good: '',
+  book: '\u25a4',
+  inaccuracy: '?!',
+  mistake: '?',
+  miss: '\u2047',
+  blunder: '??',
+};
+
 /** Classifications that mark a move worth revisiting. */
 export const CRITICAL_CLASSES: MoveClass[] = ['inaccuracy', 'mistake', 'miss', 'blunder'];
 

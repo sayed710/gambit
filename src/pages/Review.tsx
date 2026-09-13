@@ -15,7 +15,7 @@ import { ChevronLeft, ChevronRight, XIcon } from '../components/Icons';
 import type { GameReport, MoveClass, PlyEval } from '../lib/review';
 import { evalToUnit } from '../lib/review';
 import { runGameAnalysis, plyEvalFromEngineResult } from '../lib/reviewRunner';
-import { criticalMoments, refineGreatMoves, CLASSIFICATION_META, CRITICAL_CLASSES } from '../lib/review';
+import { criticalMoments, refineGreatMoves, CLASSIFICATION_META, CLASSIFICATION_GLYPH, CRITICAL_CLASSES } from '../lib/review';
 import { biggestSwings, materialSeries, phaseAccuracies } from '../lib/reviewInsights';
 import { identifyOpening } from '../lib/openings';
 import { useClickToMove } from '../hooks/useClickToMove';
@@ -364,6 +364,8 @@ export default function Review() {
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      const tag = (e.target as HTMLElement)?.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || (e.target as HTMLElement)?.isContentEditable) return;
       if (e.key === 'ArrowLeft') step(-1);
       if (e.key === 'ArrowRight') step(1);
       if (e.key === 'Home') setPlyIndex(0);
@@ -464,6 +466,26 @@ export default function Review() {
               )}
             </div>
           </div>
+          {!practiceActive && (
+            <MoveNavBar
+              plyIndex={plyIndex}
+              total={plies.length}
+              criticalTotal={criticalPlys.length}
+              criticalIdx={criticalPlys.findIndex((p) => p >= plyIndex)}
+              onStep={step}
+              onJump={jumpToCritical}
+              onStart={() => setPlyIndex(0)}
+              onEnd={() => setPlyIndex(plies.length)}
+            />
+          )}
+          {!practiceActive && currentReview && report && (
+            <VerdictStrip
+              plyIndex={plyIndex}
+              review={currentReview}
+              bestSan={report.evals[plyIndex - 1]?.bestSan ?? null}
+              playerColor={record.playerColor}
+            />
+          )}
           {practiceActive && (
             <div className="status-banner mt-2" role="status" style={{ flexWrap: 'wrap', gap: '0.5rem' }}>
               <span>
@@ -563,6 +585,12 @@ export default function Review() {
                     <span className="report-name">{oppLabel}</span>
                     <span className="report-acc">{oppAcc != null ? `${oppAcc}%` : '—'}</span>
                   </div>
+                </div>
+                <div className="report-classes report-classes-head" aria-hidden="true">
+                  <span />
+                  <span />
+                  <span className="report-class-count head">You</span>
+                  <span className="report-class-count head">Opp.</span>
                 </div>
                 <div className="report-classes">
                   {(Object.keys(CLASSIFICATION_META) as MoveClass[]).map((cls) => {
@@ -765,19 +793,41 @@ function EvalGraph({
           const step = w / (points.length - 1);
           const x = (i + 1) * step;
           const y = (1 - points[i + 1]) * h;
-          if (r.classification === 'best' || r.classification === 'excellent' || r.classification === 'good') return null;
+          // restrained markers: mistakes/blunders/inaccuracies/misses stand out,
+          // brilliant/great get a smaller quiet positive dot, ordinary moves none
+          const positive = r.classification === 'brilliant' || r.classification === 'great';
+          if (
+            r.classification === 'best' ||
+            r.classification === 'excellent' ||
+            r.classification === 'good' ||
+            r.classification === 'book'
+          ) {
+            return null;
+          }
           return (
             <circle
               key={i}
               cx={x}
               cy={y}
-              r={4}
+              r={positive ? 2.5 : 4}
               fill={CLASSIFICATION_META[r.classification].color}
+              opacity={positive ? 0.8 : 1}
               stroke="var(--surface)"
               strokeWidth={1}
             />
           );
         })}
+        {plyIndex > 0 && points[plyIndex] !== undefined && (
+          <circle
+            cx={(plyIndex / Math.max(1, points.length - 1)) * w}
+            cy={(1 - points[plyIndex]) * h}
+            r={5}
+            fill="none"
+            stroke="var(--ice)"
+            strokeWidth={1.5}
+            vectorEffect="non-scaling-stroke"
+          />
+        )}
         {points.length > 1 && (
           <line
             x1={(plyIndex / (points.length - 1)) * w}
@@ -847,6 +897,153 @@ function InsightsPanel({
             </button>
           ))}
         </div>
+      </div>
+    </div>
+  );
+}
+
+
+/* ---------- board-adjacent review chrome ---------- */
+
+const VERDICT_GLYPH: Record<MoveClass, string> = {
+  brilliant: '!!',
+  great: '!',
+  best: '★',
+  excellent: '!',
+  good: '',
+  book: '▤',
+  inaccuracy: '?!',
+  mistake: '?',
+  miss: '⁇',
+  blunder: '??',
+};
+
+const VERDICT_COPY: Record<MoveClass, string> = {
+  brilliant: 'A sacrifice — and the engine’s first choice.',
+  great: 'The only move that keeps the advantage.',
+  best: 'Matches the engine’s first line.',
+  excellent: 'Practically as strong as the best move.',
+  good: 'Solid — nothing to correct.',
+  book: 'Known theory; carries no accuracy signal.',
+  inaccuracy: 'A small slip that lets some of the advantage go.',
+  mistake: 'A clear error — the position gets worse.',
+  miss: 'Missed the chance to press a winning position.',
+  blunder: 'A serious error that changes the evaluation.',
+};
+
+function VerdictStrip({
+  plyIndex,
+  review,
+  bestSan,
+  playerColor,
+}: {
+  plyIndex: number;
+  review: { san: string; color: 'w' | 'b'; cpl: number; classification: MoveClass };
+  bestSan: string | null;
+  playerColor: 'w' | 'b';
+}) {
+  const meta = CLASSIFICATION_META[review.classification];
+  const glyph = CLASSIFICATION_GLYPH[review.classification];
+  const moveNumber = Math.ceil(plyIndex / 2);
+  const dots = review.color === 'b' ? '…' : '.';
+  const whose = review.color === playerColor ? 'you' : 'opponent';
+  const meaningfulLoss = review.cpl >= 30 && review.classification !== 'book';
+  const showBest = bestSan && bestSan !== review.san && review.classification !== 'book';
+
+  return (
+    <div className="verdict-strip" role="status" aria-label={`Move ${moveNumber}${dots === '…' ? '…' : '.'} ${review.san}: ${meta.label}`}>
+      <span className="verdict-move mono">
+        {moveNumber}
+        {dots} {review.san}
+      </span>
+      <span className="verdict-class" style={{ color: meta.color }}>
+        <span className="verdict-glyph" aria-hidden="true">
+          {glyph}
+        </span>
+        {meta.label}
+        <span className="verdict-whose"> · {whose}</span>
+      </span>
+      <span className="verdict-facts">
+        {meaningfulLoss && (
+          <span className="verdict-loss mono">
+            −{(review.cpl / 100).toFixed(1)}
+          </span>
+        )}
+        {showBest && (
+          <span className="verdict-best mono">
+            best: {bestSan}
+          </span>
+        )}
+      </span>
+      <span className="verdict-copy">{VERDICT_COPY[review.classification]}</span>
+    </div>
+  );
+}
+
+function MoveNavBar({
+  plyIndex,
+  total,
+  criticalTotal,
+  criticalIdx,
+  onStep,
+  onJump,
+  onStart,
+  onEnd,
+}: {
+  plyIndex: number;
+  total: number;
+  criticalTotal: number;
+  criticalIdx: number;
+  onStep: (delta: number) => void;
+  onJump: (dir: 1 | -1) => void;
+  onStart: () => void;
+  onEnd: () => void;
+}) {
+  const critNow = criticalTotal === 0 ? null : criticalIdx === -1 ? null : criticalIdx + 1;
+  return (
+    <div className="move-navbar" role="navigation" aria-label="Move navigation">
+      <div className="move-navbar-group">
+        <button className="icon-btn" onClick={onStart} disabled={plyIndex === 0} aria-label="Go to start" title="Start (Home)">
+          |◄
+        </button>
+        <button className="icon-btn" onClick={() => onStep(-1)} disabled={plyIndex === 0} aria-label="Previous move" title="Previous (←)">
+          ◄
+        </button>
+      </div>
+      <span className="move-position mono" aria-live="polite">
+        {plyIndex} / {total}
+      </span>
+      <div className="move-navbar-group">
+        <button className="icon-btn" onClick={() => onStep(1)} disabled={plyIndex >= total} aria-label="Next move" title="Next (→)">
+          ►
+        </button>
+        <button className="icon-btn" onClick={onEnd} disabled={plyIndex >= total} aria-label="Go to end" title="End (End)">
+          ►|
+        </button>
+      </div>
+      <span className="move-navbar-sep" aria-hidden="true" />
+      <div className="move-navbar-group">
+        <button
+          className="icon-btn"
+          onClick={() => onJump(-1)}
+          disabled={criticalTotal === 0}
+          aria-label="Previous critical move"
+          title="Previous critical ([)"
+        >
+          ◄!
+        </button>
+        <span className="move-critical small muted" aria-live="polite">
+          {criticalTotal === 0 ? 'no critical' : critNow === null ? `${criticalTotal} critical` : `${critNow} / ${criticalTotal}`}
+        </span>
+        <button
+          className="icon-btn"
+          onClick={() => onJump(1)}
+          disabled={criticalTotal === 0}
+          aria-label="Next critical move"
+          title="Next critical (])"
+        >
+          !►
+        </button>
       </div>
     </div>
   );
