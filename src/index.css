@@ -556,7 +556,7 @@ textarea.input { font-family: var(--mono); font-size: 0.82rem; line-height: 1.5;
 .verdict-strip {
   display: grid; grid-template-columns: auto auto 1fr; gap: 0.3rem 1rem; align-items: baseline;
   margin-top: 0.7rem; padding: 0.6rem 0.85rem;
-  border: 1px solid var(--border); border-left: 3px solid var(--border-strong);
+  border: 1px solid var(--border); border-left: 2px solid var(--border-strong);
   border-radius: 10px; background: var(--surface);
 }
 .verdict-move { font-size: 1.05rem; font-weight: 700; color: var(--ink); font-variant-numeric: tabular-nums; }

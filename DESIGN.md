@@ -476,6 +476,7 @@ typography:
     fontWeight: 600
     lineHeight: 1.1
   rounded:
+  rule-strong: "3px"
   focus: "4px"
   rule: "2px"
   cell: "6px"

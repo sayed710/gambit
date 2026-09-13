@@ -1,7 +1,7 @@
 import { Chess } from 'chess.js';
 import type { Ply } from './types';
 import { PIECE_CP } from './chessUtils';
-import { identifyOpening, isBookLine } from './openings';
+import { isBookLine } from './openings';
 import type { SFEval } from './engine/stockfish';
 
 /** chess.com-style move classifications. */
