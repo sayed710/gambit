@@ -3,7 +3,7 @@ import { Chessboard, defaultPieces } from 'react-chessboard';
 import type { Arrow } from 'react-chessboard';
 import type { Color, PieceSymbol, Square } from 'chess.js';
 import type { PendingPromotion } from '../hooks/useGame';
-import { useSettings } from '../state/SettingsContext';
+import { useSettings, ANIMATION_MS } from '../state/SettingsContext';
 import { playSound } from '../lib/sound';
 import { PIECE_NAMES } from '../lib/chessUtils';
 
@@ -15,18 +15,21 @@ export interface BoardColors {
 }
 
 const PALETTES: Record<string, { light: string; dark: string; border: string }> = {
-  walnut: { light: '#efe3cb', dark: '#9a6b45', border: '#857455' },
-  forest: { light: '#ecead4', dark: '#6f8f57', border: '#5c7048' },
-  slate: { light: '#d9dcdf', dark: '#5c6773', border: '#4a525c' },
-  ink: { light: '#c9c4b4', dark: '#4f4a40', border: '#3d3931' },
+  glacier: { light: '#dce9f2', dark: '#5d84a0', border: '#4a6c86' },
+  frost: { light: '#eef3f6', dark: '#a8bfd0', border: '#8ba6ba' },
+  polar: { light: '#31465c', dark: '#17222f', border: '#101a26' },
+  walnut: { light: '#e8dcc8', dark: '#9a6b45', border: '#7d5836' },
+  tundra: { light: '#e6ebe4', dark: '#6f8f7a', border: '#577260' },
+  aurora: { light: '#2a2f45', dark: '#171b2b', border: '#101321' },
 };
 const PALETTES_DARK: Record<string, { light: string; dark: string; border: string }> = {
-  walnut: { light: '#d8c9a8', dark: '#77502f', border: '#52412e' },
-  forest: { light: '#dde0c4', dark: '#5d7a48', border: '#4a5f39' },
-  slate: { light: '#b9bfc6', dark: '#4c555f', border: '#3a4149' },
-  ink: { light: '#b8b3a4', dark: '#413d34', border: '#312e27' },
+  glacier: { light: '#43596e', dark: '#22334a', border: '#182635' },
+  frost: { light: '#5d7488', dark: '#33465a', border: '#263748' },
+  polar: { light: '#27384d', dark: '#121b28', border: '#0c141e' },
+  walnut: { light: '#4a3a2a', dark: '#2b1f14', border: '#1e150c' },
+  tundra: { light: '#3c4a42', dark: '#222d26', border: '#18211c' },
+  aurora: { light: '#2c3350', dark: '#1a1f33', border: '#12162a' },
 };
-
 export function boardColors(theme: string, resolved: 'light' | 'dark'): BoardColors {
   const p = (resolved === 'dark' ? PALETTES_DARK : PALETTES)[theme] ?? PALETTES.walnut;
   return { ...p, dot: 'rgba(32, 29, 24, 0.35)' };
@@ -76,7 +79,7 @@ export default function GameBoard({
   arrows,
   boardId,
 }: GameBoardProps) {
-  const { boardTheme, resolvedTheme, showLegalHints } = useSettings();
+  const { boardTheme, resolvedTheme, showLegalHints, showCoordinates, animationSpeed } = useSettings();
   const colors = useMemo(() => boardColors(boardTheme, resolvedTheme), [boardTheme, resolvedTheme]);
   const interactive = movableColor !== null;
 
@@ -177,7 +180,7 @@ export default function GameBoard({
       styles[checkSquare] = { background: 'var(--hl-check)' };
     }
     if (selected) {
-      styles[selected] = { background: 'var(--hl-select)', boxShadow: 'inset 0 0 0 3px rgba(138, 98, 36, 0.55)' };
+      styles[selected] = { background: 'var(--hl-select)', boxShadow: 'inset 0 0 0 3px rgba(15, 122, 141, 0.6)' };
     }
     if (cursor) {
       styles[cursor] = {
@@ -224,7 +227,8 @@ export default function GameBoard({
             id: boardId,
             position: fen,
             boardOrientation: orientation,
-            animationDurationInMs: 180,
+            animationDurationInMs: ANIMATION_MS[animationSpeed],
+            showNotation: showCoordinates,
             allowDragging: movableColor !== null,
             canDragPiece: ({ piece }) => movableColor !== null && piece.pieceType[0] === movableColor,
             onPieceDrop: ({ sourceSquare, targetSquare }) => {
@@ -256,7 +260,7 @@ export default function GameBoard({
             allowDrawingArrows: movableColor !== null,
             arrows,
             clearArrowsOnPositionChange: true,
-            dropSquareStyle: { boxShadow: 'inset 0 0 0 4px rgba(138, 98, 36, 0.6)' },          }}
+            dropSquareStyle: { boxShadow: 'inset 0 0 0 4px rgba(15, 122, 141, 0.65)' },          }}
         />
         {pendingPromotion && (
           <div

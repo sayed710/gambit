@@ -1,20 +1,35 @@
 import { Chess } from 'chess.js';
 import type { Ply } from './types';
 import { PIECE_CP } from './chessUtils';
+import { identifyOpening } from './openings';
 import type { SFEval } from './engine/stockfish';
 
 /** chess.com-style move classifications. */
-export type MoveClass = 'brilliant' | 'best' | 'excellent' | 'good' | 'inaccuracy' | 'mistake' | 'blunder';
+export type MoveClass =
+  | 'brilliant'
+  | 'book'
+  | 'best'
+  | 'excellent'
+  | 'good'
+  | 'inaccuracy'
+  | 'mistake'
+  | 'miss'
+  | 'blunder';
 
 export const CLASSIFICATION_META: Record<MoveClass, { label: string; color: string }> = {
   brilliant: { label: 'Brilliant', color: '#26c2a3' },
+  book: { label: 'Book', color: '#a8bfd0' },
   best: { label: 'Best', color: '#81b64c' },
   excellent: { label: 'Excellent', color: '#95bb4a' },
   good: { label: 'Good', color: '#96af8b' },
   inaccuracy: { label: 'Inaccuracy', color: '#f7c631' },
+  miss: { label: 'Miss', color: '#ff8a3d' },
   mistake: { label: 'Mistake', color: '#ffa459' },
   blunder: { label: 'Blunder', color: '#fa412d' },
 };
+
+/** Classifications that mark a move worth revisiting. */
+export const CRITICAL_CLASSES: MoveClass[] = ['inaccuracy', 'mistake', 'miss', 'blunder'];
 
 /** Evaluation of one position, white perspective, from the analysis run. */
 export interface PlyEval {
@@ -43,6 +58,10 @@ const MATE_CP = 10_000;
 
 function evalToCp(e: PlyEval): number {
   return e.mateIn !== null ? (e.mateIn > 0 ? MATE_CP : -MATE_CP) : e.cp;
+}
+
+function moverCp(e: PlyEval, moverIsWhite: boolean): number {
+  return moverIsWhite ? evalToCp(e) : -evalToCp(e);
 }
 
 /** centipawn loss for the mover of plies[i], given evals before and after. */
@@ -114,21 +133,44 @@ export function buildReport(plies: Ply[], evals: (PlyEval | null)[]): GameReport
   };
   const cplSum = { w: 0, b: 0 };
   const cplN = { w: 0, b: 0 };
+  const sanList = plies.map((p) => p.san);
 
   plies.forEach((ply, i) => {
     const cpl = cplFor(evals, i);
     const before = evals[i];
     const after = evals[i + 1];
     const played = ply.san;
+    const moverIsWhite = ply.color === 'w';
+
+    // Book: the position after this move still matches a known opening line.
+    if (identifyOpening(sanList.slice(0, i + 1)) !== null) {
+      reviews.push({ san: played, color: ply.color, cpl: 0, classification: 'book' });
+      counts[ply.color].book++;
+      return; // book moves carry no accuracy signal
+    }
+
     const isBest = (before?.bestSan != null && before.bestSan === played) || cpl <= 10;
     let classification = classifyMove(cpl, isBest);
+
     // Brilliant: engine's top choice AND a real material offer AND the position
     // afterwards is still at least equal for the mover.
     if (classification === 'best' && after && isMaterialOffer(ply)) {
-      const moverIsWhite = ply.color === 'w';
-      const afterMover = moverIsWhite ? evalToCp(after) : -evalToCp(after);
+      const afterMover = moverCp(after, moverIsWhite);
       if (afterMover >= -50) classification = 'brilliant';
     }
+
+    // Miss: the opponent had just blundered into a winning position for the
+    // mover, and this move failed to capitalize (still not clearly winning).
+    if (
+      (classification === 'inaccuracy' || classification === 'mistake') &&
+      before &&
+      after &&
+      moverCp(before, moverIsWhite) >= 150 &&
+      moverCp(after, moverIsWhite) <= 50
+    ) {
+      classification = 'miss';
+    }
+
     reviews.push({ san: played, color: ply.color, cpl, classification });
     counts[ply.color][classification]++;
     cplSum[ply.color] += cpl;
@@ -151,7 +193,7 @@ export function buildReport(plies: Ply[], evals: (PlyEval | null)[]): GameReport
 }
 
 function emptyCounts(): Record<MoveClass, number> {
-  return { brilliant: 0, best: 0, excellent: 0, good: 0, inaccuracy: 0, mistake: 0, blunder: 0 };
+  return { brilliant: 0, book: 0, best: 0, excellent: 0, good: 0, inaccuracy: 0, miss: 0, mistake: 0, blunder: 0 };
 }
 
 /** Convert an SF eval to the report's white-perspective PlyEval. */
@@ -163,6 +205,16 @@ export function toPlyEval(sf: SFEval): PlyEval {
     cp = mateIn > 0 ? MATE_CP : -MATE_CP;
   }
   return { cp, mateIn, bestSan: sf.bestSan };
+}
+
+/** The plies with the biggest evaluation losses, most critical first. */
+export function criticalMoments(report: GameReport, count = 3): number[] {
+  return report.reviews
+    .map((r, i) => ({ i, cpl: r.cpl, critical: CRITICAL_CLASSES.includes(r.classification) }))
+    .filter((r) => r.critical || r.cpl >= 100)
+    .sort((a, b) => b.cpl - a.cpl)
+    .slice(0, count)
+    .map((r) => r.i);
 }
 
 /** Graph helper: normalize a white-perspective eval to [0,1] for the chart. */

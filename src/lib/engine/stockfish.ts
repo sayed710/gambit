@@ -7,6 +7,15 @@ import type { Level } from './engine';
  * If the worker fails to load, callers fall back to the bundled local engine.
  */
 
+export interface SFLine {
+  multipv: number;
+  cp: number | null;
+  mate: number | null;
+  depth: number;
+  san: string | null;
+  pvSan: string[];
+}
+
 export interface SFSearchResult {
   /** chosen move in UCI, e.g. "e2e4" or "e7e8q" */
   bestmove: string | null;
@@ -19,6 +28,8 @@ export interface SFSearchResult {
   san: string | null;
   /** engine's best line in SAN (up to a few plies) */
   pvSan: string[];
+  /** all collected lines, sorted by MultiPV rank (length 1 unless MultiPV was requested) */
+  lines: SFLine[];
 }
 
 const ENGINE_PATH = '/stockfish/stockfish-18-lite-single.js';
@@ -185,6 +196,10 @@ export interface SFOptions {
   /** fixed depth (used by analysis); overrides the level's depth when given */
   depth?: number;
   movetime?: number;
+  /** request this many MultiPV lines */
+  multipv?: number;
+  /** full-strength search: skill 20, no low-level sampling */
+  fullStrength?: boolean;
 }
 
 /** Run one Stockfish search. Resolves with the chosen move + final score. */
@@ -197,7 +212,9 @@ export async function sfSearch(fen: string, opts: SFOptions = {}): Promise<SFSea
         const cfg = SF_LEVELS[level];
         const depth = opts.depth ?? cfg.depth;
         const movetime = opts.movetime ?? cfg.movetime;
-        const useMulti = cfg.multipv > 1;
+        const multipv = opts.multipv ?? cfg.multipv;
+        const fullStrength = opts.fullStrength ?? false;
+        const useMulti = multipv > 1;
 
         let sentGo = false;
         const done = (result: SFSearchResult) => {
@@ -215,7 +232,7 @@ export async function sfSearch(fen: string, opts: SFOptions = {}): Promise<SFSea
             // pick from MultiPV candidates on low levels
             let chosenUci = bestmoveUci;
             let chosen = best.get(1) ?? null;
-            if (useMulti && best.size > 1) {
+            if (useMulti && best.size > 1 && !fullStrength) {
               const entries = [...best.entries()].sort((a, b) => a[0] - b[0]).map(([, v]) => v);
               const pick = pickWeighted(entries, cfg.weights);
               if (pick && pick.pv[0]) {
@@ -224,6 +241,16 @@ export async function sfSearch(fen: string, opts: SFOptions = {}): Promise<SFSea
               }
             }
             const san = chosenUci ? uciToSan(fen, chosenUci) : null;
+            const lines: SFLine[] = [...best.entries()]
+              .sort((a, b) => a[0] - b[0])
+              .map(([mpv, info]) => ({
+                multipv: mpv,
+                cp: info.cp,
+                mate: info.mate,
+                depth: info.depth,
+                san: pvToSan(fen, info.pv.slice(0, 1))[0] ?? null,
+                pvSan: pvToSan(fen, info.pv, 10),
+              }));
             done({
               bestmove: chosenUci ?? bestmoveUci,
               cp: chosen?.cp ?? null,
@@ -231,6 +258,7 @@ export async function sfSearch(fen: string, opts: SFOptions = {}): Promise<SFSea
               depth: chosen?.depth ?? 0,
               san,
               pvSan: chosen ? pvToSan(fen, chosen.pv) : [],
+              lines,
             });
             return;
           }
@@ -240,8 +268,8 @@ export async function sfSearch(fen: string, opts: SFOptions = {}): Promise<SFSea
         };
 
         listeners.add(onLine);
-        send('setoption name MultiPV value ' + (useMulti ? cfg.multipv : 1));
-        send('setoption name Skill Level value ' + cfg.skill);
+        send('setoption name MultiPV value ' + (useMulti ? multipv : 1));
+        send('setoption name Skill Level value ' + (fullStrength ? 20 : cfg.skill));
         send('position fen ' + fen);
         sentGo = true;
         send(`go depth ${depth} movetime ${movetime}`);

@@ -8,6 +8,7 @@ interface PuzzleStats {
   solved: number;
   failed: number;
   bestStreak: number;
+  byTheme?: Record<string, { solved: number; failed: number }>;
 }
 
 interface ProfileData {
@@ -31,7 +32,9 @@ const DEFAULT_PROFILE: ProfileData = {
 interface ProfileContextValue {
   profile: ProfileData;
   recordGame: (record: GameRecord) => void;
-  recordPuzzle: (solved: boolean, puzzleRating: number, streak: number) => void;
+  recordPuzzle: (solved: boolean, puzzleRating: number, streak: number, theme?: string) => void;
+  deleteGame: (id: string) => void;
+  togglePin: (id: string) => void;
   resetAll: () => void;
 }
 
@@ -57,7 +60,7 @@ export function ProfileProvider({ children }: { children: ReactNode }) {
     });
   }, []);
 
-  const recordPuzzle = useCallback((solved: boolean, puzzleRating: number, streak: number) => {
+  const recordPuzzle = useCallback((solved: boolean, puzzleRating: number, streak: number, theme?: string) => {
     setProfile((p) => {
       // Elo-style update vs the puzzle's rating
       const expected = 1 / (1 + 10 ** ((puzzleRating - p.puzzle.rating) / 400));
@@ -70,16 +73,36 @@ export function ProfileProvider({ children }: { children: ReactNode }) {
           solved: p.puzzle.solved + (solved ? 1 : 0),
           failed: p.puzzle.failed + (solved ? 0 : 1),
           bestStreak: Math.max(p.puzzle.bestStreak, streak),
+          byTheme: theme
+            ? {
+                ...p.puzzle.byTheme,
+                [theme]: {
+                  solved: (p.puzzle.byTheme?.[theme]?.solved ?? 0) + (solved ? 1 : 0),
+                  failed: (p.puzzle.byTheme?.[theme]?.failed ?? 0) + (solved ? 0 : 1),
+                },
+              }
+            : p.puzzle.byTheme,
         },
       };
     });
+  }, []);
+
+  const deleteGame = useCallback((id: string) => {
+    setProfile((p) => ({ ...p, games: p.games.filter((g) => g.id !== id) }));
+  }, []);
+
+  const togglePin = useCallback((id: string) => {
+    setProfile((p) => ({
+      ...p,
+      games: p.games.map((g) => (g.id === id ? { ...g, pinned: !g.pinned } : g)),
+    }));
   }, []);
 
   const resetAll = useCallback(() => {
     setProfile({ ...DEFAULT_PROFILE, joined: Date.now() });
   }, []);
 
-  const value = useMemo(() => ({ profile, recordGame, recordPuzzle, resetAll }), [profile, recordGame, recordPuzzle, resetAll]);
+  const value = useMemo(() => ({ profile, recordGame, recordPuzzle, deleteGame, togglePin, resetAll }), [profile, recordGame, recordPuzzle, deleteGame, togglePin, resetAll]);
   return <ProfileContext.Provider value={value}>{children}</ProfileContext.Provider>;
 }
 

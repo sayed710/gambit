@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import type { Square } from 'chess.js';
 import GameBoard from '../components/GameBoard';
@@ -18,7 +18,8 @@ import type { Color, GameConfig, GameRecord } from '../lib/types';
 import { loadJSON, saveJSON, removeKey } from '../lib/storage';
 import { playSound } from '../lib/sound';
 import type { SavedGame } from '../hooks/useGame';
-import { FlagIcon, FlipIcon, LightbulbIcon, PlusIcon, RobotIcon, UndoIcon, UsersIcon, XIcon } from '../components/Icons';
+import { identifyOpening } from '../lib/openings';
+import { FlagIcon, FlipIcon, LightbulbIcon, PlayIcon, PlusIcon, RobotIcon, UndoIcon, UsersIcon, XIcon } from '../components/Icons';
 
 /** Storage key for a game in progress, so a reload never loses a played game. */
 const ACTIVE_GAME_KEY = 'activeGame';
@@ -250,6 +251,8 @@ function GameScreen({
 
   const [recordId, setRecordId] = useState<string | null>(null);
   const [orientation, setOrientation] = useState<'white' | 'black'>(playerColor === 'b' ? 'black' : 'white');
+  const [zen, setZen] = useState(false);
+  const boardFrameRef = useRef<HTMLDivElement>(null);
   const [hintArrow, setHintArrow] = useState<{ startSquare: string; endSquare: string; color: string }[]>([]);
   const [confirm, setConfirm] = useState<null | 'resign' | 'draw' | 'exit'>(null);
 
@@ -343,6 +346,8 @@ function GameScreen({
     onMoveCommitted: () => setHintArrow([]),
   });
 
+  const opening = useMemo(() => identifyOpening(getMoves()), [getMoves, fen, plies.length]);
+
   const handleDrop = useCallback(
     (from: Square, to: Square) => {
       if (!humanTurn) return false;
@@ -379,6 +384,25 @@ function GameScreen({
       toast(`Engine suggests ${result.san}`);
     }
   }, [engine, fen, over, humanTurn, toast, settings.resolvedTheme]);
+
+  const toggleFullscreen = useCallback(() => {
+    const el = boardFrameRef.current;
+    if (!el) return;
+    if (document.fullscreenElement) void document.exitFullscreen();
+    else void el.requestFullscreen().catch(() => {});
+  }, []);
+
+  // keyboard shortcuts: f flip · z zen · h hint
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement | null;
+      if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA')) return;
+      if (e.key === 'f' || e.key === 'F') setOrientation((o) => (o === 'white' ? 'black' : 'white'));
+      if (e.key === 'z' || e.key === 'Z') setZen((v) => !v);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
 
   const doResign = useCallback(() => {
     setConfirm(null);
@@ -437,7 +461,7 @@ function GameScreen({
               : 'Engine to move';
 
   return (
-    <div className="page container" style={{ paddingBottom: '2.5rem' }}>
+    <div className={`page container${zen ? ' zen-on' : ''}`}>
       <div className="game-layout">
         <div>
           <PlayerBar
@@ -456,7 +480,13 @@ function GameScreen({
             clockHidden={unlimited}
           />
 
-          <div style={{ marginTop: '0.4rem', marginBottom: '0.4rem' }}>
+          {opening && !zen && (
+            <div className="opening-tag mono" style={{ marginBottom: '0.4rem' }} title={`ECO ${opening.eco}`}>
+              {opening.eco} · {opening.name}
+            </div>
+          )}
+
+          <div ref={boardFrameRef} style={{ marginTop: '0.2rem', marginBottom: '0.4rem' }}>
             <GameBoard
               boardId={`game-${config.timeControl.id.replace(/[^a-zA-Z0-9-]/g, '')}`}
               fen={fen}
@@ -491,6 +521,18 @@ function GameScreen({
             isTurn={turn === bottomColor && !over}
             clockHidden={unlimited}
           />
+
+          <div className="board-under" style={{ marginTop: '0.5rem' }}>
+            <span className="board-hint">Drag or tap to move · F flip · Z zen</span>
+            <span className="row" style={{ gap: '0.4rem' }}>
+              <button className="icon-btn" onClick={() => setZen((v) => !v)} aria-pressed={zen} title="Zen mode (Z)">
+                <XIcon />
+              </button>
+              <button className="icon-btn" onClick={toggleFullscreen} title="Fullscreen board">
+                <PlayIcon />
+              </button>
+            </span>
+          </div>
 
           <div className={`status-banner mt-2${checkInfo && !over ? ' check' : ''}`} role="status">
             {statusText}

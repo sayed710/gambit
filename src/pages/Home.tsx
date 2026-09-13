@@ -63,16 +63,20 @@ function OperaBoard() {
 
 const FEATURES = [
   {
-    title: 'An opponent at your tempo',
-    body: 'Four engine strengths, from gentle to genuinely sharp, each with a rating you can climb. The engine thinks in a worker thread — the board never stutters, the clock never lies.',
+    title: 'Stockfish, at your tempo',
+    body: 'Stockfish 18 runs at four strengths, from gentle to genuinely sharp, each with a rating you can climb. The engine thinks in a worker thread — the board never stutters, the clock never lies.',
   },
   {
-    title: 'Real chess, real clocks',
-    body: 'Bullet to classical with increments, take-backs, resign and draw offers, promotion pickers, and every rule handled — en passant included. The board flips to whoever is thinking.',
+    title: 'A workspace, not a widget',
+    body: 'Bullet to classical clocks with increments, an analysis board for any FEN or PGN, opening identification as you play, and a zen mode when you just want the pieces.',
   },
   {
-    title: 'Puzzles and honest review',
-    body: 'Mate-in-one trainers generated from real positions, then replay your games move by move with an evaluation bar and the engine’s preferred move at every step.',
+    title: 'Reviews that teach',
+    body: 'Every finished game gets a full report: accuracies, move classifications from Book to Brilliant, the evaluation graph, and one-click jumps to the moments that decided the game.',
+  },
+  {
+    title: 'Training that adapts',
+    body: 'Mate-in-one to discovered attacks — every puzzle is generated and mechanically verified in your browser, filtered by theme, scored by streak, and stored only on your machine.',
   },
 ];
 
@@ -83,11 +87,11 @@ export default function Home() {
         <div className="hero">
           <div>
             <h1>
-              A quiet place to <em>play chess</em>.
+              Chess, played on <em>thin ice</em>.
             </h1>
             <p className="lede">
-              Gambit gives you a beautiful board, a thoughtful engine, honest clocks and a review bench — and then gets
-              out of your way. Free, in your browser, no account.
+              Gambit pairs Stockfish with a calm, arctic-clean interface: honest clocks, a full analysis board, and game
+              reviews that teach. Free, in your browser, no account.
             </p>
             <div className="cta">
               <Link to="/play" className="btn btn-primary btn-lg">

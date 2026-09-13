@@ -22,11 +22,13 @@ function ThemeToggle() {
   );
 }
 
-const BOARD_SWATCHES: { id: 'walnut' | 'forest' | 'slate' | 'ink'; label: string; light: string; dark: string }[] = [
-  { id: 'walnut', label: 'Walnut', light: '#efe3cb', dark: '#9a6b45' },
-  { id: 'forest', label: 'Forest', light: '#ecead4', dark: '#6f8f57' },
-  { id: 'slate', label: 'Slate', light: '#d9dcdf', dark: '#5c6773' },
-  { id: 'ink', label: 'Ink', light: '#c9c4b4', dark: '#4f4a40' },
+const BOARD_SWATCHES: { id: 'glacier' | 'frost' | 'polar' | 'walnut' | 'tundra' | 'aurora'; label: string; light: string; dark: string }[] = [
+  { id: 'glacier', label: 'Glacier', light: '#dce9f2', dark: '#5d84a0' },
+  { id: 'frost', label: 'Frost', light: '#eef3f6', dark: '#a8bfd0' },
+  { id: 'polar', label: 'Polar', light: '#31465c', dark: '#17222f' },
+  { id: 'walnut', label: 'Walnut', light: '#e8dcc8', dark: '#9a6b45' },
+  { id: 'tundra', label: 'Tundra', light: '#e6ebe4', dark: '#6f8f7a' },
+  { id: 'aurora', label: 'Aurora', light: '#2a2f45', dark: '#171b2b' },
 ];
 
 function SettingsModal({ onClose }: { onClose: () => void }) {
@@ -97,6 +99,30 @@ function SettingsModal({ onClose }: { onClose: () => void }) {
           <label className="check-row">
             <input
               type="checkbox"
+              checked={settings.showCoordinates}
+              onChange={(e) => settings.set('showCoordinates', e.target.checked)}
+            />
+            Show board coordinates
+          </label>
+          <div className="field">
+            <label>Piece animation</label>
+            <div className="seg" role="radiogroup" aria-label="Animation speed">
+              {(['slow', 'normal', 'fast', 'off'] as const).map((a) => (
+                <button
+                  key={a}
+                  role="radio"
+                  aria-checked={settings.animationSpeed === a}
+                  className={settings.animationSpeed === a ? 'on' : ''}
+                  onClick={() => settings.set('animationSpeed', a)}
+                >
+                  {a[0].toUpperCase() + a.slice(1)}
+                </button>
+              ))}
+            </div>
+          </div>
+          <label className="check-row">
+            <input
+              type="checkbox"
               checked={settings.confirmResign}
               onChange={(e) => settings.set('confirmResign', e.target.checked)}
             />
@@ -115,6 +141,7 @@ function SettingsModal({ onClose }: { onClose: () => void }) {
 
 const NAV = [
   { to: '/play', label: 'Play' },
+  { to: '/analysis', label: 'Analysis' },
   { to: '/puzzles', label: 'Puzzles' },
   { to: '/profile', label: 'Profile' },
 ];

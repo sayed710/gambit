@@ -3,11 +3,11 @@ import { Chess } from 'chess.js';
 import type { Square } from 'chess.js';
 import GameBoard from '../components/GameBoard';
 import { PUZZLES } from '../data/puzzles';
-import type { PuzzleRecord } from '../lib/types';
+import type { PuzzleRecord, PuzzleTheme } from '../lib/types';
 import { useProfile } from '../state/ProfileContext';
 import { playSound } from '../lib/sound';
 import { useClickToMove } from '../hooks/useClickToMove';
-import { ArrowRight, LightbulbIcon, PlayIcon } from '../components/Icons';
+import { ArrowRight, LightbulbIcon, PlayIcon, RetryIcon } from '../components/Icons';
 
 type Phase = 'solving' | 'solved' | 'failed';
 
@@ -17,24 +17,50 @@ interface Session {
   streak: number;
 }
 
-function shuffle(n: number): number[] {
-  const arr = Array.from({ length: n }, (_, i) => i);
-  for (let i = arr.length - 1; i > 0; i--) {
+export const THEME_LABELS: Record<PuzzleTheme, string> = {
+  mate1: 'Mate in 1',
+  mate2: 'Mate in 2',
+  fork: 'Forks',
+  skewer: 'Skewers',
+  pin: 'Pins',
+  hanging: 'Free pieces',
+  discovered: 'Discovered attacks',
+};
+
+const ALL_THEMES: PuzzleTheme[] = [...new Set<string>(PUZZLES.map((p) => p.theme))].sort() as PuzzleTheme[];
+
+function shuffle(arr: number[]): number[] {
+  const a = [...arr];
+  for (let i = a.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1));
-    [arr[i], arr[j]] = [arr[j], arr[i]];
+    [a[i], a[j]] = [a[j], a[i]];
   }
-  return arr;
+  return a;
 }
 
 export default function Puzzles() {
   const { profile, recordPuzzle } = useProfile();
-  const [session, setSession] = useState<Session>(() => ({ order: shuffle(PUZZLES.length), index: 0, streak: 0 }));
+  const [theme, setTheme] = useState<PuzzleTheme | 'all'>('all');
+  const pool = useMemo(() => PUZZLES.filter((p) => theme === 'all' || p.theme === theme), [theme]);
+
+  const [session, setSession] = useState<Session>(() => ({ order: shuffle(PUZZLES.map((_, i) => i)), index: 0, streak: 0 }));
   const [phase, setPhase] = useState<Phase>('solving');
   const [attempted, setAttempted] = useState(false);
   const [hintSquare, setHintSquare] = useState<Square | null>(null);
   const [wrongMove, setWrongMove] = useState<Square | null>(null);
 
-  const puzzle: PuzzleRecord = PUZZLES[session.order[session.index] % PUZZLES.length];
+  // rebuild the session whenever the theme filter changes
+  useEffect(() => {
+    const indices = pool.map((p) => PUZZLES.indexOf(p));
+    setSession({ order: shuffle(indices), index: 0, streak: 0 });
+    setPhase('solving');
+    setAttempted(false);
+    setHintSquare(null);
+    setWrongMove(null);
+  }, [pool]);
+
+  const puzzleIndex = session.order[session.index] ?? 0;
+  const puzzle: PuzzleRecord = PUZZLES[puzzleIndex] ?? PUZZLES[0];
   const puzzleRating = useMemo(() => 900 + puzzle.difficulty * 35, [puzzle]);
 
   const game = useMemo(() => {
@@ -44,7 +70,11 @@ export default function Puzzles() {
       return new Chess();
     }
   }, [puzzle.fen]);
-  const solutionMove = useMemo(() => game.moves({ verbose: true }).find((m) => m.san === puzzle.solution) ?? null, [game, puzzle.solution]);
+  const norm = (san: string) => san.replace(/[+#]/g, '');
+  const solutionMove = useMemo(
+    () => game.moves({ verbose: true }).find((m) => norm(m.san) === norm(puzzle.solution)) ?? null,
+    [game, puzzle.solution],
+  );
 
   const [liveFen, setLiveFen] = useState(game.fen());
   const [lastMove, setLastMove] = useState<{ from: Square; to: Square } | null>(null);
@@ -64,30 +94,36 @@ export default function Puzzles() {
     setSession((s) => ({ ...s, index: (s.index + 1) % s.order.length }));
   }, []);
 
+  const retryPuzzle = useCallback(() => {
+    setPhase('solving');
+    setAttempted(false);
+    setHintSquare(null);
+    setLiveFen(game.fen());
+    setLastMove(null);
+  }, [game]);
+
   const fail = useCallback(() => {
     if (phase !== 'solving' || attempted) return;
     setPhase('failed');
     playSound('lose');
-    recordPuzzle(false, puzzleRating, session.streak);
+    recordPuzzle(false, puzzleRating, session.streak, puzzle.theme);
     setSession((s) => ({ ...s, streak: 0 }));
-  }, [phase, attempted, recordPuzzle, puzzleRating, session.streak]);
+  }, [phase, attempted, recordPuzzle, puzzleRating, session.streak, puzzle.theme]);
 
   const succeed = useCallback(() => {
     setPhase('solved');
     playSound('promote');
     const newStreak = session.streak + 1;
-    recordPuzzle(true, puzzleRating, newStreak);
+    recordPuzzle(true, puzzleRating, newStreak, puzzle.theme);
     setSession((s) => ({ ...s, streak: newStreak }));
-    window.setTimeout(() => nextPuzzle(), 2400);
-  }, [nextPuzzle, recordPuzzle, puzzleRating, session.streak]);
+  }, [recordPuzzle, puzzleRating, session.streak, puzzle.theme]);
 
   const handleMove = useCallback(
     (from: Square, to: Square) => {
       if (!movable) return false;
       const g = new Chess(liveFen);
       const candidates = g.moves({ verbose: true }).filter((m) => m.from === from && m.to === to);
-      // for promotions prefer the under-promotion when it is the actual solution
-      const legal = candidates.find((m) => m.san === puzzle.solution) ?? candidates[0];
+      const legal = candidates.find((m) => norm(m.san) === norm(puzzle.solution)) ?? candidates[0];
       if (!legal) return false;
       if (legal.san === puzzle.solution) {
         g.move(legal);
@@ -96,7 +132,6 @@ export default function Puzzles() {
         succeed();
         return true;
       }
-      // wrong try — flash the attempted move, then reset the board
       setAttempted(true);
       playSound('illegal');
       setWrongMove(to);
@@ -128,111 +163,169 @@ export default function Puzzles() {
   }, [solutionMove, phase, fail, liveFen, game]);
 
   const sideName = puzzle.sideToMove === 'w' ? 'White' : 'Black';
+  const explanation = useMemo(() => {
+    switch (puzzle.theme) {
+      case 'mate1':
+        return `${puzzle.solution} delivers checkmate immediately.`;
+      case 'mate2':
+        return `${puzzle.solution} forces mate on the next move — every defence collapses.`;
+      case 'fork':
+        return `${puzzle.solution} attacks two enemy pieces at once — only one can be saved.`;
+      case 'skewer':
+        return `${puzzle.solution} hits a piece that must move, exposing a more valuable one behind it.`;
+      case 'pin':
+        return `${puzzle.solution} pins a defender to the king — it is frozen in place.`;
+      case 'hanging':
+        return `${puzzle.solution} wins material outright: the target was undefended.`;
+      case 'discovered':
+        return `${puzzle.solution} clears the way for another piece's attack — a discovered strike.`;
+      default:
+        return '';
+    }
+  }, [puzzle]);
+
+  const ask = puzzle.theme.startsWith('mate')
+    ? `mate ${puzzle.theme === 'mate1' ? 'in one' : 'in two'}`
+    : THEME_LABELS[puzzle.theme].toLowerCase().replace(/s$/, '');
 
   return (
     <div className="page container">
       <div className="page-head">
-        <h1>Mate in one</h1>
+        <h1>Puzzle training</h1>
         <p className="sub">
-          Every puzzle is generated and verified in the browser — one move ends the game. Find it. A wrong first try
-          counts as a miss, so look before you leap.
+          Generated and verified in-browser — every solution is mechanically checked against its theme. One wrong try
+          counts as a miss.
         </p>
       </div>
 
-      <div className="puzzle-layout">
-        <div>
-          <div className={`status-banner mb-2${phase === 'failed' ? ' check' : ''}`} role="status">
-            {phase === 'solving' && (
-              <>
-                {sideName} to play — <strong>mate in one</strong>.
-                <button
-                  className="btn btn-ghost btn-sm"
-                  style={{ marginLeft: 'auto' }}
-                  onClick={() => solutionMove && setHintSquare(solutionMove.from)}
-                >
-                  <LightbulbIcon /> Hint
-                </button>
-              </>
-            )}
-            {phase === 'solved' && <>Checkmate — well spotted. Loading the next puzzle…</>}
-            {phase === 'failed' && (
-              <>
-                Missed. The answer was <strong className="mono">{puzzle.solution}</strong>.
-                <button className="btn btn-ghost btn-sm" style={{ marginLeft: 'auto' }} onClick={nextPuzzle}>
-                  Next puzzle <ArrowRight />
-                </button>
-              </>
-            )}
-          </div>
-
-          <div
-            style={{
-              transform: wrongMove ? 'translateX(0)' : undefined,
-              animation: wrongMove ? 'shake 0.35s ease' : undefined,
-            }}
-          >
-            <GameBoard
-              boardId={`puzzle-${puzzle.id}`}
-              fen={liveFen}
-              orientation={puzzle.sideToMove === 'w' ? 'white' : 'black'}
-              lastMove={lastMove}
-              movableColor={movable ? puzzle.sideToMove : null}
-              onDrop={handleMove}
-              onSquareClick={click.onSquareClick}
-              selected={click.selected || hintSquare}
-              legalTargets={click.legalTargets}
-            />
-          </div>
-          <style>{`@keyframes shake { 0%,100%{transform:translateX(0)} 25%{transform:translateX(-6px)} 75%{transform:translateX(6px)} }`}</style>
-        </div>
-
-        <aside className="puzzle-side">
-          <div className="panel panel-pad">
-            <div className="section-label">Session</div>
-            <div className="row between">
-              <div className="streak">
-                {session.streak}
-                <small>current streak</small>
-              </div>
-              <div className="right small muted" style={{ textAlign: 'right' }}>
-                Puzzle {session.index + 1} of {PUZZLES.length}
-                <br />
-                best streak {profile.puzzle.bestStreak}
-              </div>
-            </div>
-          </div>
-
-          <div className="panel panel-pad">
-            <div className="section-label">Puzzle rating</div>
-            <div className="row between">
-              <span className="mono" style={{ fontSize: '1.4rem', fontWeight: 700 }}>
-                {Math.round(profile.puzzle.rating)}
-              </span>
-              <span className="small muted">
-                solved {profile.puzzle.solved} · missed {profile.puzzle.failed}
-              </span>
-            </div>
-            <div className="small muted mt-1">
-              Solving harder puzzles (more pieces, quieter positions) pushes your number up; misses pull it back.
-            </div>
-          </div>
-
-          <div className="row wrap" style={{ gap: '0.5rem' }}>
-            <button className="btn btn-ghost btn-sm" onClick={showSolution}>
-              Show solution
-            </button>
-            <button className="btn btn-ghost btn-sm" onClick={nextPuzzle}>
-              Skip <ArrowRight />
-            </button>
-            <button
-              className="btn btn-ghost btn-sm"
-              onClick={() => setSession({ order: shuffle(PUZZLES.length), index: 0, streak: 0 })}
-            >
-              <PlayIcon /> New set
-            </button>
-          </div>
-        </aside>
+      <div className="theme-chips mb-2" role="group" aria-label="Puzzle themes">
+        <button className={`theme-chip${theme === 'all' ? ' on' : ''}`} onClick={() => setTheme('all')}>
+          All ({PUZZLES.length})
+        </button>
+        {ALL_THEMES.map((t) => (
+          <button key={t} className={`theme-chip${theme === t ? ' on' : ''}`} onClick={() => setTheme(t)}>
+            {THEME_LABELS[t]} ({PUZZLES.filter((p) => p.theme === t).length})
+          </button>
+        ))}
       </div>
+
+      {pool.length === 0 || session.order.length === 0 ? (
+        <div className="empty-state">
+          <p>No puzzles for this theme yet — run the generator with different targets.</p>
+        </div>
+      ) : (
+        <div className="puzzle-layout">
+          <div>
+            <div className={`status-banner mb-2${phase === 'failed' ? ' check' : ''}`} role="status">
+              {phase === 'solving' && (
+                <>
+                  {sideName} to play — <strong>{ask}</strong>.
+                  <button
+                    className="btn btn-ghost btn-sm"
+                    style={{ marginLeft: 'auto' }}
+                    onClick={() => solutionMove && setHintSquare(solutionMove.from)}
+                  >
+                    <LightbulbIcon /> Hint
+                  </button>
+                </>
+              )}
+              {phase === 'solved' && <>Solved — {explanation}</>}
+              {phase === 'failed' && (
+                <>
+                  Missed.{' '}
+                  <span>
+                    {explanation.replace(puzzle.solution, '')}
+                    <strong className="mono">{puzzle.solution}</strong> was the move.
+                  </span>
+                </>
+              )}
+            </div>
+
+            <div style={{ animation: wrongMove ? 'pop-in 0.2s ease' : undefined }}>
+              <GameBoard
+                boardId={`puzzle-${puzzle.id}`}
+                fen={liveFen}
+                orientation={puzzle.sideToMove === 'w' ? 'white' : 'black'}
+                lastMove={lastMove}
+                movableColor={movable ? puzzle.sideToMove : null}
+                onDrop={handleMove}
+                onSquareClick={click.onSquareClick}
+                selected={click.selected || hintSquare}
+                legalTargets={click.legalTargets}
+              />
+            </div>
+          </div>
+
+          <aside className="puzzle-side">
+            <div className="panel panel-pad">
+              <div className="section-label">Session</div>
+              <div className="row between">
+                <div className="streak">
+                  {session.streak}
+                  <small>current streak</small>
+                </div>
+                <div className="right small muted">
+                  Puzzle {session.index + 1} of {session.order.length}
+                  <br />
+                  best streak {profile.puzzle.bestStreak}
+                </div>
+              </div>
+            </div>
+
+            <div className="panel panel-pad">
+              <div className="section-label">Puzzle rating</div>
+              <div className="row between">
+                <span className="mono" style={{ fontSize: '1.4rem', fontWeight: 700 }}>
+                  {Math.round(profile.puzzle.rating)}
+                </span>
+                <span className="small muted">
+                  solved {profile.puzzle.solved} · missed {profile.puzzle.failed}
+                </span>
+              </div>
+            </div>
+
+            <div className="panel panel-pad">
+              <div className="section-label">By theme</div>
+              <div className="col" style={{ gap: '0.3rem' }}>
+                {ALL_THEMES.map((t) => {
+                  const st = profile.puzzle.byTheme?.[t] ?? { solved: 0, failed: 0 };
+                  const total = st.solved + st.failed;
+                  return (
+                    <div key={t} className="row between small">
+                      <span className="muted">{THEME_LABELS[t]}</span>
+                      <span className="mono">
+                        {st.solved}/{total}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div className="row wrap" style={{ gap: '0.5rem' }}>
+              {phase === 'failed' && (
+                <button className="btn btn-ghost btn-sm" onClick={retryPuzzle}>
+                  <RetryIcon /> Retry
+                </button>
+              )}
+              <button className="btn btn-ghost btn-sm" onClick={showSolution}>
+                Show solution
+              </button>
+              <button className="btn btn-ghost btn-sm" onClick={nextPuzzle}>
+                Skip <ArrowRight />
+              </button>
+              <button
+                className="btn btn-ghost btn-sm"
+                onClick={() =>
+                  setSession({ order: shuffle(pool.map((p) => PUZZLES.indexOf(p))), index: 0, streak: 0 })
+                }
+              >
+                <PlayIcon /> New set
+              </button>
+            </div>
+          </aside>
+        </div>
+      )}
     </div>
   );
 }

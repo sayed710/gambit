@@ -13,6 +13,8 @@ import { ChevronLeft, ChevronRight, XIcon } from '../components/Icons';
 import type { GameReport, MoveClass, PlyEval } from '../lib/review';
 import { CLASSIFICATION_META, evalToUnit } from '../lib/review';
 import { runGameAnalysis, plyEvalFromEngineResult } from '../lib/reviewRunner';
+import { criticalMoments } from '../lib/review';
+import { identifyOpening } from '../lib/openings';
 import type { EvalResult } from '../lib/engine/engine';
 
 const ANALYSIS_DEPTH = 12;
@@ -51,6 +53,8 @@ export default function Review() {
   const [plyIndex, setPlyIndex] = useState(plies.length); // 0 = start
   const [report, setReport] = useState<GameReport | null>(null);
   const [analysis, setAnalysis] = useState<{ done: number; total: number } | null>(null);
+  const opening = useMemo(() => (record ? identifyOpening(record.moves) : null), [record]);
+  const criticalPlys = useMemo(() => (report ? criticalMoments(report, 99).sort((a, b) => a - b) : []), [report]);
   const [analyzing, setAnalyzing] = useState(false);
   const runTokenRef = useRef(0); // increments per run; stale runs self-abort
 
@@ -157,16 +161,27 @@ export default function Review() {
     [plies.length],
   );
 
+  const jumpToCritical = useCallback(
+    (dir: 1 | -1) => {
+      if (criticalPlys.length === 0) return;
+      const next = dir === 1 ? criticalPlys.find((p) => p >= plyIndex) : [...criticalPlys].reverse().find((p) => p < plyIndex - 1);
+      setPlyIndex(dir === 1 ? (next ?? plies.length) : (next ?? 0) + 1);
+    },
+    [criticalPlys, plyIndex, plies.length],
+  );
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'ArrowLeft') step(-1);
       if (e.key === 'ArrowRight') step(1);
       if (e.key === 'Home') setPlyIndex(0);
       if (e.key === 'End') setPlyIndex(plies.length);
+      if (e.key === '[') jumpToCritical(-1);
+      if (e.key === ']') jumpToCritical(1);
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [step, plies.length]);
+  }, [step, plies.length, jumpToCritical]);
 
   if (!record) {
     return (
@@ -184,6 +199,11 @@ export default function Review() {
   }
 
   const resultBadge = record.result === 'win' ? 'Win' : record.result === 'loss' ? 'Loss' : 'Draw';
+  const classificationIconHint = (ply: number) => {
+    const r = report?.reviews[ply];
+    if (!r) return '';
+    return ` (${CLASSIFICATION_META[r.classification].label.toLowerCase()} now: ${r.san})`;
+  };
   const orientation = record.playerColor === 'b' ? 'black' : 'white';
   const youAreWhite = record.playerColor === 'w';
   const acc = report?.accuracy;
@@ -261,7 +281,14 @@ export default function Review() {
 
         <aside className="col" style={{ gap: '0.9rem' }}>
           <div className="panel panel-pad">
-            <div className="section-label">Game report</div>
+            <div className="section-label">
+              Game report
+              {opening && (
+                <span className="opening-tag mono" title={`${opening.eco} — ${opening.name}`}>
+                  {opening.eco} · {opening.name}
+                </span>
+              )}
+            </div>
             {!report ? (
               <p className="small muted m-0">
                 {analyzing
@@ -318,16 +345,50 @@ export default function Review() {
               markers={report?.reviews.map((r) => r.classification)}
             />
             {currentReview && (
-              <p className="small mt-1" style={{ marginBottom: 0 }}>
-                <span className="report-dot" style={{ background: CLASSIFICATION_META[currentReview.classification].color }} />{' '}
-                <strong>{CLASSIFICATION_META[currentReview.classification].label}</strong> — {currentReview.san} loses{' '}
-                {(currentReview.cpl / 100).toFixed(2)} pawns of engine value.
-              </p>
+              <div className="small mt-1" style={{ marginBottom: 0 }}>
+                <p style={{ marginBottom: '0.3rem' }}>
+                  <span className="report-dot" style={{ background: CLASSIFICATION_META[currentReview.classification].color }} />{' '}
+                  <strong>{CLASSIFICATION_META[currentReview.classification].label}</strong> — {currentReview.san}{' '}
+                  {currentReview.classification === 'book'
+                    ? 'follows a known opening line.'
+                    : `costs ${(currentReview.cpl / 100).toFixed(2)} pawns of engine value.`}
+                </p>
+                {(() => {
+                  const before = report?.evals[plyIndex - 1] ?? null;
+                  if (!before?.bestSan || before.bestSan === currentReview.san) return null;
+                  return (
+                    <p style={{ margin: 0 }} className="muted">
+                      Stronger was <strong className="mono">{before.bestSan}</strong>
+                      {classificationIconHint(plyIndex - 1)}
+                    </p>
+                  );
+                })()}
+              </div>
             )}
             <div className="nav-steps">
               <button className="icon-btn" onClick={() => setPlyIndex(0)} aria-label="Go to start" disabled={plyIndex === 0}>
                 <ChevronLeft />
                 <ChevronLeft style={{ marginLeft: '-0.6rem' }} />
+              </button>
+              <button
+                className="icon-btn"
+                onClick={() => jumpToCritical(-1)}
+                aria-label="Previous mistake"
+                title="Previous mistake ( [ )"
+                disabled={criticalPlys.length === 0}
+              >
+                <ChevronLeft />
+                <span className="report-dot" style={{ background: 'var(--bad)', width: 6, height: 6, marginLeft: -6 }} />
+              </button>
+              <button
+                className="icon-btn"
+                onClick={() => jumpToCritical(1)}
+                aria-label="Next mistake"
+                title="Next mistake ( ] )"
+                disabled={criticalPlys.length === 0}
+              >
+                <span className="report-dot" style={{ background: 'var(--bad)', width: 6, height: 6, marginRight: -6 }} />
+                <ChevronRight />
               </button>
               <button className="icon-btn" onClick={() => step(-1)} aria-label="Previous move" disabled={plyIndex === 0}>
                 <ChevronLeft />

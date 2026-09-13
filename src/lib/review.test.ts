@@ -110,23 +110,58 @@ describe('buildReport', () => {
 
   it('never awards brilliant to an ordinary quiet move', () => {
     const g = new Chess();
-    const m = g.move('e4');
+    const m = g.move('g4'); // not in the opening book table
     const plies = [ply(m.san, m.from, m.to, m.after)];
-    const evals: (PlyEval | null)[] = [evalOf(30, 'e4'), evalOf(30)];
+    const evals: (PlyEval | null)[] = [evalOf(30, 'g4'), evalOf(30)];
     const report = buildReport(plies, evals);
     expect(report.reviews[0].classification).toBe('best');
     expect(report.counts.w.brilliant).toBe(0);
   });
 
-  it('computes accuracy per side from centipawn loss', () => {
+  it('classifies known opening moves as book and excludes them from accuracy', () => {
     const g = new Chess();
     const plies: Ply[] = [];
-    for (const san of ['e4', 'e5']) {
+    for (const san of ['e4', 'e5', 'Nf3']) {
       const m = g.move(san);
       plies.push(ply(m.san, m.from, m.to, m.after, m.color));
     }
-    // white perfect; black's e5 lets the eval swing from +30 to +60 (30cp loss)
-    const evals: (PlyEval | null)[] = [evalOf(0), evalOf(30, 'e4'), evalOf(60)];
+    const evals: (PlyEval | null)[] = plies.map((_, i) => evalOf(40 + i));
+    evals.push(evalOf(43));
+    const report = buildReport(plies, evals);
+    expect(report.reviews.map((r) => r.classification)).toEqual(['book', 'book', 'book']);
+    expect(report.counts.w.book).toBe(2);
+    expect(report.counts.b.book).toBe(1);
+    // book carries no accuracy signal: nothing was billed
+    expect(report.avgCpl.w).toBe(0);
+    expect(report.avgCpl.b).toBe(0);
+  });
+
+  it('labels a failure to punish an opponent blunder as a Miss', () => {
+    const g = new Chess();
+    const plies: Ply[] = [];
+    for (const san of ['g4', 'h5']) {
+      const m = g.move(san);
+      plies.push(ply(m.san, m.from, m.to, m.after, m.color));
+    }
+    // White played g4 (+40), Black replied h5 leaving White +160… then White
+    // "fails to punish": after White's next move the eval collapses to +20.
+    // (three plies so the Miss lands on White's second move)
+    const m3 = g.move('h4');
+    plies.push(ply(m3.san, m3.from, m3.to, m3.after));
+    const evals: (PlyEval | null)[] = [evalOf(20), evalOf(160, 'Nc3'), evalOf(160), evalOf(20)];
+    const report = buildReport(plies, evals);
+    expect(report.reviews[2].classification).toBe('miss');
+  });
+
+  it('computes accuracy per side from centipawn loss', () => {
+    const g = new Chess();
+    const plies: Ply[] = [];
+    for (const san of ['g4', 'h5']) {
+      const m = g.move(san);
+      plies.push(ply(m.san, m.from, m.to, m.after, m.color));
+    }
+    // white perfect; black's h5 lets the eval swing from +30 to +60 (30cp loss)
+    const evals: (PlyEval | null)[] = [evalOf(0), evalOf(30, 'g4'), evalOf(60)];
     const report = buildReport(plies, evals);
     expect(report.accuracy.w).toBeGreaterThan(95);
     expect(report.accuracy.b).toBeLessThan(accuracyFromCpl(30) + 1);

@@ -6,6 +6,7 @@ import Home from './pages/Home';
 import Play from './pages/Play';
 
 const Puzzles = lazy(() => import('./pages/Puzzles'));
+const Analysis = lazy(() => import('./pages/Analysis'));
 const Profile = lazy(() => import('./pages/Profile'));
 const Review = lazy(() => import('./pages/Review'));
 
@@ -15,6 +16,14 @@ export default function App() {
       <Route element={<Layout />}>
         <Route index element={<Home />} />
         <Route path="/play" element={<Play />} />
+        <Route
+          path="/analysis"
+          element={
+            <Suspense fallback={<PageLoading label="Loading analysis board…" />}>
+              <Analysis />
+            </Suspense>
+          }
+        />
         <Route
           path="/puzzles"
           element={

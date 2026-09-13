@@ -1,8 +1,13 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
-import type { BoardTheme, Theme } from '../lib/types';
+import type { Theme } from '../lib/types';
 import { loadJSON, saveJSON } from '../lib/storage';
 import { setSoundEnabled } from '../lib/sound';
+
+export type BoardTheme = 'glacier' | 'frost' | 'polar' | 'walnut' | 'tundra' | 'aurora';
+export type AnimationSpeed = 'slow' | 'normal' | 'fast' | 'off';
+
+export const ANIMATION_MS: Record<AnimationSpeed, number> = { slow: 320, normal: 180, fast: 90, off: 0 };
 
 interface Settings {
   theme: Theme | 'system';
@@ -10,15 +15,19 @@ interface Settings {
   soundOn: boolean;
   showLegalHints: boolean;
   confirmResign: boolean;
+  showCoordinates: boolean;
+  animationSpeed: AnimationSpeed;
   name: string;
 }
 
 const DEFAULTS: Settings = {
   theme: 'system',
-  boardTheme: 'walnut',
+  boardTheme: 'glacier',
   soundOn: true,
   showLegalHints: true,
   confirmResign: true,
+  showCoordinates: true,
+  animationSpeed: 'normal',
   name: 'You',
 };
 

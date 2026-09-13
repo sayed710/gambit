@@ -1,10 +1,16 @@
-# Gambit — a quiet place to play chess
+# Gambit — chess, played on thin ice
 
-A complete, client-only chess platform: play **Stockfish 18** or pass-and-play
-with real clocks, solve generated mate-in-one puzzles, and get a chess.com-style
-**game review** — accuracies, move classifications (Best/Inaccuracy/Mistake/
-Blunder…), and a full evaluation graph. No account, no server — everything runs
-in the browser and your profile lives in `localStorage`.
+A complete, client-only chess platform with an arctic-clean interface:
+
+- **Play** Stockfish 18 or pass-and-play with honest clocks, opening
+  identification, zen mode and a keyboard-friendly workspace
+- **Review** every finished game like the big platforms do — accuracies, move
+  classifications (Book → Brilliant), an evaluation graph, and one-click jumps
+  to the moments that decided the game
+- **Analysis board** for any FEN or PGN with MultiPV engine lines
+- **Puzzle training** across seven mechanically verified themes
+- No account, no server — everything runs in the browser and your profile
+  lives in `localStorage`.
 
 ![stack](https://img.shields.io/badge/React%2019-Vite%20%2B%20TypeScript-646cff) ![engine](https://img.shields.io/badge/Engine-Stockfish%2018%20WASM-81b64c)
 

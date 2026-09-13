@@ -2,7 +2,7 @@ import type { Square } from 'chess.js';
 
 export type Color = 'w' | 'b';
 export type Theme = 'light' | 'dark';
-export type BoardTheme = 'walnut' | 'forest' | 'slate' | 'ink';
+export type BoardTheme = 'glacier' | 'frost' | 'polar' | 'walnut' | 'tundra' | 'aurora';
 
 export type GameMode = 'ai' | 'pass';
 
@@ -39,7 +39,10 @@ export interface GameRecord {
   pgn: string;
   ratingBefore: number;
   ratingAfter: number;
+  pinned?: boolean;
 }
+
+export type PuzzleTheme = 'mate1' | 'mate2' | 'fork' | 'skewer' | 'pin' | 'hanging' | 'discovered';
 
 export interface PuzzleRecord {
   id: string;
@@ -49,6 +52,7 @@ export interface PuzzleRecord {
   mate: boolean;
   materialWin: number; // centipawns gained by solution, 0 for mate
   difficulty: number; // rough signal: piece count on the board
+  theme: PuzzleTheme;
 }
 
 export interface Ply {
