@@ -1,12 +1,11 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import { useLocation } from 'react-router-dom';
 import { Chess } from 'chess.js';
 import type { Square } from 'chess.js';
 import GameBoard from '../components/GameBoard';
 import EvalBar from '../components/EvalBar';
-import MoveList from '../components/MoveList';
 import { useEngine } from '../lib/engine/useEngine';
-import { importPgn, isValidFen, normalizeFen, copyText } from '../lib/pgn';
+import { isValidFen, normalizeFen, copyText } from '../lib/pgn';
 import { playSound } from '../lib/sound';
 import { useToast } from '../components/Toast';
 import { useClickToMove } from '../hooks/useClickToMove';
@@ -14,37 +13,47 @@ import { FlipIcon, XIcon } from '../components/Icons';
 import type { EvalResult } from '../lib/engine/engine';
 import type { SFLine } from '../lib/engine/stockfish';
 import { START_FEN } from '../lib/chessUtils';
-
-interface PlyEntry {
-  san: string;
-  fenAfter: string;
-}
+import {
+  applySan,
+  createTree,
+  deleteMove,
+  findNode,
+  fromPgn,
+  lineTo,
+  promote,
+  setComment,
+  toggleNag,
+  toPgn,
+  type GameTreeData,
+  type TreeNode,
+} from '../lib/gameTree';
 
 const ANALYSIS_DEPTH = 14;
 const LINES = 3;
+const NAG_CHOICES = ['!', '!!', '!?', '?!', '?', '??'];
 
 export default function Analysis() {
   const location = useLocation();
   const engine = useEngine();
   const { toast } = useToast();
 
-  const gameRef = useRef(new Chess());
-  const [history, setHistory] = useState<PlyEntry[]>([]);
-  const [plyIndex, setPlyIndex] = useState(0); // 0 = root position
+  const [tree, setTree] = useState<GameTreeData>(() => createTree());
+  const [currentId, setCurrentId] = useState<string | null>(null);
   const [orientation, setOrientation] = useState<'white' | 'black'>('white');
   const [fenInput, setInput] = useState('');
   const [pgnInput, setPgnInput] = useState('');
   const [fenError, setFenError] = useState<string | null>(null);
+  const [, bump] = useReducer((x: number) => x + 1, 0);
+  const treeRef = useRef(tree);
+  treeRef.current = tree;
 
   const [evalResult, setEvalResult] = useState<EvalResult | null>(null);
   const [lines, setLines] = useState<SFLine[]>([]);
   const [thinking, setThinking] = useState(false);
   const [selectedLine, setSelectedLine] = useState(0);
 
-  const fen = useMemo(
-    () => (plyIndex === 0 ? gameRef.current.fen() : history[plyIndex - 1]?.fenAfter ?? gameRef.current.fen()),
-    [plyIndex, history],
-  );
+  const current = currentId ? findNode(tree, currentId) : null;
+  const fen = current ? current.fenAfter : tree.startFen;
 
   const turn = useMemo(() => {
     try {
@@ -54,23 +63,35 @@ export default function Analysis() {
     }
   }, [fen]);
 
+  /** Play a move on the board: navigates into an existing variation or appends a new mainline move. */
   const commitLocal = useCallback(
-    (from: Square, to: Square): 'ok' | 'illegal' => {
+    (from: Square, to: Square, promotion: 'q' | 'r' | 'b' | 'n' = 'q'): 'ok' | 'illegal' => {
+      const t = treeRef.current;
+      const probe = new Chess();
       try {
-        const base = plyIndex === 0 ? new Chess(gameRef.current.fen()) : new Chess(fen);
-        const m = base.move({ from, to, promotion: 'q' });
-        playSound(m.san.includes('+') ? 'check' : 'move');
-        const entry: PlyEntry = { san: m.san, fenAfter: base.fen() };
-        const kept = history.slice(0, plyIndex); // moving from an earlier ply truncates the line
-        setHistory([...kept, entry]);
-        setPlyIndex(kept.length + 1);
-        setSelectedLine(0);
-        return 'ok';
+        probe.load(fen);
       } catch {
         return 'illegal';
       }
+      let m;
+      try {
+        m = probe.move({ from, to, promotion });
+      } catch {
+        return 'illegal';
+      }
+      playSound(m.san.includes('+') ? 'check' : 'move');
+      const r = applySan(t, currentId, m.san);
+      if (!r.ok) return 'illegal';
+      if (r.created) {
+        // a newly played move becomes the mainline continuation of its position
+        while (promote(t, r.id));
+      }
+      setTree({ ...t });
+      setCurrentId(r.id);
+      setSelectedLine(0);
+      return 'ok';
     },
-    [fen, plyIndex, history],
+    [fen, currentId],
   );
 
   const click = useClickToMove({
@@ -136,28 +157,46 @@ export default function Analysis() {
     };
   }, [fen]);
 
+  // arrow keys walk the mainline around the current position
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const tag = (e.target as HTMLElement)?.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA') return;
+      if (e.key === 'ArrowRight') {
+        const node = currentId ? findNode(treeRef.current, currentId) : null;
+        const next = node ? node.children[0] : treeRef.current.moves[0];
+        if (next) {
+          setCurrentId(next.id);
+          e.preventDefault();
+        }
+      } else if (e.key === 'ArrowLeft') {
+        const node = currentId ? findNode(treeRef.current, currentId) : null;
+        if (!node) return;
+        const chain = lineTo(treeRef.current, node.id);
+        setCurrentId(chain.length >= 2 ? chain[chain.length - 2].id : null);
+        e.preventDefault();
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [currentId, tree]);
+
   const loadPgnText = useCallback(
     (text: string) => {
-      const res = importPgn(text);
-      if (!res.ok) {
-        toast(res.error.message);
+      const trimmed = text.trim();
+      if (!trimmed) return;
+      const { tree: parsed, headers } = fromPgn(trimmed);
+      const n = countAll(parsed);
+      if (n === 0) {
+        toast('No moves found in that PGN.');
         return;
       }
-      const g = new Chess();
-      const entries: PlyEntry[] = [];
-      for (const san of res.game.moves) {
-        try {
-          const m = g.move(san);
-          entries.push({ san: m.san, fenAfter: g.fen() });
-        } catch {
-          break;
-        }
-      }
-      gameRef.current = new Chess();
-      setHistory(entries);
-      setPlyIndex(entries.length);
+      setTree(parsed);
+      const ml = mainlineIds(parsed);
+      setCurrentId(ml[ml.length - 1] ?? null);
       setFenError(null);
-      toast(`Loaded ${entries.length} moves.`);
+      void headers;
+      toast(`Loaded ${n} moves.`);
     },
     [toast],
   );
@@ -170,55 +209,12 @@ export default function Analysis() {
         return;
       }
       setFenError(null);
-      gameRef.current = new Chess(normalized);
-      setHistory([]);
-      setPlyIndex(0);
+      setTree(createTree(normalized));
+      setCurrentId(null);
       toast('Position loaded.');
     },
     [toast],
   );
-
-  const visibleHistory = useMemo(() => history.slice(0, plyIndex), [history, plyIndex]);
-
-  const currentPgn = useMemo(() => {
-    const g = new Chess();
-    for (const h of visibleHistory) {
-      try {
-        g.move(h.san);
-      } catch {
-        break;
-      }
-    }
-    return g.pgn();
-  }, [visibleHistory]);
-
-  const listPlies = useMemo(
-    () =>
-      visibleHistory.map((h, i) => {
-        // derive from/to for the list by replaying
-        const g = new Chess();
-        for (let j = 0; j <= i; j++) {
-          try {
-            g.move(history[j].san);
-          } catch {
-            break;
-          }
-        }
-        const last = g.history({ verbose: true }).pop();
-        return {
-          san: h.san,
-          from: (last?.from ?? 'a1') as Square,
-          to: (last?.to ?? 'a1') as Square,
-          color: 'w' as const,
-          fenAfter: h.fenAfter,
-          isCapture: false,
-          isCheck: h.san.includes('+') || h.san.includes('#'),
-        };
-      }),
-    [visibleHistory, history],
-  );
-
-  const evalBarData: EvalResult | null = evalResult;
 
   const bestArrow = useMemo(() => {
     const line = lines[selectedLine] ?? lines[0];
@@ -226,7 +222,7 @@ export default function Analysis() {
     try {
       const g = new Chess(fen);
       const m = g.move(line.pvSan[0]);
-      return [{ startSquare: m.from, endSquare: m.to, color: 'rgba(108, 92, 231, 0.85)' }];
+      return [{ startSquare: m.from, endSquare: m.to, color: 'rgba(154, 160, 192, 0.85)' }];
     } catch {
       return [];
     }
@@ -240,14 +236,25 @@ export default function Analysis() {
     [toast],
   );
 
+  const fullPgn = useMemo(() => toPgn(tree, { Event: 'Gambit analysis' }), [tree]);
+
+  const annotate = useCallback(
+    (fn: (t: GameTreeData) => void) => {
+      const t = treeRef.current;
+      fn(t);
+      setTree({ ...t });
+      bump();
+    },
+    [bump],
+  );
+
   return (
     <div className="page container">
       <div className="page-head row between wrap" style={{ gap: '1rem' }}>
         <div>
           <h1>Analysis board</h1>
           <p className="sub">
-            Load any position or game, move pieces freely, and read Stockfish’s evaluation, best lines and
-            suggestions. Everything runs locally.
+            Load any position or game, build variations, annotate moves and read Stockfish. Everything runs locally.
           </p>
         </div>
       </div>
@@ -255,7 +262,7 @@ export default function Analysis() {
       <div className="analysis-layout">
         <div>
           <div className="row" style={{ alignItems: 'stretch', gap: '0.6rem' }}>
-            <EvalBar evaluation={evalBarData} thinking={thinking} />
+            <EvalBar evaluation={evalResult} thinking={thinking} />
             <div className="grow">
               <GameBoard
                 boardId="analysis"
@@ -277,9 +284,8 @@ export default function Analysis() {
             <button
               className="btn btn-ghost btn-sm"
               onClick={() => {
-                gameRef.current = new Chess();
-                setHistory([]);
-                setPlyIndex(0);
+                setTree(createTree());
+                setCurrentId(null);
                 setFenError(null);
               }}
             >
@@ -312,17 +318,111 @@ export default function Analysis() {
 
           <div className="panel panel-pad">
             <div className="section-label">
-              Moves
-              <span className="small muted">
-                {plyIndex} / {history.length}
-              </span>
+              Moves &amp; variations
+              <span className="small muted">{tree.moves.length === 0 ? 'empty' : `${countAll(tree)} nodes`}</span>
             </div>
-            {history.length === 0 ? (
+            {tree.moves.length === 0 ? (
               <div className="empty-state">
-                <p>No moves yet, play on the board, paste a FEN, or import a PGN.</p>
+                <p>No moves yet — play on the board, paste a FEN, or import a PGN with variations.</p>
               </div>
             ) : (
-              <MoveList plies={listPlies} currentPly={plyIndex - 1} onSelect={(i) => setPlyIndex(i + 1)} />
+              <>
+                <div className="tree-view" role="list" aria-label="Move tree">
+                  <TreeLevel siblings={tree.moves} prev={null} currentId={currentId} onSelect={setCurrentId} />
+                </div>
+                <div className="tree-nav row" style={{ gap: '0.35rem', marginTop: '0.6rem', flexWrap: 'wrap' }}>
+                  <button className="btn btn-ghost btn-sm" onClick={() => setCurrentId(null)}>
+                    ⏮ Start
+                  </button>
+                  <button
+                    className="btn btn-ghost btn-sm"
+                    onClick={() => {
+                      const node = currentId ? findNode(tree, currentId) : null;
+                      const parentId = node ? lineTo(tree, node.id).slice(-2, -1)[0]?.id ?? null : null;
+                      setCurrentId(parentId);
+                    }}
+                    disabled={!currentId}
+                  >
+                    ← Back
+                  </button>
+                  <button
+                    className="btn btn-ghost btn-sm"
+                    onClick={() => {
+                      const node = currentId ? findNode(tree, currentId) : null;
+                      const next = node ? node.children[0] : tree.moves[0];
+                      if (next) setCurrentId(next.id);
+                    }}
+                  >
+                    Forward →
+                  </button>
+                  <button
+                    className="btn btn-ghost btn-sm"
+                    onClick={() => {
+                      const ml = mainlineIds(tree);
+                      setCurrentId(ml[ml.length - 1] ?? null);
+                    }}
+                    disabled={tree.moves.length === 0}
+                  >
+                    End ⏭
+                  </button>
+                </div>
+
+                {current && (
+                  <div className="anno-zone mt-2">
+                    <div className="row between wrap" style={{ gap: '0.4rem' }}>
+                      <span className="mono small" style={{ color: 'var(--ice)' }}>
+                        {current.moveNumber}
+                        {current.color === 'w' ? '.' : '…'} {current.san}
+                        {current.nags.length > 0 && <span className="nag-tag"> {current.nags.join('')}</span>}
+                      </span>
+                      <div className="row" style={{ gap: '0.35rem' }}>
+                        <button
+                          className="btn btn-ghost btn-sm"
+                          onClick={() => annotate((t) => promoteToMainline(t, current.id))}
+                          disabled={(findNode(tree, current.id) ? siblingCount(tree, current.id) : 0) < 2}
+                        >
+                          Promote
+                        </button>
+                        <button
+                          className="btn btn-ghost btn-sm"
+                          onClick={() => {
+                            annotate((t) => deleteMove(t, current.id));
+                            setCurrentId(null);
+                            toast('Variation deleted.');
+                          }}
+                        >
+                          Delete
+                        </button>
+                      </div>
+                    </div>
+                    <div className="anno-bar">
+                      {NAG_CHOICES.map((nag) => (
+                        <button
+                          key={nag}
+                          type="button"
+                          className={`nag-btn${current.nags.includes(nag) ? ' on' : ''}`}
+                          aria-pressed={current.nags.includes(nag)}
+                          onClick={() => annotate((t) => toggleNag(t, current.id, nag))}
+                        >
+                          {nag}
+                        </button>
+                      ))}
+                    </div>
+                    <textarea
+                      className="input"
+                      rows={2}
+                      placeholder="Comment on this move…"
+                      defaultValue={current.comment ?? ''}
+                      key={current.id}
+                      onBlur={(e) => {
+                        if ((current.comment ?? '') !== e.target.value.trim()) {
+                          annotate((t) => setComment(t, current.id, e.target.value));
+                        }
+                      }}
+                    />
+                  </div>
+                )}
+              </>
             )}
           </div>
 
@@ -332,7 +432,7 @@ export default function Analysis() {
               <button className="btn btn-ghost btn-sm" onClick={() => copy(fen, 'FEN')}>
                 Copy FEN
               </button>
-              <button className="btn btn-ghost btn-sm" onClick={() => copy(currentPgn, 'PGN')}>
+              <button className="btn btn-ghost btn-sm" onClick={() => copy(fullPgn, 'PGN')} disabled={tree.moves.length === 0}>
                 Copy PGN
               </button>
             </div>
@@ -363,12 +463,12 @@ export default function Analysis() {
               </div>
             </div>
             <div className="field">
-              <label htmlFor="an-pgn">Game (PGN)</label>
+              <label htmlFor="an-pgn">Game (PGN — variations preserved)</label>
               <textarea
                 id="an-pgn"
                 className="input"
                 rows={4}
-                placeholder="1. e4 e5 2. Nf3 …"
+                placeholder={'1. e4 e5 (1... c5 2. Nf3) 2. Nf3 Nc6 …'}
                 value={pgnInput}
                 onChange={(e) => setPgnInput(e.target.value)}
               />
@@ -383,10 +483,112 @@ export default function Analysis() {
                 )}
               </div>
             </div>
+            <p className="small muted" style={{ margin: 0 }}>
+              ← → walk the mainline around the current move. Newly played moves become the main line of their position.
+            </p>
           </div>
         </aside>
       </div>
     </div>
+  );
+}
+
+/* ---------- helpers ---------- */
+
+function countAll(tree: GameTreeData): number {
+  let c = 0;
+  const stack = [...tree.moves];
+  while (stack.length) {
+    const n = stack.pop()!;
+    c += 1;
+    stack.push(...n.children);
+  }
+  return c;
+}
+
+function mainlineIds(tree: GameTreeData): string[] {
+  const ids: string[] = [];
+  let level = tree.moves;
+  while (level.length) {
+    ids.push(level[0].id);
+    level = level[0].children;
+  }
+  return ids;
+}
+
+function promoteToMainline(tree: GameTreeData, id: string): void {
+  while (promote(tree, id));
+}
+
+function siblingCount(tree: GameTreeData, id: string): number {
+  const node = findNode(tree, id);
+  if (!node) return 0;
+  const parent = lineTo(tree, id).slice(-2, -1)[0] ?? null;
+  return (parent ? parent.children : tree.moves).length;
+}
+
+/* ---------- tree rendering ---------- */
+
+function TreeLevel({
+  siblings,
+  prev,
+  currentId,
+  onSelect,
+  depth = 0,
+}: {
+  siblings: TreeNode[];
+  prev: TreeNode | null;
+  currentId: string | null;
+  onSelect: (id: string) => void;
+  depth?: number;
+}) {
+  if (!siblings.length) return null;
+  const main = siblings[0];
+  return (
+    <span className="tree-line">
+      <MoveToken node={main} prev={prev} currentId={currentId} onSelect={onSelect} />
+      {main.comment && <span className="tcomment">{main.comment}</span>}
+      {siblings.length > 1 && (
+        <span className="var">
+          {siblings.slice(1).map((alt) => (
+            <span className="var-block" key={alt.id}>
+              <span className="var-paren" aria-hidden="true">
+                (
+              </span>
+              <TreeLevel siblings={[alt]} prev={null} currentId={currentId} onSelect={onSelect} depth={depth + 1} />
+              <span className="var-paren" aria-hidden="true">
+                )
+              </span>
+            </span>
+          ))}
+        </span>
+      )}
+      {main.children.length > 0 && <TreeLevel siblings={main.children} prev={main} currentId={currentId} onSelect={onSelect} depth={depth} />}
+    </span>
+  );
+}
+
+function MoveToken({
+  node,
+  prev,
+  currentId,
+  onSelect,
+}: {
+  node: TreeNode;
+  prev: TreeNode | null;
+  currentId: string | null;
+  onSelect: (id: string) => void;
+}) {
+  const showNumber = node.color === 'w' || !prev || prev.moveNumber !== node.moveNumber;
+  return (
+    <>
+      {node.color === 'w' && <span className="tnum">{node.moveNumber}.</span>}
+      {node.color === 'b' && showNumber && <span className="tnum">{node.moveNumber}…</span>}
+      <button type="button" role="listitem" className={`tmv${currentId === node.id ? ' cur' : ''}`} onClick={() => onSelect(node.id)}>
+        {node.san}
+        {node.nags.length > 0 && <span className="nag">{node.nags.join('')}</span>}
+      </button>
+    </>
   );
 }
 
