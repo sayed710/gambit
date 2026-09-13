@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { NavLink, Link, Outlet, useLocation } from 'react-router-dom';
 import { useSettings } from '../state/SettingsContext';
 import { GearIcon, KnightMark, MenuIcon, XIcon } from './Icons';
+import { NAV_SECTIONS, sectionMatches } from '../lib/navSection';
 
 const BOARD_SWATCHES: { id: 'glacier' | 'seaice' | 'polarnight' | 'aurora' | 'frost' | 'walnut'; label: string; light: string; dark: string }[] = [
   { id: 'glacier', label: 'Glacier', light: '#C7D9E6', dark: '#3E637F' },
@@ -109,13 +110,7 @@ function SettingsModal({ onClose }: { onClose: () => void }) {
   );
 }
 
-const NAV = [
-  { to: '/play', label: 'Play', match: ['/play'] },
-  { to: '/analysis', label: 'Analysis', match: ['/analysis', '/editor', '/studies'] },
-  { to: '/puzzles', label: 'Train', match: ['/puzzles', '/repertoire', '/coordinates'] },
-  { to: '/library', label: 'Library', match: ['/library'] },
-  { to: '/profile', label: 'Profile', match: ['/profile'] },
-];
+
 
 export default function Layout() {
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -161,14 +156,8 @@ export default function Layout() {
             Gambit
           </Link>
           <nav className="main-nav" aria-label="Main">
-            {NAV.map((n) => (
-              <NavLink
-                key={n.to}
-                to={n.to}
-                className={({ isActive }) =>
-                  isActive || n.match.some((m) => location.pathname.startsWith(m)) ? 'active' : ''
-                }
-              >
+            {NAV_SECTIONS.map((n) => (
+              <NavLink key={n.to} to={n.to} className={() => (sectionMatches(n, location.pathname) ? 'active' : '')}>
                 {n.label}
               </NavLink>
             ))}
@@ -189,8 +178,8 @@ export default function Layout() {
         </div>
         <div className="container">
           <nav className={`mobile-nav ${menuOpen ? 'open' : ''}`} aria-label="Mobile">
-            {NAV.map((n) => (
-              <NavLink key={n.to} to={n.to} className={({ isActive }) => (isActive ? 'active' : '')}>
+            {NAV_SECTIONS.map((n) => (
+              <NavLink key={n.to} to={n.to} className={() => (sectionMatches(n, location.pathname) ? 'active' : '')}>
                 {n.label}
               </NavLink>
             ))}
