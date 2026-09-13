@@ -235,7 +235,7 @@ export default function Analysis() {
   const copy = useCallback(
     async (text: string, label: string) => {
       const ok = await copyText(text);
-      toast(ok ? `${label} copied.` : `Couldn't copy — select the text instead.`);
+      toast(ok ? `${label} copied.` : `Couldn't copy, select the text instead.`);
     },
     [toast],
   );
@@ -319,7 +319,7 @@ export default function Analysis() {
             </div>
             {history.length === 0 ? (
               <div className="empty-state">
-                <p>No moves yet — play on the board, paste a FEN, or import a PGN.</p>
+                <p>No moves yet, play on the board, paste a FEN, or import a PGN.</p>
               </div>
             ) : (
               <MoveList plies={listPlies} currentPly={plyIndex - 1} onSelect={(i) => setPlyIndex(i + 1)} />

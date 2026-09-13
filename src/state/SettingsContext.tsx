@@ -4,7 +4,7 @@ import type { Theme } from '../lib/types';
 import { loadJSON, saveJSON } from '../lib/storage';
 import { setSoundEnabled } from '../lib/sound';
 
-export type BoardTheme = 'glacier' | 'frost' | 'polar' | 'walnut' | 'tundra' | 'aurora';
+export type BoardTheme = 'glacier' | 'seaice' | 'polarnight' | 'aurora' | 'frost' | 'walnut';
 export type AnimationSpeed = 'slow' | 'normal' | 'fast' | 'off';
 
 export const ANIMATION_MS: Record<AnimationSpeed, number> = { slow: 320, normal: 180, fast: 90, off: 0 };

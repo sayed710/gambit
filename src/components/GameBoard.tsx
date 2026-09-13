@@ -15,24 +15,23 @@ export interface BoardColors {
 }
 
 const PALETTES: Record<string, { light: string; dark: string; border: string }> = {
-  glacier: { light: '#dce9f2', dark: '#5d84a0', border: '#4a6c86' },
-  frost: { light: '#eef3f6', dark: '#a8bfd0', border: '#8ba6ba' },
-  polar: { light: '#31465c', dark: '#17222f', border: '#101a26' },
-  walnut: { light: '#e8dcc8', dark: '#9a6b45', border: '#7d5836' },
-  tundra: { light: '#e6ebe4', dark: '#6f8f7a', border: '#577260' },
-  aurora: { light: '#2a2f45', dark: '#171b2b', border: '#101321' },
+  glacier: { light: '#C7D9E6', dark: '#3E637F', border: '#2C4A63' },
+  seaice: { light: '#F2F7FA', dark: '#C2D8E4', border: '#9DB9CB' },
+  polarnight: { light: '#2E4358', dark: '#12212F', border: '#0C1822' },
+  aurora: { light: '#24404A', dark: '#101E28', border: '#0B161E' },
+  frost: { light: '#E4EBEF', dark: '#9FB4C4', border: '#8399AB' },
+  walnut: { light: '#E8D9C0', dark: '#9A6B45', border: '#7D5836' },
 };
 const PALETTES_DARK: Record<string, { light: string; dark: string; border: string }> = {
-  glacier: { light: '#43596e', dark: '#22334a', border: '#182635' },
-  frost: { light: '#5d7488', dark: '#33465a', border: '#263748' },
-  polar: { light: '#27384d', dark: '#121b28', border: '#0c141e' },
-  walnut: { light: '#4a3a2a', dark: '#2b1f14', border: '#1e150c' },
-  tundra: { light: '#3c4a42', dark: '#222d26', border: '#18211c' },
-  aurora: { light: '#2c3350', dark: '#1a1f33', border: '#12162a' },
-};
-export function boardColors(theme: string, resolved: 'light' | 'dark'): BoardColors {
-  const p = (resolved === 'dark' ? PALETTES_DARK : PALETTES)[theme] ?? PALETTES.walnut;
-  return { ...p, dot: 'rgba(32, 29, 24, 0.35)' };
+  glacier: { light: '#4C657E', dark: '#263A52', border: '#1C2C40' },
+  seaice: { light: '#54708A', dark: '#31485E', border: '#253950' },
+  polarnight: { light: '#2C4058', dark: '#141F2C', border: '#0E1622' },
+  aurora: { light: '#333A58', dark: '#202540', border: '#161A2E' },
+  frost: { light: '#54708A', dark: '#31485E', border: '#253950' },
+  walnut: { light: '#54412E', dark: '#33251A', border: '#241A12' },
+};export function boardColors(theme: string, resolved: 'light' | 'dark'): BoardColors {
+  const p = (resolved === 'dark' ? PALETTES_DARK : PALETTES)[theme] ?? PALETTES.glacier;
+  return { ...p, dot: 'rgba(125, 160, 190, 0.5)' };
 }
 
 export interface GameBoardProps {

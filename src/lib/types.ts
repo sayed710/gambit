@@ -2,7 +2,7 @@ import type { Square } from 'chess.js';
 
 export type Color = 'w' | 'b';
 export type Theme = 'light' | 'dark';
-export type BoardTheme = 'glacier' | 'frost' | 'polar' | 'walnut' | 'tundra' | 'aurora';
+export type BoardTheme = 'glacier' | 'seaice' | 'polarnight' | 'aurora' | 'frost' | 'walnut';
 
 export type GameMode = 'ai' | 'pass';
 

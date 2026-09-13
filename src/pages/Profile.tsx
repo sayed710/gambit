@@ -130,7 +130,7 @@ export default function Profile() {
       <div className="page-head">
         <h1>{settings.name || 'You'}</h1>
         <p className="sub">
-          Everything here lives in this browser only — no account, no server. Ratings move with Elo math against the
+          Everything here lives in this browser only, no account, no server. Ratings move with Elo math against the
           engine’s level and puzzle difficulty.
         </p>
       </div>

@@ -168,17 +168,17 @@ export default function Puzzles() {
       case 'mate1':
         return `${puzzle.solution} delivers checkmate immediately.`;
       case 'mate2':
-        return `${puzzle.solution} forces mate on the next move — every defence collapses.`;
+        return `${puzzle.solution} forces mate on the next move, every defence collapses.`;
       case 'fork':
-        return `${puzzle.solution} attacks two enemy pieces at once — only one can be saved.`;
+        return `${puzzle.solution} attacks two enemy pieces at once, only one can be saved.`;
       case 'skewer':
         return `${puzzle.solution} hits a piece that must move, exposing a more valuable one behind it.`;
       case 'pin':
-        return `${puzzle.solution} pins a defender to the king — it is frozen in place.`;
+        return `${puzzle.solution} pins a defender to the king, it is frozen in place.`;
       case 'hanging':
         return `${puzzle.solution} wins material outright: the target was undefended.`;
       case 'discovered':
-        return `${puzzle.solution} clears the way for another piece's attack — a discovered strike.`;
+        return `${puzzle.solution} clears the way for another piece's attack, a discovered strike.`;
       default:
         return '';
     }
@@ -193,7 +193,7 @@ export default function Puzzles() {
       <div className="page-head">
         <h1>Puzzle training</h1>
         <p className="sub">
-          Generated and verified in-browser — every solution is mechanically checked against its theme. One wrong try
+          Generated and verified in-browser, every solution is mechanically checked against its theme. One wrong try
           counts as a miss.
         </p>
       </div>
@@ -211,15 +211,25 @@ export default function Puzzles() {
 
       {pool.length === 0 || session.order.length === 0 ? (
         <div className="empty-state">
-          <p>No puzzles for this theme yet — run the generator with different targets.</p>
+          <p>No puzzles for this theme yet, run the generator with different targets.</p>
         </div>
       ) : (
         <div className="puzzle-layout">
           <div>
+            <div className="arena-head">
+              <span className="objective">
+                {puzzle.theme.startsWith('mate') ? (
+                  <><strong>Mate</strong> in {puzzle.theme === 'mate1' ? 'one' : 'two'}</>
+                ) : (
+                  <strong>{THEME_LABELS[puzzle.theme]}</strong>
+                )}
+              </span>
+              <span className="side">{sideName} to move · rating ~{Math.round(puzzleRating)}</span>
+            </div>
             <div className={`status-banner mb-2${phase === 'failed' ? ' check' : ''}`} role="status">
               {phase === 'solving' && (
                 <>
-                  {sideName} to play — <strong>{ask}</strong>.
+                  {sideName} to play: <strong>{ask}</strong>.
                   <button
                     className="btn btn-ghost btn-sm"
                     style={{ marginLeft: 'auto' }}
@@ -229,7 +239,7 @@ export default function Puzzles() {
                   </button>
                 </>
               )}
-              {phase === 'solved' && <>Solved — {explanation}</>}
+              {phase === 'solved' && <>Solved: {explanation}</>}
               {phase === 'failed' && (
                 <>
                   Missed.{' '}

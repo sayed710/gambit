@@ -71,7 +71,7 @@ export default function Review() {
 
   const runAnalysis = useCallback(async () => {
     if (plies.length === 0 || analyzing) return;
-    // finished games are immutable — cache the report so revisits are instant
+    // finished games are immutable, cache the report so revisits are instant
     const cached = loadJSON<GameReport | null>(`review.${record?.id}`, null);
     if (cached && cached.reviews.length === plies.length) {
       setReport(cached);
@@ -133,7 +133,7 @@ export default function Review() {
             secondLines.set(i, { best: res.lines[0].cp, second: res.lines[1].cp });
           }
         } catch {
-          // line unavailable — this move simply stays 'best'
+          // line unavailable, this move simply stays 'best'
         }
       }
       return refineGreatMoves(base, secondLines);
@@ -244,10 +244,10 @@ export default function Review() {
       const before = practice.startPly + practiceHistory.length > 0 ? report.evals[practice.startPly + practiceHistory.length] : report.evals[practice.startPly];
       const expected = before?.bestSan ?? null;
       if (expected && playedSan === expected) {
-        setPracticeFeedback('Best — that is exactly what Stockfish wanted.');
+        setPracticeFeedback('Best, that is exactly what Stockfish wanted.');
         playSound('promote');
       } else if (expected) {
-        setPracticeFeedback(`Not the best — Stockfish preferred ${expected}.`);
+        setPracticeFeedback(`Not the best, Stockfish preferred ${expected}.`);
         playSound('illegal');
       } else {
         setPracticeFeedback('Move played.');
@@ -256,7 +256,7 @@ export default function Review() {
       setPracticeHistory(historyAfter);
       setPracticeFen(fenAfterPlayer);
 
-      // engine replies with the known best from the resulting position (free — already analyzed)
+      // engine replies with the known best from the resulting position (free, already analyzed)
       const after = report.evals[practice.startPly + practiceHistory.length + 1];
       if (after?.bestSan && !g.isGameOver()) {
         try {
@@ -264,7 +264,7 @@ export default function Review() {
           setPracticeHistory((h) => [...h, { san: reply.san, fenAfter: g.fen() }]);
           setPracticeFen(g.fen());
         } catch {
-          // reply unavailable — practice stays on the player's move
+          // reply unavailable, practice stays on the player's move
         }
       }
       return true;
@@ -317,7 +317,7 @@ export default function Review() {
         <div className="empty-state">
           <div className="glyph">♟</div>
           <h1 style={{ fontFamily: 'var(--serif)', fontSize: '2rem' }}>Game not found</h1>
-          <p>This game is no longer in your local history — it may have been reset or played in another browser.</p>
+          <p>This game is no longer in your local history, it may have been reset or played in another browser.</p>
           <Link className="btn btn-primary" to="/profile">
             Back to profile
           </Link>
@@ -403,7 +403,7 @@ export default function Review() {
           {practiceActive && (
             <div className="status-banner mt-2" role="status">
               <span>
-                {practiceFeedback ?? 'Your move — find the best continuation.'}
+                {practiceFeedback ?? 'Your move, find the best continuation.'}
               </span>
               <button className="btn btn-ghost btn-sm" style={{ marginLeft: 'auto' }} onClick={exitPractice}>
                 Exit practice
@@ -422,7 +422,7 @@ export default function Review() {
           {analyzing && analysis && (
             <div className="analysis-progress mt-1" role="status">
               <span className="small muted">
-                {analysis.done === 0 ? 'Waking the engine…' : `Analyzing game — ${progressPct}%`}
+                {analysis.done === 0 ? 'Waking the engine…' : `Analyzing game, ${progressPct}%`}
               </span>
               <div className="analysis-bar">
                 <div className="analysis-bar-fill" style={{ transform: `scaleX(${progressPct / 100})` }} />
@@ -619,7 +619,7 @@ export default function Review() {
 }
 
 /* ------------------------------------------------------------------ */
-/* Eval graph — white advantage area chart with classification markers */
+/* Eval graph, white advantage area chart with classification markers */
 /* ------------------------------------------------------------------ */
 
 function EvalGraph({

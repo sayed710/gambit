@@ -47,7 +47,7 @@ function OperaBoard() {
       />
       <figcaption className="board-caption">
         <span>
-          {LANDING_GAME.white} vs {LANDING_GAME.black} — {moveText}
+          {LANDING_GAME.white} vs {LANDING_GAME.black}, {moveText}
         </span>
         <button
           className="small"
@@ -64,7 +64,7 @@ function OperaBoard() {
 const FEATURES = [
   {
     title: 'Stockfish, at your tempo',
-    body: 'Stockfish 18 runs at four strengths, from gentle to genuinely sharp, each with a rating you can climb. The engine thinks in a worker thread — the board never stutters, the clock never lies.',
+    body: 'Stockfish 18 runs at four strengths, from gentle to genuinely sharp, each with a rating you can climb. The engine thinks in a worker thread: the board never stutters, the clock never lies.',
   },
   {
     title: 'A workspace, not a widget',
@@ -76,7 +76,7 @@ const FEATURES = [
   },
   {
     title: 'Training that adapts',
-    body: 'Mate-in-one to discovered attacks — every puzzle is generated and mechanically verified in your browser, filtered by theme, scored by streak, and stored only on your machine.',
+    body: 'Mate-in-one to discovered attacks, every puzzle is generated and mechanically verified in your browser, filtered by theme, scored by streak, and stored only on your machine.',
   },
 ];
 
@@ -91,7 +91,7 @@ export default function Home() {
             </h1>
             <p className="lede">
               Gambit pairs Stockfish with a calm, arctic-clean interface: honest clocks, a full analysis board, and game
-              reviews that teach. Free, in your browser, no account.
+              reviews that teach. All free, in your browser, no account.
             </p>
             <div className="cta">
               <Link to="/play" className="btn btn-primary btn-lg">
@@ -117,13 +117,16 @@ export default function Home() {
         </div>
       </section>
 
-      <section className="quote-band">
-        <div className="container">
-          <blockquote>
-            “When you see a good move, sit on your hands and look for a better one.”
-          </blockquote>
-          <cite>— Emanuel Lasker, World Champion 1894–1921</cite>
+      <section className="container divider-band">
+        <div className="notation-strip" aria-hidden>
+          1.d4 Nf6 2.c4 g6 3.Nc3 Bg7 4.e4 d6 5.Nf3 <span className="lit">O-O</span> 6.Be2 e5 7.O-O Nc6 8.d5 Ne7
+          <span className="lit">9.Ne1</span> Nd7 10.f5 <span className="lit">11.Bg5</span> h6 12.Bh4 c6 13.Qd2 Qe7
+          <span className="lit">14.O-O-O</span> , a King's Indian, mapped move by move.
         </div>
+        <blockquote>
+          “When you see a good move, sit on your hands and look for a better one.”
+        </blockquote>
+        <cite>Emanuel Lasker, World Champion 1894-1921</cite>
       </section>
     </>
   );

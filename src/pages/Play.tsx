@@ -40,98 +40,143 @@ function SetupScreen({ onStart, last }: { onStart: (c: GameConfig) => void; last
     <div className="page container">
       <div className="page-head">
         <h1>Set the board</h1>
-        <p className="sub">Choose an opponent and a rhythm. You can change everything between games — never during one.</p>
+        <p className="sub">Choose an opponent and a rhythm. You can change everything between games, never during one.</p>
       </div>
 
-      <div className="setup-grid col">
-        <div className="mode-cards">
-          <button className={`mode-card${mode === 'ai' ? ' on' : ''}`} onClick={() => setMode('ai')} aria-pressed={mode === 'ai'}>
-            <span className="t">
-              <RobotIcon /> Play the engine
-            </span>
-            <span className="d">A local opponent with four strengths. Games are rated against its level.</span>
-          </button>
-          <button className={`mode-card${mode === 'pass' ? ' on' : ''}`} onClick={() => setMode('pass')} aria-pressed={mode === 'pass'}>
-            <span className="t">
-              <UsersIcon /> Pass &amp; play
-            </span>
-            <span className="d">Two humans, one device. The board flips to whoever is thinking.</span>
-          </button>
-        </div>
-
-        <div className="panel panel-pad">
-          <div className="section-label">Time control</div>
-          <div className="time-grid">
-            {TIME_CONTROLS.map((t) => (
-              <button
-                key={t.id}
-                className={`time-opt${tcId === t.id ? ' on' : ''}`}
-                onClick={() => setTcId(t.id)}
-                aria-pressed={tcId === t.id}
-              >
-                <span className="big">{t.label}</span>
-                <span className="tag">{t.id === 'unlimited' ? '∞' : `+${t.increment}s · ${t.category}`}</span>
-              </button>
-            ))}
+      <form
+        className="launch-grid"
+        onSubmit={(e) => {
+          e.preventDefault();
+          onStart({ mode, timeControl, playerColor: mode === 'pass' ? 'w' : color, aiLevel: level });
+        }}
+      >
+        <div className="col" style={{ gap: '0.9rem' }}>
+          <div className="section-label">Opponent</div>
+          <div className="col" style={{ gap: '0.7rem' }}>
+            <button type="button" className={`mode-card${mode === 'ai' ? ' on' : ''}`} onClick={() => setMode('ai')} aria-pressed={mode === 'ai'}>
+              <span className="t">
+                <RobotIcon /> Play the engine
+              </span>
+              <span className="d">Stockfish, rated. Four strengths from gentle to sharp.</span>
+            </button>
+            <button type="button" className={`mode-card${mode === 'pass' ? ' on' : ''}`} onClick={() => setMode('pass')} aria-pressed={mode === 'pass'}>
+              <span className="t">
+                <UsersIcon /> Pass &amp; play
+              </span>
+              <span className="d">Two humans, one device. The board flips to whoever is thinking.</span>
+            </button>
           </div>
         </div>
 
-        {mode === 'ai' ? (
+        <div className="col" style={{ gap: '0.9rem' }}>
           <div className="panel panel-pad">
-            <div className="section-label">Your side</div>
-            <div className="seg" role="radiogroup" aria-label="Your color">
-              {([['w', 'White'], ['random', 'Random'], ['b', 'Black']] as const).map(([v, label]) => (
-                <button key={v} role="radio" aria-checked={color === v} className={color === v ? 'on' : ''} onClick={() => setColor(v)}>
-                  {label}
-                </button>
-              ))}
-            </div>
-
-            <div className="section-label" style={{ marginTop: '1.1rem' }}>
-              Engine strength
-            </div>
-            <div className="col" style={{ gap: '0.45rem' }}>
-              {([1, 2, 3, 4] as Level[]).map((l) => (
-                <button
-                  key={l}
-                  className={`mode-card${level === l ? ' on' : ''}`}
-                  style={{ padding: '0.65rem 0.9rem', flexDirection: 'row', alignItems: 'center', gap: '0.7rem' }}
-                  onClick={() => setLevel(l)}
-                  aria-pressed={level === l}
-                >
-                  <span className="row" style={{ gap: 3, flex: 'none' }} aria-hidden>
-                    {[1, 2, 3, 4].map((d) => (
-                      <span key={d} className={`level-dot${level >= d ? ' on' : ''}`} style={{ background: level >= d ? 'var(--accent)' : undefined }} />
+            <div className="section-label">Time control</div>
+            {(['Bullet', 'Blitz', 'Rapid', 'Classical'] as const).map((cat) => {
+              const group = TIME_CONTROLS.filter((t) => t.category === cat);
+              if (group.length === 0) return null;
+              return (
+                <div className="tempo-group" key={cat}>
+                  <div className="tempo-name">{cat}</div>
+                  <div className="time-grid">
+                    {group.map((t) => (
+                      <button
+                        type="button"
+                        key={t.id}
+                        className={`time-opt${tcId === t.id ? ' on' : ''}`}
+                        onClick={() => setTcId(t.id)}
+                        aria-pressed={tcId === t.id}
+                      >
+                        <span className="big">{t.label}</span>
+                        <span className="tag">{t.increment > 0 ? `+${t.increment}s` : 'no inc'}</span>
+                      </button>
                     ))}
-                  </span>
-                  <span className="t">{['Gentle', 'Casual', 'Club', 'Sharp'][l - 1]}</span>
-                  <span className="d mono" style={{ marginLeft: 'auto', color: 'var(--muted)' }}>
-                    ~{LEVEL_RATINGS[l]}
-                  </span>
+                  </div>
+                </div>
+              );
+            })}
+            <div className="tempo-group">
+              <div className="tempo-name">Untimed</div>
+              <div className="time-grid">
+                <button
+                  type="button"
+                  className={`time-opt${tcId === 'unlimited' ? ' on' : ''}`}
+                  onClick={() => setTcId('unlimited')}
+                  aria-pressed={tcId === 'unlimited'}
+                >
+                  <span className="big">No clock</span>
+                  <span className="tag">think freely</span>
                 </button>
-              ))}
+              </div>
             </div>
           </div>
-        ) : (
-          <p className="small muted" style={{ margin: 0 }}>
-            White moves first; the board turns to face whoever is thinking.
-          </p>
-        )}
+          <button type="submit" className="btn btn-accent btn-lg" style={{ width: '100%' }}>
+            Start game
+          </button>
+        </div>
 
-        <button
-          className="btn btn-accent btn-lg"
-          onClick={() => onStart({ mode, timeControl, playerColor: mode === 'pass' ? 'w' : color, aiLevel: level })}
-        >
-          Start game
-        </button>
-      </div>
+        <div className="col launch-side" style={{ gap: '0.9rem' }}>
+          {mode === 'ai' ? (
+            <div className="panel panel-pad">
+              <div className="section-label">Your side</div>
+              <div className="seg" role="radiogroup" aria-label="Your color">
+                {([['w', 'White'], ['random', 'Random'], ['b', 'Black']] as const).map(([v, label]) => (
+                  <button type="button" key={v} role="radio" aria-checked={color === v} className={color === v ? 'on' : ''} onClick={() => setColor(v)}>
+                    {label}
+                  </button>
+                ))}
+              </div>
+
+              <div className="section-label" style={{ marginTop: '1.1rem' }}>
+                Engine strength
+              </div>
+              <div className="col" style={{ gap: '0.45rem' }}>
+                {([1, 2, 3, 4] as Level[]).map((l) => (
+                  <button
+                    type="button"
+                    key={l}
+                    className={`mode-card${level === l ? ' on' : ''}`}
+                    style={{ padding: '0.65rem 0.9rem', flexDirection: 'row', alignItems: 'center', gap: '0.7rem' }}
+                    onClick={() => setLevel(l)}
+                    aria-pressed={level === l}
+                  >
+                    <span className="row" style={{ gap: 3, flex: 'none' }} aria-hidden>
+                      {[1, 2, 3, 4].map((d) => (
+                        <span key={d} className={`level-dot${level >= d ? ' on' : ''}`} />
+                      ))}
+                    </span>
+                    <span className="t">{['Gentle', 'Casual', 'Club', 'Sharp'][l - 1]}</span>
+                    <span className="d mono" style={{ marginLeft: 'auto' }}>
+                      ~{LEVEL_RATINGS[l]}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          ) : (
+            <div className="panel panel-pad">
+              <div className="section-label">Pass &amp; play</div>
+              <p className="small muted" style={{ margin: 0 }}>
+                White moves first. The board turns to face whoever is thinking, so pass the device after every move.
+              </p>
+            </div>
+          )}
+          <div className="panel panel-pad quiet">
+            <div className="section-label">Game summary</div>
+            <p className="small" style={{ margin: 0, lineHeight: 1.7 }}>
+              <strong>{mode === 'ai' ? 'You' : 'White'}</strong> vs{' '}
+              <strong>{mode === 'ai' ? `Stockfish · ${['Gentle', 'Casual', 'Club', 'Sharp'][level - 1]}` : 'Black'}</strong>
+              <br />
+              <span className="muted">
+                {timeControl.minutes > 0 ? `${timeControl.minutes} min${timeControl.increment ? ` + ${timeControl.increment}s` : ''}` : 'No clock'}
+                {' · '}{color === 'random' ? 'random side' : color === 'w' ? 'you play White' : 'you play Black'}
+              </span>
+            </p>
+          </div>
+        </div>
+      </form>
     </div>
   );
 }
-
-/* ------------------------------------------------------------------ */
-/* Confirm dialog (resign / abandon / draw)                            */
-/* ------------------------------------------------------------------ */
 
 function ConfirmDialog({
   title,
@@ -257,7 +302,7 @@ function GameScreen({
   const [confirm, setConfirm] = useState<null | 'resign' | 'draw' | 'exit'>(null);
 
   // Build the saved record when the game ends. Reads the live gameRef (complete
-  // move list incl. the final move) via game.pgn()/moves — not stale state.
+  // move list incl. the final move) via game.pgn()/moves, not stale state.
   handleOverRef.current = (info: GameOverInfo) => {
     if (savedRef.current) return;
     savedRef.current = true;
@@ -412,7 +457,7 @@ function GameScreen({
   const doOfferDraw = useCallback(async () => {
     setConfirm(null);
     const accepted = await offerDraw((fen) => engine.evaluate(fen).then((r) => r?.cp ?? null));
-    if (accepted === false) toast('The engine declines — it likes its position.');
+    if (accepted === false) toast('The engine declines, it likes its position.');
   }, [offerDraw, engine, toast]);
 
   const { verdict, why } = verdictText(over, playerColor, config.mode);
@@ -453,7 +498,7 @@ function GameScreen({
       : thinking
         ? 'Engine is thinking…'
         : checkInfo
-          ? `Check — ${turn === 'w' ? 'White' : 'Black'} must respond`
+          ? `Check: ${turn === 'w' ? 'White' : 'Black'} must respond`
           : config.mode === 'pass'
             ? `${turn === 'w' ? 'White' : 'Black'} to move`
             : turn === playerColor
@@ -620,7 +665,7 @@ function GameScreen({
           body={
             config.mode === 'pass'
               ? `${turn === 'w' ? 'White' : 'Black'} resigns. The game will count as a loss for them.`
-              : 'This will count as a loss. Sometimes the position is worth fighting for — sometimes it isn’t.'
+              : 'This will count as a loss. Sometimes the position is worth fighting for, sometimes it isn’t.'
           }
           confirmLabel="Resign"
           danger

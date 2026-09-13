@@ -22,13 +22,13 @@ function ThemeToggle() {
   );
 }
 
-const BOARD_SWATCHES: { id: 'glacier' | 'frost' | 'polar' | 'walnut' | 'tundra' | 'aurora'; label: string; light: string; dark: string }[] = [
-  { id: 'glacier', label: 'Glacier', light: '#dce9f2', dark: '#5d84a0' },
-  { id: 'frost', label: 'Frost', light: '#eef3f6', dark: '#a8bfd0' },
-  { id: 'polar', label: 'Polar', light: '#31465c', dark: '#17222f' },
-  { id: 'walnut', label: 'Walnut', light: '#e8dcc8', dark: '#9a6b45' },
-  { id: 'tundra', label: 'Tundra', light: '#e6ebe4', dark: '#6f8f7a' },
-  { id: 'aurora', label: 'Aurora', light: '#2a2f45', dark: '#171b2b' },
+const BOARD_SWATCHES: { id: 'glacier' | 'seaice' | 'polarnight' | 'aurora' | 'frost' | 'walnut'; label: string; light: string; dark: string }[] = [
+  { id: 'glacier', label: 'Glacier', light: '#C7D9E6', dark: '#3E637F' },
+  { id: 'seaice', label: 'Sea Ice', light: '#F2F7FA', dark: '#C2D8E4' },
+  { id: 'polarnight', label: 'Polar Night', light: '#2E4358', dark: '#12212F' },
+  { id: 'aurora', label: 'Aurora', light: '#24404A', dark: '#101E28' },
+  { id: 'frost', label: 'Frost', light: '#E4EBEF', dark: '#9FB4C4' },
+  { id: 'walnut', label: 'Walnut', light: '#E8D9C0', dark: '#9A6B45' },
 ];
 
 function SettingsModal({ onClose }: { onClose: () => void }) {
@@ -225,9 +225,9 @@ export default function Layout() {
 
       <footer className="site-footer">
         <div className="container inner">
-          <span>Gambit — a quiet place to play chess.</span>
+          <span>Gambit, a quiet place to play chess.</span>
           <span>
-            Everything runs in your browser — no account, no server ·{' '}
+            Everything runs in your browser, no account, no server ·{' '}
             {new Date().getFullYear()}
           </span>
         </div>
