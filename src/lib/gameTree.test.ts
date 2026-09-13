@@ -184,7 +184,7 @@ describe('PGN with variations — import/export round trip', () => {
 describe('tree ids — persistence safety', () => {
   it('new ids never collide with ids stored before a reload', async () => {
     // 1. create a tree with the current module instance and "store" it
-    const first = await import('./gameTree');
+    await import('./gameTree');
     const stored = JSON.stringify(line(['e4', 'e5', 'Nf3']).tree);
 
     // 2. simulate a browser reload: reset module state, re-import, reload the tree
