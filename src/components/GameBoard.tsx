@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Chessboard, defaultPieces } from 'react-chessboard';
 import type { Arrow } from 'react-chessboard';
 import type { Color, PieceSymbol, Square } from 'chess.js';
@@ -88,6 +88,65 @@ export default function GameBoard({
   // --- keyboard play: arrow keys move a cursor, Enter selects/moves ---
   const [cursor, setCursor] = useState<Square | null>(null);
   const [announce, setAnnounce] = useState('');
+
+  // --- drag lifecycle invariant ----------------------------------------
+  // react-chessboard renders the source piece as a 0.5-opacity ghost while
+  // its internal draggingPiece is set, and dnd-core can leave a drag
+  // "active" when the pointer-up is lost (released outside the window,
+  // blur mid-drag, touch cancel). Nothing in the library self-heals that,
+  // so this watchdog notices a stuck ghost after pointer-up / blur and
+  // cancels the drag through the library's own cancel path (an Escape
+  // keydown, which the KeyboardSensor handles), guaranteeing the piece is
+  // fully visible and immediately re-grabbable.
+  const dragActiveRef = useRef(false);
+  const lastDropAtRef = useRef(0);
+  const [stuckReset, setStuckReset] = useState(0);
+
+  const hasStuckGhost = useCallback((): boolean => {
+    const board = document.getElementById(`${boardId}-board`);
+    if (!board) return false;
+    return Array.from(board.querySelectorAll<HTMLElement>('[data-piece]')).some((el) => {
+      const op = getComputedStyle(el).opacity;
+      return op !== '' && parseFloat(op) < 0.9;
+    });
+  }, [boardId]);
+
+  /**
+   * A pointerup that never reaches the page (release outside the window,
+   * browser blur mid-drag, touch cancel) leaves the library's draggingPiece
+   * set forever: the source piece stays at ghost opacity 0.5 and cannot be
+   * picked up again. Nothing in the library self-heals this, so the
+   * watchdog remounts the board — the ghost unmounts and the position
+   * re-renders clean. Rare, momentary, and guarantees the invariant.
+   */
+  const cancelStuckDrag = useCallback(() => {
+    if (!hasStuckGhost()) return;
+    setStuckReset((k) => k + 1);
+    onClearSelection?.();
+  }, [hasStuckGhost, onClearSelection]);
+
+  useEffect(() => {
+    const onPointerEnd = () => {
+      if (!dragActiveRef.current) return;
+      // give the library a beat to finish its own drop/cancel handling
+      window.setTimeout(() => {
+        dragActiveRef.current = false;
+        cancelStuckDrag();
+      }, 140);
+    };
+    const onBlur = () => {
+      if (!dragActiveRef.current) return;
+      window.setTimeout(cancelStuckDrag, 220);
+    };
+    window.addEventListener('pointerup', onPointerEnd);
+    window.addEventListener('pointercancel', onPointerEnd);
+    window.addEventListener('blur', onBlur);
+    return () => {
+      window.removeEventListener('pointerup', onPointerEnd);
+      window.removeEventListener('pointercancel', onPointerEnd);
+      window.removeEventListener('blur', onBlur);
+    };
+  }, [cancelStuckDrag]);
 
   const squareAt = useCallback(
     (file: number, rank: number): Square | null => {
@@ -210,6 +269,7 @@ export default function GameBoard({
     <div className="board-frame">
       <div
         className="board-surface"
+        data-fen={fen}
         style={{ position: 'relative' }}
         tabIndex={interactive ? 0 : -1}
         role="group"
@@ -225,6 +285,7 @@ export default function GameBoard({
           {announce}
         </span>
         <Chessboard
+          key={stuckReset}
           options={{
             id: boardId,
             position: fen,
@@ -233,11 +294,24 @@ export default function GameBoard({
             showNotation: showCoordinates,
             allowDragging: movableColor !== null,
             canDragPiece: ({ piece }) => movableColor !== null && (dragAnyColor || piece.pieceType[0] === movableColor),
+            onPieceDrag: () => {
+              dragActiveRef.current = true;
+              // a real drag supersedes click-to-move; never leave stale selection
+              onClearSelection?.();
+            },
+            onPieceDragCancel: () => {
+              dragActiveRef.current = false;
+              onClearSelection?.();
+            },
             onPieceDrop: ({ sourceSquare, targetSquare }) => {
+              dragActiveRef.current = false;
+              lastDropAtRef.current = performance.now();
               if (!targetSquare) return false;
               return onDrop ? onDrop(sourceSquare as Square, targetSquare as Square) : false;
             },
             onSquareClick: ({ piece, square }) => {
+              // swallow the synthetic click that trails a completed drag
+              if (performance.now() - lastDropAtRef.current < 120) return;
               onSquareClick?.(square as Square, piece?.pieceType ?? null);
             },
             squareStyles: squareStyles,

@@ -5,6 +5,7 @@ import type { Move } from 'chess.js';
 import type { GameConfig, Ply } from '../lib/types';
 import { capturedFromFen, hasMatingMaterial, pliesFromGame } from '../lib/chessUtils';
 import { playSound } from '../lib/sound';
+import { classifyMoveSound } from '../lib/moveSound';
 import { useClock } from './useClock';
 
 export interface GameOverInfo {
@@ -156,12 +157,10 @@ export function useGame({ config, engineSearch, onGameOver, resume, initialFen }
   }, []); // initialize once on mount; restarts remount the component via key
 
   const soundForMove = useCallback((m: Move) => {
-    if (m.isPromotion()) playSound('promote');
-    else if (m.san.startsWith('O-O')) playSound('castle');
-    else if (m.isCapture()) playSound('capture');
-    else playSound('move');
-    if (m.san.includes('#')) return; // mate handled by end sound
-    if (m.san.includes('+')) playSound('check');
+    // exactly one base sound; a single subtle check layer; mate -> end phrase
+    const plan = classifyMoveSound({ san: m.san, capture: m.isCapture(), promotion: m.isPromotion() });
+    playSound(plan.base);
+    if (plan.checkLayer) playSound('check');
   }, []);
 
   const checkTermination = useCallback(
@@ -210,7 +209,7 @@ export function useGame({ config, engineSearch, onGameOver, resume, initialFen }
       setPlies(pliesFromGame(game));
       setLastMove({ from: m.from, to: m.to });
       setTurn(game.turn());
-      if (game.isCheck() && !game.isGameOver()) playSound('check');    },
+    },
     [checkTermination, clock, soundForMove, unlimited],
   );
 

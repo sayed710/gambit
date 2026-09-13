@@ -1,10 +1,14 @@
 /**
- * Gambit sound kit — a quiet physical chess board.
+ * Gambit sound kit — minimal neutral board contact.
  *
- * Procedural WebAudio: short filtered-noise transients (wood contact)
- * over a low sine thump (table resonance). No musical oscillators for
- * game events, no square/saw for anything a player hears often. Each
- * play varies slightly so repetition never becomes a machine loop.
+ * STATUS: SAMPLE SOURCING UNRESOLVED (this pass). Kenney's CC0 packs moved
+ * behind an interactive itch.io gate and Wikimedia Commons holds no clean
+ * chess-audio set, so gameplay events stay procedural but deliberately
+ * ANTI-MUSICAL: one very short lowpassed noise brush per action, no pitched
+ * thump, no tonal identity — the previous 720Hz-bandpass + sine-thump design
+ * failed user testing precisely because of its tonal character. Replace this
+ * file wholesale with licensed physical samples when sourcing is resolved.
+ * AUDIO: INCOMPLETE by the project's own acceptance bar.
  */
 
 let ctx: AudioContext | null = null;
@@ -34,20 +38,6 @@ function getMaster(c: AudioContext): GainNode {
   return master;
 }
 
-/** Perceptual volume mapping: 0–100 slider → linear gain, clamped. */
-export function volumeGain(v: number): number {
-  const clamped = Math.max(0, Math.min(100, v)) / 100;
-  return Math.round(Math.pow(clamped, 1.4) * 1000) / 1000;
-}
-
-let currentVolume = 35;
-export function setSoundVolume(v: number): void {
-  currentVolume = Math.max(0, Math.min(100, Math.round(v)));
-  if (master && ctx) {
-    master.gain.setTargetAtTime(volumeGain(currentVolume), ctx.currentTime, 0.01);
-  }
-}
-
 function noise(c: AudioContext): AudioBuffer {
   if (!noiseBuffer) {
     noiseBuffer = c.createBuffer(1, Math.floor(c.sampleRate * 0.12), c.sampleRate);
@@ -58,44 +48,30 @@ function noise(c: AudioContext): AudioBuffer {
 }
 
 /**
- * A wooden piece placed on the board: a bandpassed noise transient
- * (the click of wood on felt) with a soft low thump (table resonance).
- * `intensity` scales loudness and brightness slightly.
+ * The one gameplay gesture: a 35ms lowpassed noise brush. No resonant
+ * filters, no oscillators — nothing to recognize, nothing to fatigue on.
  */
-function tap(when: number, intensity = 1) {
+function brush(when: number, level: number) {
   const c = ac();
   if (!c) return;
   const t0 = c.currentTime + when;
-  const jitter = 0.92 + Math.random() * 0.16; // ±8% — never a machine loop
+  const jitter = 0.94 + Math.random() * 0.12;
 
   const src = c.createBufferSource();
   src.buffer = noise(c);
-  const band = c.createBiquadFilter();
-  band.type = 'bandpass';
-  band.frequency.value = 720 * jitter * (0.9 + intensity * 0.15);
-  band.Q.value = 1.1;
+  const low = c.createBiquadFilter();
+  low.type = 'lowpass';
+  low.frequency.value = 600 * jitter;
   const env = c.createGain();
   env.gain.setValueAtTime(0.0001, t0);
-  env.gain.exponentialRampToValueAtTime(0.5 * intensity, t0 + 0.004);
-  env.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.075);
-  src.connect(band).connect(env).connect(getMaster(c));
+  env.gain.exponentialRampToValueAtTime(0.3 * level, t0 + 0.003);
+  env.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.035);
+  src.connect(low).connect(env).connect(getMaster(c));
   src.start(t0);
-  src.stop(t0 + 0.1);
-
-  const thump = c.createOscillator();
-  const thumpGain = c.createGain();
-  thump.type = 'sine';
-  thump.frequency.setValueAtTime(165 * jitter, t0);
-  thump.frequency.exponentialRampToValueAtTime(120, t0 + 0.06);
-  thumpGain.gain.setValueAtTime(0.0001, t0);
-  thumpGain.gain.linearRampToValueAtTime(0.22 * intensity, t0 + 0.006);
-  thumpGain.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.07);
-  thump.connect(thumpGain).connect(getMaster(c));
-  thump.start(t0);
-  thump.stop(t0 + 0.09);
+  src.stop(t0 + 0.05);
 }
 
-/** A quiet pure tone, only for the restrained game-end phrases. */
+/** Restrained pure tone — game-end phrases only, once per game. */
 function tone(freq: number, dur: number, gain: number, when = 0) {
   const c = ac();
   if (!c) return;
@@ -114,64 +90,57 @@ function tone(freq: number, dur: number, gain: number, when = 0) {
 
 export const sounds = {
   move() {
-    tap(0, 0.9);
+    brush(0, 0.8);
   },
   capture() {
-    // slightly heavier contact: firmer tap plus a soft secondary brush
-    tap(0, 1.15);
-    tap(0.035, 0.45);
+    // same brush, marginally fuller — not louder-dramatic
+    brush(0, 1.05);
   },
   castle() {
-    // two placements, naturally spaced
-    tap(0, 0.85);
-    tap(0.11, 0.75);
+    brush(0, 0.8);
+    brush(0.1, 0.7);
   },
   check() {
-    // a normal move plus a firmer, lower placement — no alarm
-    tap(0, 0.95);
-    tap(0.06, 0.7);
+    // identical contact; the board highlight and status carry the information
+    brush(0, 0.85);
   },
   promote() {
-    // a distinctly firmer placement, still a single physical event
-    tap(0, 1.25);
-    tap(0.05, 0.6);
+    brush(0, 1.0);
   },
   illegal() {
-    // a short muted dull contact — rejection without a buzz
-    const c = ac();
-    if (!c) return;
-    const t0 = c.currentTime;
-    const src = c.createBufferSource();
-    src.buffer = noise(c);
-    const low = c.createBiquadFilter();
-    low.type = 'lowpass';
-    low.frequency.value = 260;
-    const env = c.createGain();
-    env.gain.setValueAtTime(0.0001, t0);
-    env.gain.exponentialRampToValueAtTime(0.28, t0 + 0.005);
-    env.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.05);
-    src.connect(low).connect(env).connect(getMaster(c));
-    src.start(t0);
-    src.stop(t0 + 0.07);
+    brush(0, 0.5);
   },
   win() {
-    tone(330, 0.16, 0.05);
-    tone(415, 0.22, 0.05, 0.14);
+    tone(330, 0.16, 0.04);
+    tone(415, 0.2, 0.04, 0.14);
   },
   lose() {
-    tone(277, 0.18, 0.05);
-    tone(233, 0.26, 0.05, 0.16);
+    tone(277, 0.18, 0.04);
+    tone(233, 0.24, 0.04, 0.16);
   },
   draw() {
-    tone(311, 0.2, 0.045);
+    tone(311, 0.18, 0.035);
   },
   low() {
-    tap(0, 0.4);
+    brush(0, 0.35);
   },
   click() {
-    tap(0, 0.4);
+    brush(0, 0.35);
   },
 };
+/** Perceptual volume mapping: 0-100 slider to linear gain, clamped. */
+export function volumeGain(v: number): number {
+  const clamped = Math.max(0, Math.min(100, v)) / 100;
+  return Math.round(Math.pow(clamped, 1.4) * 1000) / 1000;
+}
+
+let currentVolume = 35;
+export function setSoundVolume(v: number): void {
+  currentVolume = Math.max(0, Math.min(100, Math.round(v)));
+  if (master && ctx) {
+    master.gain.setTargetAtTime(volumeGain(currentVolume), ctx.currentTime, 0.01);
+  }
+}
 
 export type SoundName = keyof typeof sounds;
 
