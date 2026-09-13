@@ -214,8 +214,11 @@ describe('tree ids — persistence safety', () => {
     }
     expect(new Set(ids).size).toBe(ids.length);
 
-    // 5. navigation and annotation still hit the right node
+    // 5. add a real side variation at the root, then annotate it
+    const sideVar = second.applySan(revived, null, 'c5');
+    expect(sideVar.ok).toBe(true);
     const sicilianTarget = revived.moves[0].children[1];
+    expect(sicilianTarget?.san).toBe('c5');
     second.setComment(revived, sicilianTarget.id, 'side variation');
     expect(sicilianTarget.comment).toBe('side variation');
     expect(second.lineTo(revived, sicilianTarget.id).map((n) => n.san)).toEqual(['e4', 'c5']);
