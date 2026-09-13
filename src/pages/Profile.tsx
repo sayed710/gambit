@@ -127,13 +127,18 @@ export default function Profile() {
 
   return (
     <div className="page container">
-      <div className="page-head">
-        <h1>{settings.name || 'You'}</h1>
-        <p className="sub">
-          Everything here lives in this browser only, no account, no server. Ratings move with Elo math against the
-          engine’s level and puzzle difficulty.
-        </p>
+      <div className="profile-hero mb-2">
+        <div className="avatar-ring">
+          <div className="inner">{(settings.name || 'You')[0]}</div>
+        </div>
+        <div>
+          <div className="pname">{settings.name || 'You'}</div>
+          <div className="ptag">Every game stored locally, no account, no server.</div>
+        </div>
       </div>
+      <p className="sub mb-2">
+        Ratings move with Elo math against the engine’s level and puzzle difficulty.
+      </p>
 
       <div className="score-sheet" style={{ marginBottom: '1.5rem' }}>
         <div className="score-anchor">

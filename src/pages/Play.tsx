@@ -19,7 +19,7 @@ import { loadJSON, saveJSON, removeKey } from '../lib/storage';
 import { playSound } from '../lib/sound';
 import type { SavedGame } from '../hooks/useGame';
 import { identifyOpening } from '../lib/openings';
-import { FlagIcon, FlipIcon, LightbulbIcon, PlayIcon, PlusIcon, RobotIcon, UndoIcon, UsersIcon, XIcon } from '../components/Icons';
+import { ClockIcon, FlagIcon, FlipIcon, LightbulbIcon, PlayIcon, PlusIcon, UndoIcon, UsersIcon, XIcon } from '../components/Icons';
 
 /** Storage key for a game in progress, so a reload never loses a played game. */
 const ACTIVE_GAME_KEY = 'activeGame';
@@ -36,139 +36,116 @@ function SetupScreen({ onStart, last }: { onStart: (c: GameConfig) => void; last
 
   const timeControl = timeControlById(tcId);
 
+  const tempoGroups = [
+    { name: 'Bullet', items: TIME_CONTROLS.filter(t => t.category === 'Bullet'), icon: '⚡' },
+    { name: 'Blitz', items: TIME_CONTROLS.filter(t => t.category === 'Blitz'), icon: '⚡' },
+    { name: 'Rapid', items: TIME_CONTROLS.filter(t => t.category === 'Rapid'), icon: '⏱' },
+    { name: 'Classical', items: TIME_CONTROLS.filter(t => t.category === 'Classical'), icon: '♔' },
+  ];
+
   return (
     <div className="page container">
       <div className="page-head">
-        <h1>Set the board</h1>
-        <p className="sub">Choose an opponent and a rhythm. You can change everything between games, never during one.</p>
+        <h1>Play Chess</h1>
+        <p className="sub">Find your game, your pace.</p>
       </div>
 
       <form
-        className="launch-grid"
+        className="quickplay-grid"
         onSubmit={(e) => {
           e.preventDefault();
           onStart({ mode, timeControl, playerColor: mode === 'pass' ? 'w' : color, aiLevel: level });
         }}
       >
-        <div className="col" style={{ gap: '0.9rem' }}>
-          <div className="section-label">Opponent</div>
-          <div className="col" style={{ gap: '0.7rem' }}>
-            <button type="button" className={`mode-card${mode === 'ai' ? ' on' : ''}`} onClick={() => setMode('ai')} aria-pressed={mode === 'ai'}>
-              <span className="t">
-                <RobotIcon /> Play the engine
-              </span>
-              <span className="d">Stockfish, rated. Four strengths from gentle to sharp.</span>
+        <div className="mode-rail">
+          {mode === 'pass' ? (
+            <button type="button" className="mode-row on" onClick={() => setMode('pass')}>
+              <span className="ic"><UsersIcon /></span>
+              <span><span className="nm">Pass &amp; play</span><br /><span className="ds">Two humans, one device</span></span>
             </button>
-            <button type="button" className={`mode-card${mode === 'pass' ? ' on' : ''}`} onClick={() => setMode('pass')} aria-pressed={mode === 'pass'}>
-              <span className="t">
-                <UsersIcon /> Pass &amp; play
-              </span>
-              <span className="d">Two humans, one device. The board flips to whoever is thinking.</span>
+          ) : (
+            tempoGroups.map((grp) => (
+              <div key={grp.name} className="col" style={{ gap: '0.4rem' }}>
+                <div className="tempo-name">{grp.name}</div>
+                {grp.items.map((t) => (
+                  <button type="button" key={t.id} className={`mode-row${tcId === t.id ? ' on' : ''}`} onClick={() => setTcId(t.id)} aria-pressed={tcId === t.id}>
+                    <span className="ic"><ClockIcon /></span>
+                    <span><span className="nm">{t.label}</span><br /><span className="ds">{t.increment > 0 ? `+${t.increment}s inc` : 'no increment'}</span></span>
+                  </button>
+                ))}
+              </div>
+            ))
+          )}
+          {mode === 'ai' && (
+            <button type="button" className={`mode-row${tcId === 'unlimited' ? ' on' : ''}`} onClick={() => setTcId('unlimited')} aria-pressed={tcId === 'unlimited'}>
+              <span className="ic">∞</span>
+              <span><span className="nm">No clock</span><br /><span className="ds">Think freely</span></span>
             </button>
-          </div>
+          )}
         </div>
 
-        <div className="col" style={{ gap: '0.9rem' }}>
+        <div className="cfg-stack">
           <div className="panel panel-pad">
-            <div className="section-label">Time control</div>
-            {(['Bullet', 'Blitz', 'Rapid', 'Classical'] as const).map((cat) => {
-              const group = TIME_CONTROLS.filter((t) => t.category === cat);
-              if (group.length === 0) return null;
-              return (
-                <div className="tempo-group" key={cat}>
-                  <div className="tempo-name">{cat}</div>
-                  <div className="time-grid">
-                    {group.map((t) => (
-                      <button
-                        type="button"
-                        key={t.id}
-                        className={`time-opt${tcId === t.id ? ' on' : ''}`}
-                        onClick={() => setTcId(t.id)}
-                        aria-pressed={tcId === t.id}
-                      >
-                        <span className="big">{t.label}</span>
-                        <span className="tag">{t.increment > 0 ? `+${t.increment}s` : 'no inc'}</span>
-                      </button>
-                    ))}
-                  </div>
+            {mode === 'ai' ? (
+              <>
+                <div className="section-label">Engine strength</div>
+                <div className="col" style={{ gap: '0.45rem' }}>
+                  {([1, 2, 3, 4] as Level[]).map((l) => (
+                    <button
+                      type="button"
+                      key={l}
+                      className={`mode-card${level === l ? ' on' : ''}`}
+                      style={{ padding: '0.65rem 0.9rem', flexDirection: 'row', alignItems: 'center', gap: '0.7rem' }}
+                      onClick={() => setLevel(l)}
+                      aria-pressed={level === l}
+                    >
+                      <span className="row" style={{ gap: 3, flex: 'none' }} aria-hidden>
+                        {[1, 2, 3, 4].map((d) => (
+                          <span key={d} className={`level-dot${level >= d ? ' on' : ''}`} />
+                        ))}
+                      </span>
+                      <span className="t">{['Gentle', 'Casual', 'Club', 'Sharp'][l - 1]}</span>
+                      <span className="d mono" style={{ marginLeft: 'auto' }}>
+                        ~{LEVEL_RATINGS[l]}
+                      </span>
+                    </button>
+                  ))}
                 </div>
-              );
-            })}
-            <div className="tempo-group">
-              <div className="tempo-name">Untimed</div>
-              <div className="time-grid">
-                <button
-                  type="button"
-                  className={`time-opt${tcId === 'unlimited' ? ' on' : ''}`}
-                  onClick={() => setTcId('unlimited')}
-                  aria-pressed={tcId === 'unlimited'}
-                >
-                  <span className="big">No clock</span>
-                  <span className="tag">think freely</span>
-                </button>
-              </div>
-            </div>
+              </>
+            ) : (
+              <>
+                <div className="section-label">Pass &amp; play</div>
+                <p className="small muted" style={{ margin: 0 }}>
+                  White moves first. The board turns to face whoever is thinking.
+                </p>
+              </>
+            )}
           </div>
           <button type="submit" className="btn btn-accent btn-lg" style={{ width: '100%' }}>
             Start game
           </button>
         </div>
 
-        <div className="col launch-side" style={{ gap: '0.9rem' }}>
-          {mode === 'ai' ? (
-            <div className="panel panel-pad">
-              <div className="section-label">Your side</div>
-              <div className="seg" role="radiogroup" aria-label="Your color">
-                {([['w', 'White'], ['random', 'Random'], ['b', 'Black']] as const).map(([v, label]) => (
-                  <button type="button" key={v} role="radio" aria-checked={color === v} className={color === v ? 'on' : ''} onClick={() => setColor(v)}>
-                    {label}
-                  </button>
-                ))}
-              </div>
-
-              <div className="section-label" style={{ marginTop: '1.1rem' }}>
-                Engine strength
-              </div>
-              <div className="col" style={{ gap: '0.45rem' }}>
-                {([1, 2, 3, 4] as Level[]).map((l) => (
-                  <button
-                    type="button"
-                    key={l}
-                    className={`mode-card${level === l ? ' on' : ''}`}
-                    style={{ padding: '0.65rem 0.9rem', flexDirection: 'row', alignItems: 'center', gap: '0.7rem' }}
-                    onClick={() => setLevel(l)}
-                    aria-pressed={level === l}
-                  >
-                    <span className="row" style={{ gap: 3, flex: 'none' }} aria-hidden>
-                      {[1, 2, 3, 4].map((d) => (
-                        <span key={d} className={`level-dot${level >= d ? ' on' : ''}`} />
-                      ))}
-                    </span>
-                    <span className="t">{['Gentle', 'Casual', 'Club', 'Sharp'][l - 1]}</span>
-                    <span className="d mono" style={{ marginLeft: 'auto' }}>
-                      ~{LEVEL_RATINGS[l]}
-                    </span>
-                  </button>
-                ))}
-              </div>
+        <div className="col quickplay-side" style={{ gap: '0.9rem' }}>
+          <div className="panel panel-pad">
+            <div className="section-label">Your side</div>
+            <div className="seg" role="radiogroup" aria-label="Your color">
+              {([['w', 'White'], ['random', 'Random'], ['b', 'Black']] as const).map(([v, label]) => (
+                <button type="button" key={v} role="radio" aria-checked={mode === 'pass' ? true : color === v} className={mode === 'pass' || color === v ? 'on' : ''} onClick={() => setColor(v)} disabled={mode === 'pass'}>
+                  {label}
+                </button>
+              ))}
             </div>
-          ) : (
-            <div className="panel panel-pad">
-              <div className="section-label">Pass &amp; play</div>
-              <p className="small muted" style={{ margin: 0 }}>
-                White moves first. The board turns to face whoever is thinking, so pass the device after every move.
-              </p>
-            </div>
-          )}
+          </div>
           <div className="panel panel-pad quiet">
-            <div className="section-label">Game summary</div>
+            <div className="section-label">Summary</div>
             <p className="small" style={{ margin: 0, lineHeight: 1.7 }}>
               <strong>{mode === 'ai' ? 'You' : 'White'}</strong> vs{' '}
-              <strong>{mode === 'ai' ? `Stockfish · ${['Gentle', 'Casual', 'Club', 'Sharp'][level - 1]}` : 'Black'}</strong>
+              <strong>{mode === 'ai' ? `Stockfish ${['Gentle', 'Casual', 'Club', 'Sharp'][level - 1]}` : 'Black'}</strong>
               <br />
               <span className="muted">
-                {timeControl.minutes > 0 ? `${timeControl.minutes} min${timeControl.increment ? ` + ${timeControl.increment}s` : ''}` : 'No clock'}
-                {' · '}{color === 'random' ? 'random side' : color === 'w' ? 'you play White' : 'you play Black'}
+                {timeControlById(tcId).minutes > 0 ? `${timeControlById(tcId).minutes}+${timeControlById(tcId).increment}` : 'Untimed'}
+                {' · '}{mode === 'pass' ? 'pass & play' : color === 'random' ? 'random side' : color === 'w' ? 'you play White' : 'you play Black'}
               </span>
             </p>
           </div>
