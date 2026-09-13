@@ -43,6 +43,13 @@ export function Studies() {
           Local notebooks for openings and positions — chapters of annotated variation trees, saved in this browser as
           you work.
         </p>
+        <nav className="page-tabs mt-2" aria-label="Analysis area">
+          <Link to="/analysis">Analysis board</Link>
+          <Link to="/editor">Position editor</Link>
+          <Link to="/studies" className="on">
+            Studies
+          </Link>
+        </nav>
       </div>
 
       <form

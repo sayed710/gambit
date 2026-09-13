@@ -1,3 +1,4 @@
+import { Link } from 'react-router-dom';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import GameBoard from '../components/GameBoard';
 import { useToast } from '../components/Toast';
@@ -74,6 +75,13 @@ export default function Coordinates() {
       <div className="page-head">
         <h1>Coordinates trainer</h1>
         <p className="sub">See a square name, click it. Forty-five seconds — the board is empty on purpose.</p>
+        <nav className="page-tabs mt-2" aria-label="Training area">
+          <Link to="/puzzles">Puzzles</Link>
+          <Link to="/repertoire">Repertoire</Link>
+          <Link to="/coordinates" className="on">
+            Coordinates
+          </Link>
+        </nav>
       </div>
 
       <div className="coords-layout">

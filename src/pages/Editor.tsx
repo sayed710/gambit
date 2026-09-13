@@ -128,6 +128,13 @@ export default function Editor() {
           Build a position piece by piece — then analyse it or play it against Stockfish. Invalid positions are
           refused, never silently accepted.
         </p>
+        <nav className="page-tabs mt-2" aria-label="Analysis area">
+          <Link to="/analysis">Analysis board</Link>
+          <Link to="/editor" className="on">
+            Position editor
+          </Link>
+          <Link to="/studies">Studies</Link>
+        </nav>
       </div>
 
       <div className="editor-layout">

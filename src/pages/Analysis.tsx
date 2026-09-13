@@ -170,24 +170,18 @@ export default function Analysis() {
 
   return (
     <div className="page container">
-      <div className="page-head row between wrap" style={{ gap: '1rem' }}>
-        <div>
-          <h1>Analysis board</h1>
-          <p className="sub">
-            Load any position or game, build variations, annotate moves and read Stockfish. Everything runs locally.
-          </p>
-        </div>
-        <div className="row" style={{ gap: '0.45rem' }}>
-          <Link className="btn btn-ghost btn-sm" to="/editor">
-            Position editor
+      <div className="page-head">
+        <h1>Analysis</h1>
+        <p className="sub">
+          Build variations, annotate moves, set up positions and read Stockfish. Everything runs locally.
+        </p>
+        <nav className="page-tabs mt-2" aria-label="Analysis area">
+          <Link to="/analysis" className="on">
+            Analysis board
           </Link>
-          <Link className="btn btn-ghost btn-sm" to="/studies">
-            Studies
-          </Link>
-          <Link className="btn btn-ghost btn-sm" to="/repertoire">
-            Repertoire
-          </Link>
-        </div>
+          <Link to="/editor">Position editor</Link>
+          <Link to="/studies">Studies</Link>
+        </nav>
       </div>
 
       <TreeWorkspace

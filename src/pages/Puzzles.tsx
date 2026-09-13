@@ -220,11 +220,18 @@ export default function Puzzles() {
   return (
     <div className="page container">
       <div className="page-head">
-        <h1>Puzzle training</h1>
+        <h1>Puzzles</h1>
         <p className="sub">
           Generated and verified in-browser, every solution is mechanically checked against its theme. One wrong try
           counts as a miss.
         </p>
+        <nav className="page-tabs mt-2" aria-label="Training area">
+          <Link to="/puzzles" className="on">
+            Puzzles
+          </Link>
+          <Link to="/repertoire">Repertoire</Link>
+          <Link to="/coordinates">Coordinates</Link>
+        </nav>
       </div>
 
       <div className="theme-chips mb-2" role="group" aria-label="Puzzle themes">

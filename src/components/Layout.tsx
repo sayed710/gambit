@@ -110,10 +110,11 @@ function SettingsModal({ onClose }: { onClose: () => void }) {
 }
 
 const NAV = [
-  { to: '/play', label: 'Play' },
-  { to: '/analysis', label: 'Analysis' },
-  { to: '/puzzles', label: 'Puzzles' },
-  { to: '/profile', label: 'Profile' },
+  { to: '/play', label: 'Play', match: ['/play'] },
+  { to: '/analysis', label: 'Analysis', match: ['/analysis', '/editor', '/studies'] },
+  { to: '/puzzles', label: 'Train', match: ['/puzzles', '/repertoire', '/coordinates'] },
+  { to: '/library', label: 'Library', match: ['/library'] },
+  { to: '/profile', label: 'Profile', match: ['/profile'] },
 ];
 
 export default function Layout() {
@@ -134,17 +135,20 @@ export default function Layout() {
     return () => window.removeEventListener('keydown', onKey);
   }, []);
 
-  const page = location.pathname.startsWith('/play')
+  const p = location.pathname;
+  const page = p.startsWith('/play')
     ? 'play'
-    : location.pathname.startsWith('/analysis')
-      ? 'analysis'
-      : location.pathname.startsWith('/review')
-        ? 'review'
-        : location.pathname.startsWith('/puzzles')
+    : p.startsWith('/review')
+      ? 'review'
+      : p.startsWith('/editor') || p.startsWith('/studies') || p.startsWith('/analysis')
+        ? 'analysis'
+        : p.startsWith('/repertoire') || p.startsWith('/coordinates') || p.startsWith('/puzzles')
           ? 'puzzles'
-          : location.pathname.startsWith('/profile')
-            ? 'profile'
-            : 'home';
+          : p.startsWith('/library')
+            ? 'library'
+            : p.startsWith('/profile')
+              ? 'profile'
+              : 'home';
 
   return (
     <div data-page={page} style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: '100dvh' }}>
@@ -158,7 +162,13 @@ export default function Layout() {
           </Link>
           <nav className="main-nav" aria-label="Main">
             {NAV.map((n) => (
-              <NavLink key={n.to} to={n.to} className={({ isActive }) => (isActive || (n.to !== '/' && location.pathname.startsWith(n.to)) ? 'active' : '')}>
+              <NavLink
+                key={n.to}
+                to={n.to}
+                className={({ isActive }) =>
+                  isActive || n.match.some((m) => location.pathname.startsWith(m)) ? 'active' : ''
+                }
+              >
                 {n.label}
               </NavLink>
             ))}

@@ -43,11 +43,18 @@ export function RepertoireList() {
   return (
     <div className="page container">
       <div className="page-head">
-        <h1>Opening repertoire</h1>
+        <h1>Repertoire</h1>
         <p className="sub">
           Build your lines, mark the moves you want to play, then train them — the trainer asks for your repertoire
           move and flags every deviation.
         </p>
+        <nav className="page-tabs mt-2" aria-label="Training area">
+          <Link to="/puzzles">Puzzles</Link>
+          <Link to="/repertoire" className="on">
+            Repertoire
+          </Link>
+          <Link to="/coordinates">Coordinates</Link>
+        </nav>
       </div>
 
       <form
