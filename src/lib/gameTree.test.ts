@@ -215,12 +215,63 @@ describe('tree ids — persistence safety', () => {
     expect(new Set(ids).size).toBe(ids.length);
 
     // 5. add a real side variation at the root, then annotate it
-    const sideVar = second.applySan(revived, null, 'c5');
+    const sideVar = second.applySan(revived, null, 'd4'); // legal root alternative to 1. e4
     expect(sideVar.ok).toBe(true);
-    const sicilianTarget = revived.moves[0].children[1];
-    expect(sicilianTarget?.san).toBe('c5');
-    second.setComment(revived, sicilianTarget.id, 'side variation');
-    expect(sicilianTarget.comment).toBe('side variation');
-    expect(second.lineTo(revived, sicilianTarget.id).map((n) => n.san)).toEqual(['e4', 'c5']);
+    const altTarget = revived.moves[1]; // root-level sibling of 1. e4
+    expect(altTarget?.san).toBe('d4');
+    second.setComment(revived, altTarget.id, 'side variation');
+    expect(altTarget.comment).toBe('side variation');
+    expect(second.lineTo(revived, altTarget.id).map((n) => n.san)).toEqual(['d4']);
+  });
+});
+
+describe('underpromotion', () => {
+  function startWithPromotionLine(): { tree: GameTreeData; ids: string[] } {
+    const fen = '8/P6k/8/8/8/8/8/K7 w - - 0 1'; // a7 pawn one step from promoting
+    const tree = createTree(fen);
+    const ids: string[] = [];
+    let parent: string | null = null;
+    for (const san of ['a8=N', 'Kg8']) {
+      const r = applySan(tree, parent, san);
+      if (!r.ok) throw new Error(`illegal ${san}`);
+      parent = r.id;
+      ids.push(r.id);
+    }
+    return { tree, ids };
+  }
+
+  it('records knight promotion with correct SAN and FEN', () => {
+    const { tree } = startWithPromotionLine();
+    const node = tree.moves[0];
+    expect(node.san).toBe('a8=N');
+    expect(node.promotion).toBe('n');
+    expect(node.fenAfter.split(' ')[0]).toContain('N7'); // knight sits on a8
+  });
+
+  it('supports rook and bishop promotions', () => {
+    const fen = '8/P6k/8/8/8/8/8/K7 w - - 0 1';
+    for (const san of ['a8=R', 'a8=B']) {
+      const tree = createTree(fen);
+      const r = applySan(tree, null, san);
+      expect(r.ok).toBe(true);
+      expect(tree.moves[0].san).toBe(san);
+    }
+  });
+
+  it('handles capture promotions', () => {
+    const fen = '1n5k/P7/8/8/8/8/8/K7 w - - 0 1';
+    const tree = createTree(fen);
+    const r = applySan(tree, null, 'axb8=Q+');
+    expect(r.ok).toBe(true);
+    expect(tree.moves[0].san).toBe('axb8=Q+');
+  });
+
+  it('keeps underpromotion through a PGN round trip', () => {
+    const { tree } = startWithPromotionLine();
+    const pgn = toPgn(tree, { Event: 'Promo' });
+    expect(pgn).toContain('a8=N');
+    const again = fromPgn(pgn);
+    expect(treeKey(again.tree)).toBe(treeKey(tree));
+    expect(again.tree.moves[0].promotion).toBe('n');
   });
 });

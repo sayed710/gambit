@@ -21,6 +21,7 @@ import {
   type GameTreeData,
   type TreeNode,
 } from '../lib/gameTree';
+import type { PendingPromotion } from '../hooks/useGame';
 
 const NAG_CHOICES = ['!', '!!', '!?', '?!', '?', '??'];
 
@@ -50,6 +51,8 @@ export default function TreeWorkspace({ tree, currentId, boardId, onTreeChange, 
   const [fenInput, setInput] = useState('');
   const [fenError, setFenError] = useState<string | null>(null);
 
+  const [pendingPromotion, setPendingPromotion] = useState<PendingPromotion | null>(null);
+
   const current = currentId ? findNode(tree, currentId) : null;
   const fen = current ? current.fenAfter : tree.startFen;
 
@@ -61,8 +64,17 @@ export default function TreeWorkspace({ tree, currentId, boardId, onTreeChange, 
     }
   }, [fen]);
 
-  const commitLocal = useCallback(
-    (from: Square, to: Square, promotion: 'q' | 'r' | 'b' | 'n' = 'q'): 'ok' | 'illegal' => {
+  /** True when the piece on `from` is a pawn that would land on the last rank. */
+  const needsPromotion = useCallback(
+    (from: Square, to: Square): boolean => {
+      const piece = new Chess(fen).get(from);
+      return !!piece && piece.type === 'p' && (to.endsWith('8') || to.endsWith('1'));
+    },
+    [fen],
+  );
+
+  const applyMove = useCallback(
+    (from: Square, to: Square, promotion: 'q' | 'r' | 'b' | 'n'): 'ok' | 'illegal' => {
       const probe = new Chess();
       try {
         probe.load(fen);
@@ -85,6 +97,29 @@ export default function TreeWorkspace({ tree, currentId, boardId, onTreeChange, 
       return 'ok';
     },
     [fen, currentId, tree, onTreeChange, onNavigate],
+  );
+
+  const commitLocal = useCallback(
+    (from: Square, to: Square): 'ok' | 'illegal' => {
+      if (needsPromotion(from, to)) {
+        const color = new Chess(fen).turn();
+        setPendingPromotion({ from, to, color });
+        return 'ok'; // held until the picker resolves
+      }
+      return applyMove(from, to, 'q');
+    },
+    [fen, needsPromotion, applyMove],
+  );
+
+  const choosePromotion = useCallback(
+    (piece: 'q' | 'r' | 'b' | 'n') => {
+      if (!pendingPromotion) return;
+      const { from, to } = pendingPromotion;
+      setPendingPromotion(null);
+      const ok = applyMove(from, to, piece);
+      if (!ok) playSound('illegal');
+    },
+    [pendingPromotion, applyMove],
   );
 
   const click = useClickToMove({
@@ -221,6 +256,9 @@ export default function TreeWorkspace({ tree, currentId, boardId, onTreeChange, 
               legalTargets={click.legalTargets}
               onDrop={handleDrop}
               arrows={arrows}
+              pendingPromotion={pendingPromotion}
+              onChoosePromotion={choosePromotion}
+              onCancelPromotion={() => setPendingPromotion(null)}
             />
           </div>
         </div>

@@ -18,6 +18,7 @@ import {
   type Repertoire,
 } from '../lib/repertoireStore';
 import { advanceToRepertoireSide, sideToMoveAt, trainerStep } from '../lib/repertoireTrain';
+import type { PendingPromotion } from '../hooks/useGame';
 
 export function RepertoireList() {
   const { toast } = useToast();
@@ -344,6 +345,7 @@ function Trainer({ rep }: { rep: Repertoire }) {
 
   const [drill, setDrill] = useState<DrillState>({ nodeId: null, asked: 0, correct: 0, deviations: 0, lastDeviation: null, done: false });
   const [reveal, setReveal] = useState<string | null>(null);
+  const [pendingPromotion, setPendingPromotion] = useState<PendingPromotion | null>(null);
 
   // the trainer always auto-plays opponent moves until the repertoire side is to move
   const awaitingSide = sideToMoveAt(line, drill.nodeId) === mySide && !drill.done;
@@ -365,16 +367,23 @@ function Trainer({ rep }: { rep: Repertoire }) {
   const promptTurn = awaitingSide;
 
   const tryMove = useCallback(
-    (from: Square, to: Square): 'ok' | 'illegal' => {
+    (from: Square, to: Square, promotion: 'q' | 'r' | 'b' | 'n' = 'q'): 'ok' | 'illegal' => {
       const probe = new Chess();
       try {
         probe.load(fen);
       } catch {
         return 'illegal';
       }
+      const piece = probe.get(from);
+      const promoMove = !!piece && piece.type === 'p' && (to.endsWith('8') || to.endsWith('1'));
+      if (promoMove && promotion === 'q' && !pendingPromotion) {
+        // hold for an explicit pick — underpromotion must be reachable in drills
+        setPendingPromotion({ from, to, color: probe.turn() });
+        return 'ok';
+      }
       let m;
       try {
-        m = probe.move({ from, to, promotion: 'q' });
+        m = probe.move({ from, to, promotion });
       } catch {
         return 'illegal';
       }
@@ -397,7 +406,7 @@ function Trainer({ rep }: { rep: Repertoire }) {
       }));
       return 'ok';
     },
-    [fen, line, drill.nodeId],
+    [fen, line, drill.nodeId, pendingPromotion],
   );
 
   const click = useClickToMove({
@@ -416,6 +425,16 @@ function Trainer({ rep }: { rep: Repertoire }) {
     [tryMove, click],
   );
 
+  const choosePromotion = useCallback(
+    (piece: 'q' | 'r' | 'b' | 'n') => {
+      if (!pendingPromotion) return;
+      const { from, to } = pendingPromotion;
+      setPendingPromotion(null);
+      tryMove(from, to, piece);
+    },
+    [pendingPromotion, tryMove],
+  );
+
   const restart = () => setDrill({ nodeId: null, asked: 0, correct: 0, deviations: 0, lastDeviation: null, done: false });
 
   const progress = drill.asked > 0 ? Math.round((drill.correct / drill.asked) * 100) : null;
@@ -427,11 +446,14 @@ function Trainer({ rep }: { rep: Repertoire }) {
           boardId="rep-train"
           fen={fen}
           orientation={mySide === 'w' ? 'white' : 'black'}
-          movableColor={mySide}
+          movableColor={promptTurn ? mySide : null}
           onSquareClick={click.onSquareClick}
           selected={click.selected}
           legalTargets={click.legalTargets}
           onDrop={handleDrop}
+          pendingPromotion={pendingPromotion}
+          onChoosePromotion={choosePromotion}
+          onCancelPromotion={() => setPendingPromotion(null)}
         />
         <div className="board-under">
           <button className="btn btn-ghost btn-sm" onClick={restart}>
