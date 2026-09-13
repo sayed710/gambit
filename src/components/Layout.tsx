@@ -1,26 +1,7 @@
 import { useEffect, useState } from 'react';
 import { NavLink, Link, Outlet, useLocation } from 'react-router-dom';
 import { useSettings } from '../state/SettingsContext';
-import { GearIcon, KnightMark, MenuIcon, MoonIcon, SunIcon, XIcon } from './Icons';
-import { playSound } from '../lib/sound';
-
-function ThemeToggle() {
-  const { resolvedTheme, set } = useSettings();
-  const dark = resolvedTheme === 'dark';
-  return (
-    <button
-      className="icon-btn"
-      onClick={() => {
-        set('theme', dark ? 'light' : 'dark');
-        playSound('click');
-      }}
-      aria-label={dark ? 'Switch to light theme' : 'Switch to dark theme'}
-      title={dark ? 'Light theme' : 'Dark theme'}
-    >
-      {dark ? <SunIcon /> : <MoonIcon />}
-    </button>
-  );
-}
+import { GearIcon, KnightMark, MenuIcon, XIcon } from './Icons';
 
 const BOARD_SWATCHES: { id: 'glacier' | 'seaice' | 'polarnight' | 'aurora' | 'frost' | 'walnut'; label: string; light: string; dark: string }[] = [
   { id: 'glacier', label: 'Glacier', light: '#C7D9E6', dark: '#3E637F' },
@@ -53,17 +34,6 @@ function SettingsModal({ onClose }: { onClose: () => void }) {
               onChange={(e) => settings.set('name', e.target.value)}
               placeholder="How you appear at the board"
             />
-          </div>
-
-          <div className="field">
-            <label>Appearance</label>
-            <div className="seg" role="radiogroup" aria-label="Theme">
-              {(['light', 'dark', 'system'] as const).map((t) => (
-                <button key={t} className={settings.theme === t ? 'on' : ''} onClick={() => settings.set('theme', t)}>
-                  {t[0].toUpperCase() + t.slice(1)}
-                </button>
-              ))}
-            </div>
           </div>
 
           <div className="field">
@@ -194,7 +164,6 @@ export default function Layout() {
             ))}
           </nav>
           <div className="header-actions">
-            <ThemeToggle />
             <button className="icon-btn" onClick={() => setSettingsOpen(true)} aria-label="Settings" title="Settings">
               <GearIcon />
             </button>

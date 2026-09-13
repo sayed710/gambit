@@ -1,67 +1,47 @@
 ---
 name: Gambit
-description: Chess, played on thin ice — Stockfish 18, arctic-clean interface
+description: Chess, played on thin ice — an arctic editorial chess workstation: calm, cold, chess-first
 colors:
-  ice-bg: "#eef2f6"
-  ice-raised: "#f7fafc"
-  ice-surface: "#fdfeff"
-  polar-ink: "#0e1621"
-  slate-soft: "#33414f"
-  frost-muted: "#5d6b7a"
-  hairline: "#d9e1e8"
-  hairline-strong: "#bccad5"
-  glacial-teal: "#0f7a8d"
-  glacial-cyan: "#53c8d8"
-  aurora: "#6c5ce7"
-  aurora-dark: "#9b8cf7"
-  good-green: "#1d7a5f"
-  good-green-dark: "#4ecf9d"
-  alarm-coral: "#c2503e"
-  alarm-coral-dark: "#ff8a75"
-  board-glacier-light: "#dce9f2"
-  board-glacier-dark: "#5d84a0"
-  board-glacier-border: "#4a6c86"
-  board-frost-light: "#eef3f6"
-  board-frost-dark: "#a8bfd0"
-  board-frost-border: "#8ba6ba"
-  board-polar-light: "#31465c"
-  board-polar-dark: "#17222f"
-  board-polar-border: "#101a26"
-  board-walnut-light: "#e8dcc8"
-  board-walnut-dark: "#9a6b45"
-  board-walnut-border: "#7d5836"
-  board-tundra-light: "#e6ebe4"
-  board-tundra-dark: "#6f8f7a"
-  board-tundra-border: "#577260"
-  board-aurora-light: "#2a2f45"
-  board-aurora-dark: "#171b2b"
-  board-aurora-border: "#101321"
-  board-glacier-light-dark: "#43596e"
-  board-glacier-dark-dark: "#22334a"
-  board-glacier-border-dark: "#182635"
-  board-frost-light-dark: "#5d7488"
-  board-frost-dark-dark: "#33465a"
-  board-frost-border-dark: "#263748"
-  board-polar-light-dark: "#27384d"
-  board-polar-dark-dark: "#121b28"
-  board-polar-border-dark: "#0c141e"
-  board-walnut-light-dark: "#4a3a2a"
-  board-walnut-dark-dark: "#2b1f14"
-  board-walnut-border-dark: "#1e150c"
-  board-tundra-light-dark: "#3c4a42"
-  board-tundra-dark-dark: "#222d26"
-  board-tundra-border-dark: "#18211c"
-  board-aurora-light-dark: "#2c3350"
-  board-aurora-dark-dark: "#1a1f33"
-  board-aurora-border-dark: "#12162a"
-  check-red-tint: "rgba(255, 107, 87, 0.55)"
-  check-red-tint-2: "rgba(232, 90, 70, 0.35)"
-  check-amber-tint-dark: "rgba(255, 199, 89, 0.5)"
-  check-amber-tint-dark-2: "rgba(255, 150, 80, 0.32)"
+  # ---- Arctic Editorial core (single dark theme) ----
+  page-void: "#090D10"
+  page-deep: "#0D1216"
+  surface-1: "#11171B"
+  surface-2: "#151C21"
+  surface-3: "#1A2227"
+  line: "#263036"
+  line-strong: "#313C41"
+  text-hi: "#F1F4F3"
+  text-soft: "#CED5D3"
+  text-muted: "#8D9995"
+  text-faint: "#5F6B68"
+  ice: "#AFC6CF"
+  ice-dim: "#829FAA"
+  sea-glass: "#719F94"
+  sea-glass-deep: "#547D74"
+  sea-soft: "rgba(113, 159, 148, 0.14)"
+  sea-soft-focus: "rgba(113, 159, 148, 0.18)"
+  identity-seaice: "#8FB6B0"
+  accent-ink-ice: "#A8C8BF"
+  pv-slate-violet: "#9AA0C0"
+  pv-violet-soft: "rgba(154, 160, 192, 0.12)"
+  good-sea: "#7FA89D"
+  signal-coral: "#C97B6E"
+  signal-coral-soft: "rgba(201, 123, 110, 0.13)"
+  aurora-rose-muted: "#C9A9A0"
+  amber-muted: "#C9A86A"
+  red-muted: "#C05B4C"
+  red-muted-soft: "rgba(192, 91, 76, 0.15)"
+  btn-accent-ink: "#0B100E"
+  board-light: "#B9C8CE"
+  board-dark: "#43596E"
+  board-border: "#2E3E4C"
+  dot-sea-60: "rgba(15, 122, 141, 0.6)"
+  dot-sea-65: "rgba(15, 122, 141, 0.65)"
+  hl-last-ice: "rgba(175, 198, 207, 0.4)"
+  hl-select-ice: "rgba(175, 198, 207, 0.58)"
+  check-coral-tint: "rgba(201, 123, 110, 0.5)"
+  check-coral-tint-2: "rgba(192, 91, 76, 0.32)"
   eval-tick-shadow: "rgba(0, 0, 0, 0.35)"
-  sky-aurora: "rgba(53, 207, 167, 0.1)"
-  sky-violet: "rgba(129, 116, 232, 0.12)"
-  sky-ice: "rgba(84, 196, 224, 0.05)"
   glass-border: "color-mix(in srgb, #54C4E0, #172A3D)"
   aurora-grad-start: "#61E6C3"
   aurora-grad-mid: "#54C4E0"
@@ -69,6 +49,7 @@ colors:
   pv-arrow-violet: "rgba(169, 156, 255, 0.85)"
   panel-highlight: "rgba(244, 250, 252, 0.045)"
   pv-arrow: "rgba(108, 92, 231, 0.85)"
+  # ---- review classification (functional data colors) ----
   class-great: "#5c8bb0"
   class-brilliant: "#26c2a3"
   class-book: "#a8bfd0"
@@ -79,8 +60,7 @@ colors:
   class-miss: "#ff8a3d"
   class-mistake: "#ffa459"
   class-blunder: "#fa412d"
-  espresso-deep: "#151310"
-  # home night scene (Aurora Arctic poster page — fixed values, not theme tokens)
+  # ---- home night scene (cinematic poster page) ----
   night-void: "#050A11"
   night-deep: "#08111C"
   night-surface: "#0B1624"
@@ -128,16 +108,45 @@ colors:
   glass-top-012: "rgba(244, 250, 252, 0.012)"
   glass-top-035: "rgba(255, 255, 255, 0.03)"
   quote-ice-88: "rgba(220, 236, 242, 0.88)"
-  # light-theme aurora gradient stops (legacy --aurora-grad light values)
-  aurora-grad-light-start: "#12967A"
-  aurora-grad-light-mid: "#2B94B6"
-  aurora-grad-light-end: "#6656C8"
-  accent-btn-ink: "#04121C"
-  # board component literal borders (GameBoard PALETTES)
+  # ---- board component palettes (GameBoard PALETTES) ----
+  board-glacier-light: "#C7D9E6"
+  board-glacier-dark: "#3E637F"
   board-glacier-border-raw: "#2C4A63"
+  board-seaice-light: "#F2F7FA"
+  board-seaice-dark: "#C2D8E4"
   board-seaice-border: "#9DB9CB"
+  board-polar-light: "#2E4358"
+  board-polar-dark: "#12212F"
+  board-polar-border-raw: "#0C1822"
+  board-aurora-light-raw: "#24404A"
+  board-aurora-dark-raw: "#101E28"
+  board-aurora-border-raw: "#0B161E"
+  board-frost-light: "#E4EBEF"
+  board-frost-dark: "#9FB4C4"
   board-frost-border-raw: "#8399AB"
+  board-walnut-light: "#e8d9c0"
+  board-walnut-dark: "#9A6B45"
+  board-walnut-border-raw: "#7D5836"
+  board-glacier-dark-light: "#4C657E"
+  board-glacier-dark-dark: "#263A52"
   board-glacier-border-dark-raw: "#1C2C40"
+  board-seaice-dark-light: "#54708A"
+  board-seaice-dark-dark: "#31485E"
+  board-seaice-border-dark: "#253950"
+  board-polar-dark-light: "#2C4058"
+  board-polar-dark-dark2: "#141F2C"
+  board-polar-border-dark: "#0E1622"
+  board-aurora-dark-light: "#333A58"
+  board-aurora-dark-dark2: "#202540"
+  board-aurora-border-dark: "#161A2E"
+  board-frost-dark-light: "#54708A"
+  board-walnut-dark-light: "#54412E"
+  board-walnut-dark-dark2: "#33251A"
+  board-walnut-border-dark2: "#241a12"
+  check-red-tint: "rgba(255, 107, 87, 0.55)"
+  check-red-tint-2: "rgba(232, 90, 70, 0.35)"
+  check-amber-tint-dark: "rgba(255, 199, 89, 0.5)"
+  check-amber-tint-dark-2: "rgba(255, 150, 80, 0.32)"
 typography:
   display:
     fontFamily: "Fraunces, Georgia, serif"
@@ -489,20 +498,21 @@ spacing:
 
 **Creative North Star: "The Arctic Chess Study"**
 
-Gambit is an arctic study room: glacial daylight by day, deep polar night after dark. Surfaces are snow-and-slate blues, a single glacial-teal accent does the interaction work, and a restrained aurora violet glow appears only behind the landing hero. Typography — Fraunces, a warm old-style serif — carries the identity, with a single muted brass accent doing the work a startup gradient would do elsewhere. The interface is deliberately quiet: flat surfaces, hairline borders, tabular numerals for anything that counts, and zero decoration that doesn't come from the game itself.
+Gambit is an arctic editorial chess workstation — one calm dark theme. Surfaces are near-black blue-grey strata separated by hairlines, not shadows or glass. Sea glass does the interaction work; ice informs; a muted slate violet appears only where the engine speaks (variation identity, analysis emphasis). Aurora light lives exclusively in the Home landscape. Typography — Fraunces, a warm old-style serif — carries the identity where a gradient would on another product. Flat surfaces, crisp rules, tabular numerals for anything that counts, and zero decoration that doesn't come from the game itself.
 
 Density is generous: content breathes with whitespace, boards are as large as the viewport allows, and the move list reads like printed notation. There is no third accent color; status colors (win green, alarm red, draw gray) appear only on results and clocks.
 
 **Key Characteristics:**
 - Serif-first hierarchy; sans only for UI labels and body
-- One brass accent, used sparingly (highlights, active states, links to action)
+- One sea-glass accent, used sparingly (primary actions, active states)
+- Aurora violet is reserved for engine variation identity; it never colors ordinary UI
 - Chessboards are warm walnut by default with four selectable palettes
 - Flat surfaces + 1px hairlines; shadows only for things that physically float
 - Mono type reserved strictly for data: clocks, ratings, moves
 
 ## Colors
 
-A warm neutral paper family with a single brass accent and three semantic status colors.
+A near-black blue-grey family (#090D10 → #1A2227) with ice and sea-glass accents, muted coral reserved for loss and flags.
 
 ### Primary
 - **Glacial Teal** (#0f7a8d light / #53c8d8 dark): selection rings, active move in notation, the sparkline, focus outlines, the accent button. Used at ≤10% of any screen.
@@ -514,7 +524,7 @@ A warm neutral paper family with a single brass accent and three semantic status
 - **Draw Gray** (#6f6a5e / #a39b8b): draw badges only.
 
 ### Neutral
-- **Ice Sheet** (#eef2f6 / #0a0f16): page background, light theme.
+- **Polar Night** (#090D10 / #0D1216): page and raised background, the only theme.
 - **Snow Raised** (#f7fafc / #0f1721): inputs, clocks, resting controls.
 - **Surface** (#fdfeff / #131d29): cards and panels.
 - **Polar Ink** (#0e1621 / #e8eef5): primary text and primary-button fill (inverted).
@@ -568,8 +578,8 @@ Two radii: 14px for large containers (panels, board frame, modals), 10px for con
 
 ### Buttons
 - **Shape:** 10px radius, inline-flex, 0.62rem×1.15rem padding (lg: 0.85rem×1.6rem).
-- **Primary:** espresso fill, paper-raised text; hover lifts with shadow-md; active nudges down 1px.
-- **Accent:** brass fill, near-white text — one per screen maximum (the start-game CTA).
+- **Primary:** ice fill (#F1F4F3 surfaces inverted — ink-on-ice), dark text; hover lifts with shadow-md; active nudges down 1px.
+- **Accent:** sea-glass fill, near-black text, no gradient and no glow — one per screen maximum.
 - **Ghost:** surface fill, hairline-strong border, ink-soft text; hover darkens border and text.
 - **Danger:** transparent fill, alarm-red border and text; hover fills red-soft.
 - **Disabled:** 0.45 opacity, no transform.

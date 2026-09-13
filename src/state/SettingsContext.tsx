@@ -38,22 +38,12 @@ interface SettingsContextValue extends Settings {
 
 const SettingsContext = createContext<SettingsContextValue | null>(null);
 
-function systemTheme(): Theme {
-  return typeof window !== 'undefined' && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
-}
-
 export function SettingsProvider({ children }: { children: ReactNode }) {
   const [settings, setSettings] = useState<Settings>(() => ({ ...DEFAULTS, ...loadJSON('settings', {}) }));
-  const [sysTheme, setSysTheme] = useState<Theme>(() => systemTheme());
 
-  useEffect(() => {
-    const mq = window.matchMedia('(prefers-color-scheme: dark)');
-    const onChange = () => setSysTheme(mq.matches ? 'dark' : 'light');
-    mq.addEventListener('change', onChange);
-    return () => mq.removeEventListener('change', onChange);
-  }, []);
-
-  const resolvedTheme: Theme = settings.theme === 'system' ? sysTheme : settings.theme;
+  // Arctic Editorial ships as one calm dark theme; the stored preference is kept
+  // for schema stability but the resolved theme is always dark.
+  const resolvedTheme: Theme = 'dark';
 
   useEffect(() => {
     document.documentElement.dataset.theme = resolvedTheme;

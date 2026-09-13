@@ -191,9 +191,15 @@ export default function Profile() {
             </div>
             <div className="score-item">
               <div className="v">
-                {stats.form.length > 0 ? stats.form.map((f) => (f === 'win' ? 'W' : f === 'loss' ? 'L' : 'D')).join(' ') : '—'}
+                {stats.streak !== 0
+                  ? `${Math.abs(stats.streak)} ${stats.streak > 0 ? 'W' : 'L'}`
+                  : stats.last
+                    ? stats.last.result === 'draw'
+                      ? 'D'
+                      : '—'
+                    : '—'}
               </div>
-              <div className="k">Recent form</div>
+              <div className="k">Streak</div>
               <div className="note">
                 best +{stats.best} · worst {stats.worst}
               </div>
