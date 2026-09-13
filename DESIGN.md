@@ -80,6 +80,64 @@ colors:
   class-mistake: "#ffa459"
   class-blunder: "#fa412d"
   espresso-deep: "#151310"
+  # home night scene (Aurora Arctic poster page — fixed values, not theme tokens)
+  night-void: "#050A11"
+  night-deep: "#08111C"
+  night-surface: "#0B1624"
+  scene-ridge-far: "#0D1B2B"
+  scene-ridge-near: "#070F1A"
+  scene-ice-top: "#0C1B2C"
+  scene-ice-mid: "#08121F"
+  scene-strand: "#9FF5DC"
+  scene-strand-tip: "#DFFDF2"
+  scene-horizon-light: "#BFEAF6"
+  scene-light-column: "#9FDDEE"
+  home-btn-ink: "#07131F"
+  home-headline-em: "#E9F6FB"
+  home-cta-hover: "#C9ECF8"
+  home-target-ice: "#EAFFF8"
+  tactic-cell: "#22394E"
+  tactic-cell-dark: "#12212F"
+  panel-night-fill: "rgba(9, 18, 30, 0.62)"
+  chip-night-fill: "rgba(11, 22, 36, 0.5)"
+  meter-track-night: "rgba(18, 33, 49, 0.95)"
+  ice-hairline-10: "rgba(142, 216, 240, 0.1)"
+  ice-hairline-12: "rgba(142, 216, 240, 0.12)"
+  ice-hairline-14: "rgba(142, 216, 240, 0.14)"
+  ice-hairline-16: "rgba(142, 216, 240, 0.16)"
+  ice-hairline-18: "rgba(142, 216, 240, 0.18)"
+  ice-hairline-20: "rgba(142, 216, 240, 0.2)"
+  ice-hairline-22: "rgba(142, 216, 240, 0.22)"
+  ice-hairline-26: "rgba(142, 216, 240, 0.26)"
+  ice-hairline-60: "rgba(142, 216, 240, 0.6)"
+  ice-hairline-62: "rgba(142, 216, 240, 0.62)"
+  ice-hairline-70: "rgba(142, 216, 240, 0.7)"
+  glow-cyan-40: "rgba(191, 234, 246, 0.4)"
+  glow-cyan-55: "rgba(191, 234, 246, 0.55)"
+  words-ice-62: "rgba(157, 180, 196, 0.62)"
+  railk-ice-72: "rgba(157, 180, 196, 0.72)"
+  close-strip-ink: "rgba(100, 128, 154, 0.95)"
+  vignette-night-42: "rgba(5, 10, 17, 0.42)"
+  vignette-night-50: "rgba(5, 10, 17, 0.5)"
+  vignette-night-52: "rgba(5, 10, 17, 0.52)"
+  vignette-night-60: "rgba(5, 10, 17, 0.6)"
+  vignette-night-92: "rgba(5, 10, 17, 0.92)"
+  frost-top-075: "rgba(220, 236, 242, 0.075)"
+  frost-top-012: "rgba(220, 236, 242, 0.012)"
+  glass-top-05: "rgba(244, 250, 252, 0.05)"
+  glass-top-012: "rgba(244, 250, 252, 0.012)"
+  glass-top-035: "rgba(255, 255, 255, 0.03)"
+  quote-ice-88: "rgba(220, 236, 242, 0.88)"
+  # light-theme aurora gradient stops (legacy --aurora-grad light values)
+  aurora-grad-light-start: "#12967A"
+  aurora-grad-light-mid: "#2B94B6"
+  aurora-grad-light-end: "#6656C8"
+  accent-btn-ink: "#04121C"
+  # board component literal borders (GameBoard PALETTES)
+  board-glacier-border-raw: "#2C4A63"
+  board-seaice-border: "#9DB9CB"
+  board-frost-border-raw: "#8399AB"
+  board-glacier-border-dark-raw: "#1C2C40"
 typography:
   display:
     fontFamily: "Fraunces, Georgia, serif"
@@ -346,15 +404,75 @@ typography:
     fontSize: "0.8rem"
     fontWeight: 500
     lineHeight: 1.4
-rounded:
+  # home night scene type steps
+  home-display:
+    fontFamily: "Fraunces, Georgia, serif"
+    fontSize: "clamp(3rem, 6.4vw, 5.5rem)"
+    fontWeight: 600
+    lineHeight: 1.0
+    letterSpacing: "-0.028em"
+  home-display-mobile:
+    fontFamily: "Fraunces, Georgia, serif"
+    fontSize: "clamp(2.7rem, 11.5vw, 3.6rem)"
+    fontWeight: 600
+    lineHeight: 1.0
+  home-section-title:
+    fontFamily: "Fraunces, Georgia, serif"
+    fontSize: "clamp(2.5rem, 5vw, 4rem)"
+    fontWeight: 600
+    lineHeight: 1.05
+  home-panel-title:
+    fontFamily: "Fraunces, Georgia, serif"
+    fontSize: "1.68rem"
+    fontWeight: 600
+    lineHeight: 1.15
+  home-quote:
+    fontFamily: "Fraunces, Georgia, serif"
+    fontSize: "clamp(1.25rem, 2.2vw, 1.7rem)"
+    fontWeight: 500
+    lineHeight: 1.4
+  home-close-quote:
+    fontFamily: "Fraunces, Georgia, serif"
+    fontSize: "clamp(1.4rem, 2.8vw, 2rem)"
+    fontWeight: 500
+    lineHeight: 1.42
+  home-benefit:
+    fontFamily: "Fraunces, Georgia, serif"
+    fontSize: "1.28rem"
+    fontWeight: 600
+    lineHeight: 1.2
+  home-move:
+    fontFamily: "Fraunces, Georgia, serif"
+    fontSize: "1.06rem"
+    fontWeight: 500
+    lineHeight: 1.2
+  home-kicker:
+    fontFamily: "Inter, system-ui, sans-serif"
+    fontSize: "0.66rem"
+    fontWeight: 600
+    lineHeight: 1.3
+  home-rail-label:
+    fontFamily: "Inter, system-ui, sans-serif"
+    fontSize: "0.64rem"
+    fontWeight: 600
+    lineHeight: 1.3
+  page-display:
+    fontFamily: "Fraunces, Georgia, serif"
+    fontSize: "clamp(2.4rem, 4.6vw, 3.4rem)"
+    fontWeight: 600
+    lineHeight: 1.1
+  rounded:
   focus: "4px"
+  rule: "2px"
   cell: "6px"
+  cell-lg: "12px"
   sm: "8px"
   btn: "9px"
   md: "10px"
   btn-lg: "11px"
   lg: "14px"
-  cell: "12px"
+  panel-xl: "20px"
+  showcase: "22px"
   pill: "99px"
 spacing:
   xs: "0.35rem"
