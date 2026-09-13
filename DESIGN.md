@@ -59,6 +59,15 @@ colors:
   check-amber-tint-dark: "rgba(255, 199, 89, 0.5)"
   check-amber-tint-dark-2: "rgba(255, 150, 80, 0.32)"
   eval-tick-shadow: "rgba(0, 0, 0, 0.35)"
+  sky-aurora: "rgba(53, 207, 167, 0.1)"
+  sky-violet: "rgba(129, 116, 232, 0.12)"
+  sky-ice: "rgba(84, 196, 224, 0.05)"
+  glass-border: "color-mix(in srgb, #54C4E0, #172A3D)"
+  aurora-grad-start: "#61E6C3"
+  aurora-grad-mid: "#54C4E0"
+  aurora-grad-end: "#A99CFF"
+  pv-arrow-violet: "rgba(169, 156, 255, 0.85)"
+  panel-highlight: "rgba(244, 250, 252, 0.045)"
   pv-arrow: "rgba(108, 92, 231, 0.85)"
   class-great: "#5c8bb0"
   class-brilliant: "#26c2a3"
@@ -265,6 +274,48 @@ typography:
     fontSize: "0.58rem"
     fontWeight: 600
     lineHeight: 1.4
+  class-chip:
+    fontFamily: "Inter, system-ui, sans-serif"
+    fontSize: "0.85rem"
+    fontWeight: 700
+    lineHeight: 1.2
+  engine-line:
+    fontFamily: "ui-monospace, Cascadia Code, Consolas, monospace"
+    fontSize: "0.82rem"
+    fontWeight: 400
+    lineHeight: 1.6
+  line-no:
+    fontFamily: "ui-monospace, Cascadia Code, Consolas, monospace"
+    fontSize: "0.72rem"
+    fontWeight: 400
+    lineHeight: 1.4
+  perf-bar:
+    fontFamily: "Inter, system-ui, sans-serif"
+    fontSize: "0.85rem"
+    fontWeight: 400
+    lineHeight: 1.4
+  notation-strip:
+    fontFamily: "ui-monospace, Cascadia Code, Consolas, monospace"
+    fontSize: "1.05rem"
+    fontWeight: 400
+    lineHeight: 1.4
+  arena-objective:
+    fontFamily: "Fraunces, Georgia, serif"
+    fontSize: "1.25rem"
+    fontWeight: 600
+    lineHeight: 1.2
+  profile-name:
+    fontFamily: "Fraunces, Georgia, serif"
+    fontSize: "2.1rem"
+    fontWeight: 700
+    lineHeight: 1.1
+    letterSpacing: "-0.02em"
+  page-quote:
+    fontFamily: "Fraunces, Georgia, serif"
+    fontSize: "1.15rem"
+    fontWeight: 400
+    fontStyle: "italic"
+    lineHeight: 1.4
   eval-label:
     fontFamily: "ui-monospace, Cascadia Code, Consolas, monospace"
     fontSize: "0.55rem"
@@ -303,6 +354,7 @@ rounded:
   md: "10px"
   btn-lg: "11px"
   lg: "14px"
+  cell: "12px"
   pill: "99px"
 spacing:
   xs: "0.35rem"
