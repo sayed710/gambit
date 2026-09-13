@@ -414,6 +414,11 @@ typography:
     fontWeight: 500
     lineHeight: 1.4
   # home night scene type steps
+  study-title:
+    fontFamily: "Fraunces, Georgia, serif"
+    fontSize: "clamp(1.6rem, 3vw, 2.2rem)"
+    fontWeight: 600
+    lineHeight: 1.1
   home-display:
     fontFamily: "Fraunces, Georgia, serif"
     fontSize: "clamp(3rem, 6.4vw, 5.5rem)"
