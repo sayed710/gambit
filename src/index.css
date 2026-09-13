@@ -501,6 +501,17 @@ textarea.input { font-family: var(--mono); font-size: 0.82rem; line-height: 1.5;
 .chapter-row:hover .chapter-ops, .chapter-row.on .chapter-ops { opacity: 1; }
 .chapter-ops .icon-btn { width: 1.8rem; height: 1.8rem; font-size: 0.85rem; }
 
+/* ---------- repertoire ---------- */
+.repertoire-layout { display: grid; grid-template-columns: 300px minmax(0, 1fr); gap: 1.25rem; align-items: start; }
+@media (max-width: 1080px) { .repertoire-layout { grid-template-columns: 1fr; } }
+.trainer-layout { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 1.5rem; align-items: start; }
+@media (max-width: 980px) { .trainer-layout { grid-template-columns: 1fr; } }
+.rep-prompt { font-family: var(--serif); font-size: 1.15rem; line-height: 1.5; color: var(--ink); margin: 0; }
+.rep-verdict { font-family: var(--serif); font-size: 1.5rem; font-weight: 600; color: var(--good); margin: 0; }
+.rep-stats { display: flex; gap: 2rem; padding: 0.6rem 0; border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); }
+.rep-stats .v { font-family: var(--serif); font-size: 1.4rem; font-weight: 700; font-variant-numeric: tabular-nums; }
+.rep-stats .k { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.1em; color: var(--muted); }
+
 /* ---------- position editor ---------- */
 .editor-layout { display: grid; grid-template-columns: minmax(0, 1fr) 330px; gap: 1.5rem; align-items: start; }
 @media (max-width: 980px) { .editor-layout { grid-template-columns: 1fr; } }

@@ -9,6 +9,8 @@ const Puzzles = lazy(() => import('./pages/Puzzles'));
 const Editor = lazy(() => import('./pages/Editor'));
 const Studies = lazy(() => import('./pages/Studies').then((m) => ({ default: m.Studies })));
 const StudyDetail = lazy(() => import('./pages/Studies').then((m) => ({ default: m.StudyDetail })));
+const RepertoireList = lazy(() => import('./pages/Repertoire').then((m) => ({ default: m.RepertoireList })));
+const RepertoireDetail = lazy(() => import('./pages/Repertoire').then((m) => ({ default: m.RepertoireDetail })));
 const Analysis = lazy(() => import('./pages/Analysis'));
 const Profile = lazy(() => import('./pages/Profile'));
 const Review = lazy(() => import('./pages/Review'));
@@ -48,6 +50,22 @@ export default function App() {
           element={
             <Suspense fallback={<PageLoading label="Loading study…" />}>
               <StudyDetail />
+            </Suspense>
+          }
+        />
+        <Route
+          path="/repertoire"
+          element={
+            <Suspense fallback={<PageLoading label="Loading repertoire…" />}>
+              <RepertoireList />
+            </Suspense>
+          }
+        />
+        <Route
+          path="/repertoire/:id"
+          element={
+            <Suspense fallback={<PageLoading label="Loading repertoire…" />}>
+              <RepertoireDetail />
             </Suspense>
           }
         />

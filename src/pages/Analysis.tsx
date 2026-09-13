@@ -141,6 +141,9 @@ export default function Analysis() {
           <Link className="btn btn-ghost btn-sm" to="/studies">
             Studies
           </Link>
+          <Link className="btn btn-ghost btn-sm" to="/repertoire">
+            Repertoire
+          </Link>
         </div>
       </div>
 
