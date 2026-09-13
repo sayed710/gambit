@@ -7,6 +7,8 @@ import Play from './pages/Play';
 
 const Puzzles = lazy(() => import('./pages/Puzzles'));
 const Editor = lazy(() => import('./pages/Editor'));
+const Studies = lazy(() => import('./pages/Studies').then((m) => ({ default: m.Studies })));
+const StudyDetail = lazy(() => import('./pages/Studies').then((m) => ({ default: m.StudyDetail })));
 const Analysis = lazy(() => import('./pages/Analysis'));
 const Profile = lazy(() => import('./pages/Profile'));
 const Review = lazy(() => import('./pages/Review'));
@@ -30,6 +32,22 @@ export default function App() {
           element={
             <Suspense fallback={<PageLoading label="Loading editor…" />}>
               <Editor />
+            </Suspense>
+          }
+        />
+        <Route
+          path="/studies"
+          element={
+            <Suspense fallback={<PageLoading label="Loading studies…" />}>
+              <Studies />
+            </Suspense>
+          }
+        />
+        <Route
+          path="/studies/:id"
+          element={
+            <Suspense fallback={<PageLoading label="Loading study…" />}>
+              <StudyDetail />
             </Suspense>
           }
         />

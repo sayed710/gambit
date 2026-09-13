@@ -471,6 +471,36 @@ textarea.input { font-family: var(--mono); font-size: 0.82rem; line-height: 1.5;
 .mode-row .ds { font-size: 0.78rem; color: var(--muted); }
 .cfg-stack { display: flex; flex-direction: column; gap: 0.9rem; }
 
+/* ---------- tree workspace + studies ---------- */
+.workspace-layout { display: grid; grid-template-columns: minmax(0, 1fr) 380px; gap: 1.5rem; align-items: start; }
+@media (max-width: 1080px) { .workspace-layout { grid-template-columns: 1fr; } }
+
+.study-list { display: flex; flex-direction: column; }
+.study-card { display: flex; align-items: center; border-bottom: 1px solid var(--border); }
+.study-card .study-main { flex: 1; display: flex; align-items: baseline; gap: 1.25rem; padding: 0.85rem 0.4rem; text-decoration: none; min-width: 0; }
+.study-card .study-main:hover .study-title { color: var(--ink); }
+.study-title { font-family: var(--serif); font-size: 1.2rem; font-weight: 600; color: var(--ink-soft); }
+.study-meta { font-size: 0.8rem; color: var(--muted); white-space: nowrap; }
+.study-layout { display: grid; grid-template-columns: 260px minmax(0, 1fr); gap: 1.25rem; align-items: start; }
+@media (max-width: 1080px) { .study-layout { grid-template-columns: 1fr; } }
+.study-title-input {
+  font-family: var(--serif); font-size: clamp(1.6rem, 3vw, 2.2rem); font-weight: 600; letter-spacing: -0.02em;
+  background: none; border: none; border-bottom: 1px solid transparent; color: var(--ink);
+  padding: 0 0 0.1rem; width: 100%;
+}
+.study-title-input:hover, .study-title-input:focus { border-bottom-color: var(--border-strong); outline: none; }
+.chapter-list { display: flex; flex-direction: column; }
+.chapter-row { display: flex; align-items: center; gap: 0.3rem; border-radius: 8px; }
+.chapter-row.on { background: var(--surface-2); }
+.chapter-name {
+  flex: 1; text-align: left; padding: 0.45rem 0.55rem; font-size: 0.92rem; font-weight: 500;
+  color: var(--ink-soft); border-radius: 8px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.chapter-row.on .chapter-name { color: var(--ink); font-weight: 600; }
+.chapter-ops { display: flex; opacity: 0.55; }
+.chapter-row:hover .chapter-ops, .chapter-row.on .chapter-ops { opacity: 1; }
+.chapter-ops .icon-btn { width: 1.8rem; height: 1.8rem; font-size: 0.85rem; }
+
 /* ---------- position editor ---------- */
 .editor-layout { display: grid; grid-template-columns: minmax(0, 1fr) 330px; gap: 1.5rem; align-items: start; }
 @media (max-width: 980px) { .editor-layout { grid-template-columns: 1fr; } }
