@@ -471,6 +471,33 @@ textarea.input { font-family: var(--mono); font-size: 0.82rem; line-height: 1.5;
 .mode-row .ds { font-size: 0.78rem; color: var(--muted); }
 .cfg-stack { display: flex; flex-direction: column; gap: 0.9rem; }
 
+/* ---------- position editor ---------- */
+.editor-layout { display: grid; grid-template-columns: minmax(0, 1fr) 330px; gap: 1.5rem; align-items: start; }
+@media (max-width: 980px) { .editor-layout { grid-template-columns: 1fr; } }
+.palette-grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 0.35rem; }
+.palette-cell {
+  aspect-ratio: 1; border-radius: 8px; border: 1px solid var(--border);
+  background: var(--bg-raised); display: flex; align-items: center; justify-content: center;
+  transition: border-color 0.12s, background 0.12s;
+}
+.palette-cell:hover { border-color: var(--border-strong); }
+.palette-cell.on { border-color: var(--sea); background: var(--surface-2); box-shadow: 0 0 0 1px var(--sea); }
+.palette-cell .pc { font-size: 1.5rem; line-height: 1; }
+.palette-cell .pc.w { color: #F1F4F3; text-shadow: 0 1px 2px rgba(0, 0, 0, 0.7); }
+.palette-cell .pc.b { color: #0D1216; text-shadow: 0 0 2px rgba(175, 198, 207, 0.8); }
+.castling-row { display: flex; gap: 0.4rem; flex-wrap: wrap; }
+.castle-chip {
+  display: inline-flex; align-items: center; gap: 0.3rem; cursor: pointer;
+  border: 1px solid var(--border); border-radius: 8px; padding: 0.25rem 0.6rem;
+  font-family: var(--serif); font-weight: 700; font-size: 0.95rem; color: var(--ink-soft);
+  background: var(--bg-raised); transition: border-color 0.12s;
+}
+.castle-chip input { accent-color: var(--sea); width: 0.85rem; height: 0.85rem; }
+.castle-chip.on { border-color: var(--sea); color: var(--ice); }
+.castle-chip.off { opacity: 0.4; cursor: not-allowed; }
+.tool-on { border-color: var(--sea) !important; color: var(--ice) !important; }
+.board-hint.invalid { color: var(--bad); }
+
 /* ---------- puzzles ---------- */
 .puzzle-layout { display: grid; grid-template-columns: minmax(0, 1fr) 330px; gap: 1.5rem; align-items: start; }
 @media (max-width: 980px) { .puzzle-layout { grid-template-columns: 1fr; } }

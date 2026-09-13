@@ -110,10 +110,11 @@ export default function Analysis() {
     [commitLocal, click],
   );
 
-  // import a PGN passed from another page (e.g. "open in analysis")
+  // imports passed from other pages (Opera-game deep link, Position Editor)
   useEffect(() => {
-    const statePgn = (location.state as { pgn?: string } | null)?.pgn;
-    if (statePgn) loadPgnText(statePgn);
+    const state = location.state as { pgn?: string; fen?: string } | null;
+    if (state?.pgn) loadPgnText(state.pgn);
+    else if (state?.fen) loadFenText(state.fen);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 

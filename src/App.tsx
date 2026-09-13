@@ -6,6 +6,7 @@ import Home from './pages/Home';
 import Play from './pages/Play';
 
 const Puzzles = lazy(() => import('./pages/Puzzles'));
+const Editor = lazy(() => import('./pages/Editor'));
 const Analysis = lazy(() => import('./pages/Analysis'));
 const Profile = lazy(() => import('./pages/Profile'));
 const Review = lazy(() => import('./pages/Review'));
@@ -21,6 +22,14 @@ export default function App() {
           element={
             <Suspense fallback={<PageLoading label="Loading analysis board…" />}>
               <Analysis />
+            </Suspense>
+          }
+        />
+        <Route
+          path="/editor"
+          element={
+            <Suspense fallback={<PageLoading label="Loading editor…" />}>
+              <Editor />
             </Suspense>
           }
         />

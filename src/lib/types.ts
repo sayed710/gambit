@@ -21,6 +21,8 @@ export interface GameConfig {
   timeControl: TimeControl;
   playerColor: Color | 'random';
   aiLevel: 1 | 2 | 3 | 4;
+  /** play from a custom position (Position Editor deep link) */
+  initialFen?: string;
 }
 
 export type GameResultType = 'win' | 'loss' | 'draw';

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import type { Square } from 'chess.js';
 import GameBoard from '../components/GameBoard';
 import MoveList from '../components/MoveList';
@@ -13,7 +13,8 @@ import { useClickToMove } from '../hooks/useClickToMove';
 import type { GameOverInfo } from '../hooks/useGame';
 import { LEVEL_RATINGS } from '../lib/engine/engine';
 import type { Level } from '../lib/engine/engine';
-import { DEFAULT_TIME_CONTROL, TIME_CONTROLS, timeControlById } from '../data/timeControls';
+import { DEFAULT_TIME_CONTROL, TIME_CONTROLS, timeControlById, NO_CLOCK } from '../data/timeControls';
+import { Chess } from 'chess.js';
 import type { Color, GameConfig, GameRecord } from '../lib/types';
 import { loadJSON, saveJSON, removeKey } from '../lib/storage';
 import { playSound } from '../lib/sound';
@@ -247,6 +248,7 @@ function GameScreen({
     engineSearch: engine.search,
     onGameOver: (info) => handleOverRef.current(info),
     resume,
+    initialFen: config.initialFen,
   });
   const {
     fen,
@@ -684,6 +686,8 @@ function GameScreen({
 const LAST_CONFIG_KEY = 'lastConfig';
 
 export default function Play() {
+  const location = useLocation();
+  const navigate = useNavigate();
   const [config, setConfig] = useState<GameConfig | null>(() => loadJSON<GameConfig | null>(LAST_CONFIG_KEY, null));
   const [resume, setResume] = useState<SavedGame | null>(null);
   const [gameKey, setGameKey] = useState(0);
@@ -694,6 +698,27 @@ export default function Play() {
     setResume(null);
     setConfig(c);
     setGameKey((k) => k + 1);
+  }, []);
+
+  // "Play vs engine from this position" — deep link from the Position Editor
+  const editFen = (location.state as { fen?: string } | null)?.fen;
+  useEffect(() => {
+    if (!editFen) return;
+    let turn: 'w' | 'b' = 'w';
+    try {
+      turn = new Chess(editFen).turn();
+    } catch {
+      return;
+    }
+    start({
+      mode: 'ai',
+      timeControl: NO_CLOCK,
+      playerColor: turn,
+      aiLevel: 2,
+      initialFen: editFen,
+    });
+    navigate('/play', { replace: true, state: null });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   if (!config) {

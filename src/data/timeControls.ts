@@ -13,6 +13,8 @@ export const TIME_CONTROLS: TimeControl[] = [
   { id: 'unlimited', label: 'No clock', category: 'Unlimited', minutes: 0, increment: 0 },
 ];
 
+export const NO_CLOCK = TIME_CONTROLS.find((t) => t.id === 'unlimited')!;
+
 export const DEFAULT_TIME_CONTROL = TIME_CONTROLS.find((t) => t.id === '10+0')!;
 
 export function timeControlById(id: string): TimeControl {

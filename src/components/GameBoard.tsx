@@ -45,6 +45,8 @@ export interface GameBoardProps {
   legalTargets?: Square[];
   /** which color may move pieces (null = locked board) */
   movableColor?: 'w' | 'b' | null;
+  /** editor mode: allow dragging pieces of either color */
+  dragAnyColor?: boolean;
   onSquareClick?: (square: Square, pieceType: string | null) => void;
   onDrop?: (from: Square, to: Square) => boolean;
   pendingPromotion?: PendingPromotion | null;
@@ -68,6 +70,7 @@ export default function GameBoard({
   selected,
   legalTargets = [],
   movableColor = null,
+  dragAnyColor = false,
   onSquareClick,
   onDrop,
   pendingPromotion,
@@ -229,7 +232,7 @@ export default function GameBoard({
             animationDurationInMs: ANIMATION_MS[animationSpeed],
             showNotation: showCoordinates,
             allowDragging: movableColor !== null,
-            canDragPiece: ({ piece }) => movableColor !== null && piece.pieceType[0] === movableColor,
+            canDragPiece: ({ piece }) => movableColor !== null && (dragAnyColor || piece.pieceType[0] === movableColor),
             onPieceDrop: ({ sourceSquare, targetSquare }) => {
               if (!targetSquare) return false;
               return onDrop ? onDrop(sourceSquare as Square, targetSquare as Square) : false;
@@ -259,7 +262,7 @@ export default function GameBoard({
             allowDrawingArrows: movableColor !== null,
             arrows,
             clearArrowsOnPositionChange: true,
-            dropSquareStyle: { boxShadow: 'inset 0 0 0 4px rgba(15, 122, 141, 0.65)' },          }}
+            dropSquareStyle: { boxShadow: 'inset 0 0 0 4px rgba(113, 159, 148, 0.6)' },          }}
         />
         {pendingPromotion && (
           <div
