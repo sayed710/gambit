@@ -1,7 +1,7 @@
 import { Chess } from 'chess.js';
 import type { Ply } from './types';
 import { PIECE_CP } from './chessUtils';
-import { identifyOpening } from './openings';
+import { identifyOpening, isBookLine } from './openings';
 import type { SFEval } from './engine/stockfish';
 
 /** chess.com-style move classifications. */
@@ -219,8 +219,12 @@ export function buildReport(plies: Ply[], evals: (PlyEval | null)[]): GameReport
     const played = ply.san;
     const moverIsWhite = ply.color === 'w';
 
-    // Book: the position after this move still matches a known opening line.
-    if (identifyOpening(sanList.slice(0, i + 1)) !== null) {
+    // Book: the move is still covered by known opening theory — i.e. the line
+    // played so far is a prefix of (or exactly) a table line. This terminates
+    // when the game steps off theory; it used to use identifyOpening, which
+    // kept matching forever once an entry had been extended, silently marking
+    // the rest of the game as book with zero accuracy signal.
+    if (isBookLine(sanList.slice(0, i + 1))) {
       reviews.push({ san: played, color: ply.color, cpl: 0, classification: 'book' });
       counts[ply.color].book++;
       return; // book moves carry no accuracy signal

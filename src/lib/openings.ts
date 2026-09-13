@@ -104,6 +104,18 @@ const TABLE: OpeningEntry[] = [
 
 const SORTED = [...TABLE].sort((a, b) => b.moves.length - a.moves.length);
 
+/**
+ * True while the played line is still covered by theory: some table entry
+ * begins with exactly these moves (or equals them). This TERMINATES once the
+ * game steps off the known line — unlike identifyOpening, which keeps
+ * matching forever after the entry has been extended.
+ */
+export function isBookLine(sanMoves: string[]): boolean {
+  const line = sanMoves.join(' ');
+  if (!line) return false;
+  return TABLE.some((entry) => entry.moves === line || entry.moves.startsWith(line + ' '));
+}
+
 /** Identify the opening from a SAN move list; longest prefix wins. */
 export function identifyOpening(sanMoves: string[]): OpeningEntry | null {
   const line = sanMoves.join(' ');

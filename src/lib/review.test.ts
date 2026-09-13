@@ -9,6 +9,7 @@ import {
   isMaterialOffer,
   type PlyEval,
 } from './review';
+import { isBookLine } from './openings';
 import type { Ply } from './types';
 
 function ply(san: string, from: string, to: string, fenAfter: string, color: 'w' | 'b' = 'w'): Ply {
@@ -173,5 +174,93 @@ describe('evalToUnit', () => {
     expect(evalToUnit(0)).toBeCloseTo(0.5, 5);
     expect(evalToUnit(1000)).toBeGreaterThan(0.9);
     expect(evalToUnit(-1000)).toBeLessThan(0.1);
+  });
+});
+
+describe('book classification + accuracy audit', () => {
+  function gamePlys(sans: string[]): Ply[] {
+    const g = new Chess();
+    return sans.map((san) => ({ san, ...(g.move(san) as { from: string }), fenAfter: g.fen(), color: undefined }) as unknown as Ply)
+      .map((p, i) => ({ ...p, color: i % 2 === 0 ? 'w' : 'b' }) as Ply);
+  }
+
+  it('isBookLine terminates once the game steps off theory', () => {
+    const theory = ['e4', 'e5', 'Nf3', 'Nc6', 'Bb5', 'a6', 'Ba4', 'Nf6'];
+    for (let i = 1; i <= theory.length; i++) {
+      expect(isBookLine(theory.slice(0, i))).toBe(true);
+    }
+    // the table's Ruy Lopez line ends after 9 plies; stepping past it ends the book
+    expect(isBookLine([...theory, 'O-O'])).toBe(true);
+    expect(isBookLine([...theory, 'O-O', 'Be7'])).toBe(false);
+    // an entry extended past its end used to stay "book" forever — the audit case
+    expect(isBookLine(['e4'])).toBe(true);
+    expect(isBookLine(['e4', 'e5', 'Nf3', 'Nc6', 'Bb5', 'a6', 'Ba4', 'Nf6', 'O-O', 'Be7', 'Re1', 'b5'])).toBe(false);
+    expect(isBookLine(['e4', 'Ke2'])).toBe(false);
+    expect(isBookLine([])).toBe(false);
+  });
+
+  it('book plies stop at theory; blunders after it are detected and dent accuracy', () => {
+    // Ruy Lopez for 4 moves, then Black plays a serious error and White
+    // follows with a slow one — neither is theory.
+    const sans = ['e4', 'e5', 'Nf3', 'Nc6', 'Bb5', 'a6', 'Ba4', 'Nf6', 'O-O', 'Nxe4', 'Re1', 'Nd6', 'Bxd7?!'.replace('?!', ''), 'Bxd7'];
+    const plies = gamePlys(sans.slice(0, 12));
+    // evals (white cp): theory is quiet; then Black's Nxe4 wins a pawn (−0.9 for white)
+    const evals: (PlyEval | null)[] = [
+      { cp: 30, mateIn: null, bestSan: 'e4' },
+      { cp: 30, mateIn: null, bestSan: 'e5' },
+      { cp: 35, mateIn: null, bestSan: 'Nf3' },
+      { cp: 30, mateIn: null, bestSan: 'Nc6' },
+      { cp: 40, mateIn: null, bestSan: 'Bb5' },
+      { cp: 40, mateIn: null, bestSan: 'a6' },
+      { cp: 45, mateIn: null, bestSan: 'Ba4' },
+      { cp: 40, mateIn: null, bestSan: 'Nf6' },
+      { cp: 45, mateIn: null, bestSan: 'O-O' },
+      { cp: -80, mateIn: null, bestSan: 'Re1' },   // after 9...Nxe4: black is better
+      { cp: -40, mateIn: null, bestSan: 'Nd6' },   // after 10.Re1
+      { cp: -50, mateIn: null, bestSan: 'Bxd7' },  // after 10...Nd6
+      { cp: -55, mateIn: null, bestSan: null },
+    ];
+    const report = buildReport(plies, evals);
+
+    // the 9 theory plies (through 9. O-O) are book; from 9...Nxe4 on they are not
+    expect(report.reviews.slice(0, 9).every((r) => r.classification === 'book')).toBe(true);
+    expect(report.reviews[9].classification).not.toBe('book');
+    expect(report.reviews[10].classification).not.toBe('book');
+
+    // accuracy has real signal: not 100 for both sides
+    expect(report.accuracy.w).toBeLessThan(100);
+    expect(report.accuracy.b).toBeLessThan(100);
+
+    // counts add up to ply count
+    const total = (Object.values(report.counts.w).reduce((a, b) => a + b, 0)) +
+      (Object.values(report.counts.b).reduce((a, b) => a + b, 0));
+    expect(total).toBe(plies.length);
+  });
+
+  it('a blunder-heavy game produces blunder classifications and low accuracy', () => {
+    const sans = ['f3', 'e5', 'g4', 'Qh4#']; // fool's mate — the worst openings in chess
+    const plies = gamePlys(sans);
+    const evals: (PlyEval | null)[] = [
+      { cp: 0, mateIn: null, bestSan: 'e4' },
+      { cp: 60, mateIn: null, bestSan: 'e5' },
+      { cp: -400, mateIn: null, bestSan: 'Nc3' }, // g4 loses big
+      { cp: -10000, mateIn: null, bestSan: null },
+    ];
+    const report = buildReport(plies, evals);
+    expect(report.reviews[2].classification).toBe('blunder');
+    expect(report.accuracy.w).toBeLessThan(40);
+  });
+
+  it('counts in the report match the per-ply classifications', () => {
+    const sans = ['e4', 'e5', 'Nf3', 'Nc6', 'Bb5', 'a6'];
+    const plies = gamePlys(sans);
+    const evals: (PlyEval | null)[] = sans.map((san) => ({ cp: 30, mateIn: null, bestSan: san }));
+    const report = buildReport(plies, evals);
+    for (const cls of Object.keys(report.counts.w)) {
+      const expectedW = report.reviews.filter((r) => r.color === 'w' && r.classification === cls).length;
+      const expectedB = report.reviews.filter((r) => r.color === 'b' && r.classification === cls).length;
+      expect(report.counts.w[cls as keyof typeof report.counts.w]).toBe(expectedW);
+      expect(report.counts.b[cls as keyof typeof report.counts.b]).toBe(expectedB);
+    }
   });
 });
