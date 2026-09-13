@@ -59,12 +59,27 @@ function SetupScreen({ onStart, last }: { onStart: (c: GameConfig) => void; last
         }}
       >
         <div className="mode-rail">
-          {mode === 'pass' ? (
-            <button type="button" className="mode-row on" onClick={() => setMode('pass')}>
+          <div className="mode-switch" role="radiogroup" aria-label="Game type">
+            <button
+              type="button"
+              className={`mode-row${mode === 'ai' ? ' on' : ''}`}
+              onClick={() => setMode('ai')}
+              aria-pressed={mode === 'ai'}
+            >
+              <span className="ic"><ClockIcon /></span>
+              <span><span className="nm">vs Engine</span><br /><span className="ds">Stockfish, rated</span></span>
+            </button>
+            <button
+              type="button"
+              className={`mode-row${mode === 'pass' ? ' on' : ''}`}
+              onClick={() => setMode('pass')}
+              aria-pressed={mode === 'pass'}
+            >
               <span className="ic"><UsersIcon /></span>
               <span><span className="nm">Pass &amp; play</span><br /><span className="ds">Two humans, one device</span></span>
             </button>
-          ) : (
+          </div>
+          {mode === 'ai' &&
             tempoGroups.map((grp) => (
               <div key={grp.name} className="col" style={{ gap: '0.4rem' }}>
                 <div className="tempo-name">{grp.name}</div>
@@ -76,7 +91,7 @@ function SetupScreen({ onStart, last }: { onStart: (c: GameConfig) => void; last
                 ))}
               </div>
             ))
-          )}
+          }
           {mode === 'ai' && (
             <button type="button" className={`mode-row${tcId === 'unlimited' ? ' on' : ''}`} onClick={() => setTcId('unlimited')} aria-pressed={tcId === 'unlimited'}>
               <span className="ic">∞</span>

@@ -460,6 +460,8 @@ textarea.input { font-family: var(--mono); font-size: 0.82rem; line-height: 1.5;
 .level-dot.on { background: var(--sea); }
 
 .mode-rail { display: flex; flex-direction: column; gap: 0.4rem; }
+.mode-switch { display: flex; gap: 0.4rem; }
+.mode-switch .mode-row { flex: 1; }
 .mode-row {
   display: flex; align-items: center; gap: 0.7rem; text-align: left;
   padding: 0.6rem 0.75rem; border: 1px solid var(--border); border-radius: 10px;
