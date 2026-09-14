@@ -78,6 +78,7 @@ export default function Coordinates() {
         <nav className="page-tabs mt-2" aria-label="Training area">
           <Link to="/puzzles">Puzzles</Link>
           <Link to="/repertoire">Repertoire</Link>
+          <Link to="/endgames">Endgames</Link>
           <Link to="/coordinates" className="on">
             Coordinates
           </Link>

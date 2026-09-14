@@ -230,6 +230,7 @@ export default function Puzzles() {
             Puzzles
           </Link>
           <Link to="/repertoire">Repertoire</Link>
+          <Link to="/endgames">Endgames</Link>
           <Link to="/coordinates">Coordinates</Link>
         </nav>
       </div>

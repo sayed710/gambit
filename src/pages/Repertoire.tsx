@@ -54,6 +54,7 @@ export function RepertoireList() {
           <Link to="/repertoire" className="on">
             Repertoire
           </Link>
+          <Link to="/endgames">Endgames</Link>
           <Link to="/coordinates">Coordinates</Link>
         </nav>
       </div>
