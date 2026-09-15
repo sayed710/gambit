@@ -600,6 +600,8 @@ textarea.input { font-family: var(--mono); font-size: 0.82rem; line-height: 1.5;
 .rep-verdict { font-family: var(--serif); font-size: 1.5rem; font-weight: 600; color: var(--good); margin: 0; }
 .rep-stats { display: flex; gap: 2rem; padding: 0.6rem 0; border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); }
 .rep-stats .v { font-family: var(--serif); font-size: 1.4rem; font-weight: 700; font-variant-numeric: tabular-nums; }
+.sr-grade-row { display: flex; align-items: center; gap: 0.3rem; flex-wrap: wrap; margin-top: 0.6rem; }
+.sr-grade { text-transform: capitalize; }
 .rep-stats .k { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.1em; color: var(--muted); }
 
 /* ---------- position editor ---------- */

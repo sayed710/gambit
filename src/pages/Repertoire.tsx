@@ -17,7 +17,9 @@ import {
   setPreferredChild,
   type Repertoire,
 } from '../lib/repertoireStore';
-import { advanceToRepertoireSide, sideToMoveAt, trainerStep } from '../lib/repertoireTrain';
+import { advanceToRepertoireSide, expectedSanAt, sideToMoveAt, trainerStep } from '../lib/repertoireTrain';
+import { loadTraining, saveTraining, type SrGrade, type TrainingState } from '../lib/trainingStore';
+import { gradeKey, recordRepDrill, trainingStats } from '../lib/repertoireTrain2';
 import type { PendingPromotion } from '../hooks/useGame';
 
 export function RepertoireList() {
@@ -344,6 +346,10 @@ function Trainer({ rep }: { rep: Repertoire }) {
   const mySide = rep.side;
   const sideName = mySide === 'w' ? 'White' : 'Black';
 
+  // spaced repetition: graded per position, persisted to gambit.training.v1
+  const [training, setTraining] = useState<TrainingState>(() => loadTraining());
+  const [gradedFlash, setGradedFlash] = useState<SrGrade | null>(null);
+
   const [drill, setDrill] = useState<DrillState>({ nodeId: null, asked: 0, correct: 0, deviations: 0, lastDeviation: null, done: false });
   const [reveal, setReveal] = useState<string | null>(null);
   const [pendingPromotion, setPendingPromotion] = useState<PendingPromotion | null>(null);
@@ -366,6 +372,20 @@ function Trainer({ rep }: { rep: Repertoire }) {
   const fen = current ? current.fenAfter : line.tree.startFen;
   const done = drill.done;
   const promptTurn = awaitingSide;
+
+  const srKey = drill.nodeId ?? '__root__';
+  const expectedNow = expectedSanAt(line, drill.nodeId);
+  const gradePosition = useCallback(
+    (grade: SrGrade) => {
+      const next: TrainingState = { ...training, repScheduling: { ...training.repScheduling } };
+      recordRepDrill(next, { repertoireId: rep.id, lineId: line.id, nodeKey: srKey, san: expectedNow ?? '' }, grade, Date.now());
+      setTraining(next);
+      saveTraining(next);
+      setGradedFlash(grade);
+      window.setTimeout(() => setGradedFlash(null), 1200);
+    },
+    [training, rep.id, line.id, srKey, expectedNow],
+  );
 
   const tryMove = useCallback(
     (from: Square, to: Square, promotion: 'q' | 'r' | 'b' | 'n' = 'q'): 'ok' | 'illegal' => {
@@ -394,10 +414,12 @@ function Trainer({ rep }: { rep: Repertoire }) {
         playSound('illegal');
         setReveal(step.expectedSan);
         setDrill((d) => ({ ...d, deviations: d.deviations + 1, lastDeviation: m.san }));
+        gradePosition('again'); // lapse in the spaced-repetition model
         return 'illegal'; // move is not committed — try again
       }
       playSound('move');
       setReveal(null);
+      gradePosition('good');
       setDrill((d) => ({
         ...d,
         asked: d.asked + 1,
@@ -510,8 +532,57 @@ function Trainer({ rep }: { rep: Repertoire }) {
                 Got it — hide
               </button>
             )}
+            <div className="sr-grade-row" role="group" aria-label="How well did you know it?">
+              <span className="small muted">Self-grade:</span>
+              {(['again', 'hard', 'good', 'easy'] as const).map((g) => (
+                <button
+                  key={g}
+                  className={`nag-btn sr-grade${gradedFlash === g ? ' on' : ''}`}
+                  onClick={() => gradePosition(g)}
+                  aria-pressed={gradedFlash === g}
+                >
+                  {g}
+                </button>
+              ))}
+            </div>
+            <p className="small muted" style={{ margin: 0 }}>
+              Correct plays auto-grade <strong>good</strong>; a deviation auto-grades <strong>again</strong>. Adjust with
+              the buttons — scheduling uses the last grade for this position.
+            </p>
           </>
         )}
+        {(() => {
+          const stats = trainingStats(training, Date.now());
+          const rec = training.repScheduling[gradeKey(rep.id, line.id, srKey)];
+          return (
+            <div className="mt-2" style={{ borderTop: '1px solid var(--border)', paddingTop: '0.7rem' }}>
+              <div className="rep-stats">
+                <div>
+                  <div className="v">{stats.due}</div>
+                  <div className="k">due</div>
+                </div>
+                <div>
+                  <div className="v">{stats.mastered}</div>
+                  <div className="k">mastered</div>
+                </div>
+                <div>
+                  <div className="v">{stats.learning}</div>
+                  <div className="k">learning</div>
+                </div>
+                <div>
+                  <div className="v">{stats.retention}d</div>
+                  <div className="k">avg interval</div>
+                </div>
+              </div>
+              {rec && (
+                <p className="small muted" style={{ margin: '0.4rem 0 0' }}>
+                  This position: next due {rec.due <= Date.now() ? 'now' : new Date(rec.due).toLocaleDateString()} ·
+                  interval {Math.round(rec.interval)}d · lapses {rec.lapses}
+                </p>
+              )}
+            </div>
+          );
+        })()}
         <p className="small muted" style={{ margin: 0 }}>
           Deviations are not played on the board — the position stays until you find the repertoire move.
         </p>
