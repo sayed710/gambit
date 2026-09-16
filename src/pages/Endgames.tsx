@@ -29,6 +29,7 @@ export function Endgames() {
           limit. Progress is saved locally.
         </p>
         <nav className="page-tabs mt-2" aria-label="Training area">
+          <Link to="/training">Today</Link>
           <Link to="/puzzles">Puzzles</Link>
           <Link to="/repertoire">Repertoire</Link>
           <Link to="/endgames" className="on">

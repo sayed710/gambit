@@ -8,10 +8,11 @@ describe('navigation section matching', () => {
     expect(sectionForPath('/editor')).toBe('/analysis');
     expect(sectionForPath('/studies')).toBe('/analysis');
     expect(sectionForPath('/studies/123')).toBe('/analysis');
-    expect(sectionForPath('/puzzles')).toBe('/puzzles');
-    expect(sectionForPath('/repertoire')).toBe('/puzzles');
-    expect(sectionForPath('/repertoire/abc')).toBe('/puzzles');
-    expect(sectionForPath('/coordinates')).toBe('/puzzles');
+    expect(sectionForPath('/training')).toBe('/training');
+    expect(sectionForPath('/puzzles')).toBe('/training');
+    expect(sectionForPath('/repertoire')).toBe('/training');
+    expect(sectionForPath('/repertoire/abc')).toBe('/training');
+    expect(sectionForPath('/coordinates')).toBe('/training');
     expect(sectionForPath('/library')).toBe('/library');
     expect(sectionForPath('/profile')).toBe('/profile');
     expect(sectionForPath('/')).toBeNull();

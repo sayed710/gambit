@@ -52,6 +52,7 @@ export function RepertoireList() {
           move and flags every deviation.
         </p>
         <nav className="page-tabs mt-2" aria-label="Training area">
+          <Link to="/training">Today</Link>
           <Link to="/puzzles">Puzzles</Link>
           <Link to="/repertoire" className="on">
             Repertoire

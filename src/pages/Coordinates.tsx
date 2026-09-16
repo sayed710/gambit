@@ -76,6 +76,7 @@ export default function Coordinates() {
         <h1>Coordinates trainer</h1>
         <p className="sub">See a square name, click it. Forty-five seconds — the board is empty on purpose.</p>
         <nav className="page-tabs mt-2" aria-label="Training area">
+          <Link to="/training">Today</Link>
           <Link to="/puzzles">Puzzles</Link>
           <Link to="/repertoire">Repertoire</Link>
           <Link to="/endgames">Endgames</Link>

@@ -11,6 +11,7 @@ const Studies = lazy(() => import('./pages/Studies').then((m) => ({ default: m.S
 const StudyDetail = lazy(() => import('./pages/Studies').then((m) => ({ default: m.StudyDetail })));
 const RepertoireList = lazy(() => import('./pages/Repertoire').then((m) => ({ default: m.RepertoireList })));
 const Coordinates = lazy(() => import('./pages/Coordinates'));
+const Training = lazy(() => import('./pages/Training'));
 const Endgames = lazy(() => import('./pages/Endgames').then((m) => ({ default: m.Endgames })));
 const EndgameDrill = lazy(() => import('./pages/Endgames').then((m) => ({ default: m.EndgameDrill })));
 const Library = lazy(() => import('./pages/Library'));
@@ -54,6 +55,14 @@ export default function App() {
           element={
             <Suspense fallback={<PageLoading label="Loading study…" />}>
               <StudyDetail />
+            </Suspense>
+          }
+        />
+        <Route
+          path="/training"
+          element={
+            <Suspense fallback={<PageLoading label="Loading today’s training…" />}>
+              <Training />
             </Suspense>
           }
         />
