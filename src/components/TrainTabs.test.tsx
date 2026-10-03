@@ -1,6 +1,5 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 import { cleanup, render, screen } from '@testing-library/react';
-import { afterEach } from 'vitest';
 import { MemoryRouter } from 'react-router-dom';
 import TrainTabs, { TRAIN_TABS } from './TrainTabs';
 
@@ -20,7 +19,7 @@ describe('TrainTabs — single shared training navigation', () => {
 
   it('marks exactly one tab active', () => {
     render(
-      <MemoryRouter initialEntries={['/endgames']}>
+      <MemoryRouter>
         <TrainTabs current="/endgames" />
       </MemoryRouter>,
     );
@@ -30,12 +29,6 @@ describe('TrainTabs — single shared training navigation', () => {
   });
 
   it('covers the five documented training areas', () => {
-    expect(TRAIN_TABS.map((t) => t.to)).toEqual([
-      '/training',
-      '/puzzles',
-      '/repertoire',
-      '/endgames',
-      '/coordinates',
-    ]);
+    expect(TRAIN_TABS.map((t) => t.to)).toEqual(['/training', '/puzzles', '/repertoire', '/endgames', '/coordinates']);
   });
 });

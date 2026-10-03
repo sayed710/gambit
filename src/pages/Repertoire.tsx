@@ -19,7 +19,7 @@ import {
 } from '../lib/repertoireStore';
 import { advanceToRepertoireSide, expectedSanAt, sideToMoveAt, trainerStep } from '../lib/repertoireTrain';
 import { loadTraining, saveTraining, type SrGrade, type TrainingState } from '../lib/trainingStore';
-import { gradeKey, recordRepDrill, trainingStats } from '../lib/repertoireTrain2';
+import { enumerateRepertoirePositions, gradeKey, recordRepDrill, trainingStatsFor } from '../lib/repertoireTrain2';
 import type { PendingPromotion } from '../hooks/useGame';
 import TrainTabs from '../components/TrainTabs';
 
@@ -546,7 +546,8 @@ function Trainer({ rep }: { rep: Repertoire }) {
           </>
         )}
         {(() => {
-          const stats = trainingStats(training, Date.now());
+          // stats over THIS repertoire's existing trainable positions only
+          const stats = trainingStatsFor(training, enumerateRepertoirePositions([rep]), Date.now());
           const rec = training.repScheduling[gradeKey(rep.id, line.id, srKey)];
           return (
             <div className="mt-2" style={{ borderTop: '1px solid var(--border)', paddingTop: '0.7rem' }}>

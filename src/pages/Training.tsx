@@ -2,7 +2,7 @@ import { useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import { ENDGAME_LESSONS } from '../data/endgames';
 import { buildAdaptiveSession, type AdaptiveItem } from '../lib/adaptiveEngine';
-import { dueCount, enumerateRepertoirePositions, trainingStats } from '../lib/repertoireTrain2';
+import { enumerateRepertoirePositions, trainingStatsFor } from '../lib/repertoireTrain2';
 import { loadRepertoires } from '../lib/repertoireStore';
 import { reviewMistakesFromReports } from '../lib/reviewSummary';
 import type { GameReport } from '../lib/review';
@@ -63,14 +63,9 @@ export default function Training() {
     });
   }, [profile, training, repertoires]);
 
-  const repStats = useMemo(() => trainingStats(training, Date.now()), [training]);
-  const repDue = useMemo(() => {
-    let n = 0;
-    for (const r of repertoires) {
-      void r;
-    }
-    return n + dueCount(training, Date.now());
-  }, [training, repertoires]);
+  const positions = useMemo(() => enumerateRepertoirePositions(repertoires), [repertoires]);
+  const repStats = useMemo(() => trainingStatsFor(training, positions, Date.now()), [training, positions]);
+  const repDue = repStats.due;
 
   const endgameRec = useMemo(() => {
     const entries = Object.entries(training.endgame);

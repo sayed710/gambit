@@ -1,4 +1,5 @@
 import type { SrGrade } from './trainingStore';
+import type { Repertoire, RepLine } from './repertoireStore';
 import { scheduleSr, type SrRecord, type TrainingState } from './trainingStore';
 
 /* ============================================================
@@ -55,8 +56,18 @@ export interface TrainingStats {
   retention: number;
 }
 
-export function trainingStats(state: TrainingState, now: number): TrainingStats {
-  const records = Object.values(state.repScheduling);
+/**
+ * Stats over the AUTHORITATIVE set of currently-existing trainable positions.
+ * Orphaned persisted records (deleted repertoires/lines/nodes) never affect
+ * the numbers; they are left in storage for a deliberate cleanup policy.
+ */
+export function trainingStatsFor(state: TrainingState, positions: TrainablePosition[], now: number): TrainingStats {
+  const keys = new Set(positions.map((p) => gradeKey(p.repertoireId, p.lineId, p.nodeKey)));
+  const records = [...keys].map((k) => state.repScheduling[k]).filter((r): r is SrRecord => !!r);
+  return statsFromRecords(records, now);
+}
+
+function statsFromRecords(records: SrRecord[], now: number): TrainingStats {
   let due = 0;
   let mastered = 0;
   let learning = 0;
@@ -137,26 +148,18 @@ export function positionKey(lineId: string, nodeKey: string): string {
 /**
  * Enumerate EVERY trainable position in a line — the line start plus every
  * node after which the repertoire side is to move, with the expected SAN
- * (preferred child, else first). Reuses sideToMoveAt/expectedChildAt from
- * repertoireTrain so traversal semantics live in exactly one place.
+ * (preferred child per the line's REAL preferred map, else first child).
+ * Takes the actual RepLine so preferred semantics are identical to the
+ * trainer's — one source of truth, never a reconstructed line object.
  */
-export function enumerateLinePositions(
-  repertoireId: string,
-  lineId: string,
-  tree: GameTreeData,
-  side: 'w' | 'b',
-): TrainablePosition[] {
+export function enumerateLinePositions(repertoireId: string, line: RepLine, side: 'w' | 'b'): TrainablePosition[] {
   const out: TrainablePosition[] = [];
-  // preferred = {} — enumeration reflects the line's natural order; the
-  // trainer's own preferred-map lives in the repertoire store and is applied
-  // at drill time through the same expectedChildAt helper.
-  const lineView = { id: lineId, name: '', tree, preferred: {} as Record<string, string> };
   const visit = (nodeId: string | null): void => {
-    if (sideToMoveAt(lineView, nodeId) === side) {
-      const expected = expectedChildAt(lineView, nodeId);
-      if (expected) out.push({ repertoireId, lineId, nodeKey: nodeId ?? '__root__', san: expected.san });
+    if (sideToMoveAt(line, nodeId) === side) {
+      const expected = expectedChildAt(line, nodeId);
+      if (expected) out.push({ repertoireId, lineId: line.id, nodeKey: nodeId ?? '__root__', san: expected.san });
     }
-    const children = nodeId === null ? tree.moves : (findNodeChildren(tree, nodeId) ?? []);
+    const children = nodeId === null ? line.tree.moves : (findNodeChildren(line.tree, nodeId) ?? []);
     for (const child of children) visit(child.id);
   };
   visit(null);
@@ -173,9 +176,7 @@ function findNodeChildren(tree: GameTreeData, id: string) {
   return null;
 }
 
-/** All trainable positions across a set of repertoires. */
-export function enumerateRepertoirePositions(
-  repertoires: { id: string; side: 'w' | 'b'; lines: { id: string; tree: GameTreeData }[] }[],
-): TrainablePosition[] {
-  return repertoires.flatMap((r) => r.lines.flatMap((l) => enumerateLinePositions(r.id, l.id, l.tree, r.side)));
+/** All trainable positions across real repertoire store objects. */
+export function enumerateRepertoirePositions(repertoires: Repertoire[]): TrainablePosition[] {
+  return repertoires.flatMap((r) => r.lines.flatMap((l) => enumerateLinePositions(r.id, l, r.side)));
 }
