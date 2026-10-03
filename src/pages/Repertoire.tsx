@@ -21,6 +21,7 @@ import { advanceToRepertoireSide, expectedSanAt, sideToMoveAt, trainerStep } fro
 import { loadTraining, saveTraining, type SrGrade, type TrainingState } from '../lib/trainingStore';
 import { gradeKey, recordRepDrill, trainingStats } from '../lib/repertoireTrain2';
 import type { PendingPromotion } from '../hooks/useGame';
+import TrainTabs from '../components/TrainTabs';
 
 export function RepertoireList() {
   const { toast } = useToast();
@@ -51,15 +52,7 @@ export function RepertoireList() {
           Build your lines, mark the moves you want to play, then train them — the trainer asks for your repertoire
           move and flags every deviation.
         </p>
-        <nav className="page-tabs mt-2" aria-label="Training area">
-          <Link to="/training">Today</Link>
-          <Link to="/puzzles">Puzzles</Link>
-          <Link to="/repertoire" className="on">
-            Repertoire
-          </Link>
-          <Link to="/endgames">Endgames</Link>
-          <Link to="/coordinates">Coordinates</Link>
-        </nav>
+        <TrainTabs current="/repertoire" />
       </div>
 
       <form

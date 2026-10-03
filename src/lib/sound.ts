@@ -122,9 +122,10 @@ export const sounds = {
     playSample('move', 0.8, 110);
   },
   check() {
-    // one base contact + one slightly heavier cue, 60ms apart — never a beep
-    playSample('move', 0.9);
-    playSample('capture', 0.45, 60);
+    // CUE-ONLY: the base move/capture/castle sound is already played by the
+    // caller (soundForMove via planSoundEvents). This event adds just one
+    // subtle heavier contact — never replays the base, never a beep.
+    playSample('capture', 0.35, 60);
   },
   promote() {
     playSample('promote', 1);

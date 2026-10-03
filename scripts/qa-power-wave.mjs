@@ -101,7 +101,50 @@ async function run() {
   log('endgames: drill shows objective + limit', /Checkmate the lone king/i.test(drillText) && /move 1\/20/.test(drillText));
   await page.screenshot({ path: 'D:/tools/chrome-agent-data/artifacts/qa-kr-drill.png' });
 
+  // ——— check-move audio chain: exactly 2 Audio plays (base + cue), not 3 ———
+  await page.goto(`${BASE}/#/play`);
+  await page.waitForSelector('.mode-switch .mode-row');
+  await page.click('.mode-switch .mode-row:nth-child(2)');
+  await page.click('form button.btn-accent');
+  await page.waitForSelector('[data-square="e2"]');
+  // instrument Audio.play counting
+  await page.evaluate(() => {
+    window.__playCount = 0;
+    const orig = HTMLMediaElement.prototype.play;
+    HTMLMediaElement.prototype.play = function (...args) {
+      window.__playCount += 1;
+      return orig.apply(this, args);
+    };
+  });
+  const dragSq = async (from, to) => {
+    const a = await page.locator(`[data-square="${from}"]`).boundingBox();
+    await page.mouse.move(a.x + a.width / 2, a.y + a.height / 2);
+    await page.mouse.down();
+    const b = await page.locator(`[data-square="${to}"]`).boundingBox();
+    await page.mouse.move(b.x + b.width / 2, b.y + b.height / 2, { steps: 6 });
+    await page.mouse.up();
+    await page.waitForTimeout(350);
+  };
+  // 1. e4 (1 play) e5 (1) Qh5 (1) g6 (1) Qxe5+ -> check: expect exactly 2 plays
+  await page.evaluate(() => { window.__playCount = 0; });
+  await dragSq('e2', 'e4'); await dragSq('e7', 'e5'); await dragSq('d1', 'h5'); await dragSq('g7', 'g6');
+  await page.evaluate(() => { window.__playCount = 0; });
+  await dragSq('h5', 'e5'); // Qxe5+ — check!
+  await page.waitForTimeout(500);
+  const checkPlays = await page.evaluate(() => window.__playCount);
+  log('audio: checking move plays exactly base+cue (2)', checkPlays === 2, `plays=${checkPlays}`);
+
+  // black blocks the check (1 play), then a white normal move is exactly 1
+  await dragSq('d8', 'e7');
+  await page.evaluate(() => { window.__playCount = 0; });
+  await dragSq('g1', 'f3');
+  await page.waitForTimeout(300);
+  const normalPlays = await page.evaluate(() => window.__playCount);
+  log('audio: normal move plays exactly 1', normalPlays === 1, `plays=${normalPlays}`);
+
   // ——— drag regression still green (spot: two legal drags) ———
+  await page.goto(`${BASE}/#/training`);
+  await page.evaluate(() => localStorage.clear());
   await page.goto(`${BASE}/#/play`);
   await page.waitForSelector('.mode-switch .mode-row');
   await page.click('.mode-switch .mode-row:nth-child(2)');

@@ -1,11 +1,15 @@
 import { useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import { ENDGAME_LESSONS } from '../data/endgames';
-import { buildAdaptiveSession, type AdaptiveItem, type ReviewMistake } from '../lib/adaptiveEngine';
-import { dueCount, trainingStats } from '../lib/repertoireTrain2';
+import { buildAdaptiveSession, type AdaptiveItem } from '../lib/adaptiveEngine';
+import { dueCount, enumerateRepertoirePositions, trainingStats } from '../lib/repertoireTrain2';
 import { loadRepertoires } from '../lib/repertoireStore';
+import { reviewMistakesFromReports } from '../lib/reviewSummary';
+import type { GameReport } from '../lib/review';
+import { loadJSON } from '../lib/storage';
 import { loadTraining } from '../lib/trainingStore';
 import { useProfile } from '../state/ProfileContext';
+import TrainTabs from '../components/TrainTabs';
 
 const KIND_LABEL: Record<AdaptiveItem['kind'], string> = {
   puzzle: 'Puzzle',
@@ -42,30 +46,19 @@ export default function Training() {
 
   const session = useMemo(() => {
     const now = Date.now();
-    const reviewMistakes: ReviewMistake[] = profile.games
-      .filter((g) => g.result !== 'draw' && g.moves.length > 0)
-      .slice(0, 12)
-      .map((g, i) => ({
-        gameId: g.id,
-        ply: Math.max(1, Math.floor(g.moves.length / 2)),
-        san: g.moves[g.moves.length - 1] ?? '…',
-        className: g.result === 'loss' ? 'blunder' : 'inaccuracy',
-        when: g.date || now - i * DAY,
-      }));
+    // REAL classifications only: read the per-game Review cache. Games
+    // without a reviewed report contribute nothing — never synthesize
+    // mistakes from results.
+    const reviewMistakes = reviewMistakesFromReports(profile.games, (id) =>
+      loadJSON<GameReport | null>(`review.${id}`, null),
+    );
     return buildAdaptiveSession({
       now,
       puzzleThemes: profile.puzzle.byTheme,
       motifStats: training.motifs,
       endgame: training.endgame,
       repScheduling: training.repScheduling,
-      repertoirePositions: repertoires.flatMap((r) =>
-        r.lines.map((line) => ({
-          repertoireId: r.id,
-          lineId: line.id,
-          nodeKey: '__root__',
-          san: line.name,
-        })),
-      ),
+      repertoirePositions: enumerateRepertoirePositions(repertoires),
       reviewMistakes,
     });
   }, [profile, training, repertoires]);
@@ -98,18 +91,7 @@ export default function Training() {
       <div className="page-head">
         <h1>Train</h1>
         <p className="sub">Today’s session, built from your own misses, due reviews and weakest endings.</p>
-        <nav className="page-tabs mt-2" aria-label="Training area">
-          <Link to="/training" className="on">
-            Today
-          </Link>
-          <Link to="/puzzles">Puzzles</Link>
-          <Link to="/repertoire">Repertoire</Link>
-          <Link to="/endgames">Endgames</Link>
-          <Link to="/coordinates">Coordinates</Link>
-          <Link to="/repertoire">Repertoire</Link>
-          <Link to="/endgames">Endgames</Link>
-          <Link to="/coordinates">Coordinates</Link>
-        </nav>
+        <TrainTabs current="/training" />
       </div>
 
       <div className="rep-stats mb-2" style={{ maxWidth: 640 }}>
@@ -182,4 +164,3 @@ export default function Training() {
   );
 }
 
-const DAY = 86_400_000;

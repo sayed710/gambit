@@ -9,6 +9,7 @@ import { useProfile } from '../state/ProfileContext';
 import { playSound } from '../lib/sound';
 import { useClickToMove } from '../hooks/useClickToMove';
 import { ArrowRight, LightbulbIcon, PlayIcon, RetryIcon } from '../components/Icons';
+import TrainTabs from '../components/TrainTabs';
 
 type Phase = 'solving' | 'solved' | 'failed';
 
@@ -225,14 +226,7 @@ export default function Puzzles() {
           Generated and verified in-browser, every solution is mechanically checked against its theme. One wrong try
           counts as a miss.
         </p>
-        <nav className="page-tabs mt-2" aria-label="Training area">
-          <Link to="/puzzles" className="on">
-            Puzzles
-          </Link>
-          <Link to="/repertoire">Repertoire</Link>
-          <Link to="/endgames">Endgames</Link>
-          <Link to="/coordinates">Coordinates</Link>
-        </nav>
+        <TrainTabs current="/puzzles" />
       </div>
 
       <div className="theme-chips mb-2" role="group" aria-label="Puzzle themes">

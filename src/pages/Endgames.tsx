@@ -10,6 +10,7 @@ import { playSound } from '../lib/sound';
 import { ENDGAME_LESSONS, type EndgameLesson } from '../data/endgames';
 import { evaluateDrill, type DrillOutcome } from '../lib/endgameDetect';
 import { loadTraining, recordEndgameAttempt, saveTraining, type TrainingState } from '../lib/trainingStore';
+import TrainTabs from '../components/TrainTabs';
 
 const CATEGORIES: { id: 'mates' | 'pawns' | 'rooks'; label: string }[] = [
   { id: 'mates', label: 'Basic mates' },
@@ -28,15 +29,7 @@ export function Endgames() {
           Tablebase-verified conversion and defense drills. The engine defends — complete the objective inside the move
           limit. Progress is saved locally.
         </p>
-        <nav className="page-tabs mt-2" aria-label="Training area">
-          <Link to="/training">Today</Link>
-          <Link to="/puzzles">Puzzles</Link>
-          <Link to="/repertoire">Repertoire</Link>
-          <Link to="/endgames" className="on">
-            Endgames
-          </Link>
-          <Link to="/coordinates">Coordinates</Link>
-        </nav>
+        <TrainTabs current="/endgames" />
       </div>
 
       {CATEGORIES.map((cat) => (

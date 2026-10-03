@@ -50,3 +50,28 @@ describe('classifyMoveSound — one coherent chain per move', () => {
     });
   });
 });
+
+import { planSoundEvents } from './moveSound';
+
+describe('planSoundEvents — the exact event chain', () => {
+  it('normal check: base move ONCE + subtle check cue ONCE (no base replay)', () => {
+    expect(planSoundEvents(classifyMoveSound(mv('Bb5+')))).toEqual(['move', 'check']);
+  });
+
+  it('capture check: capture ONCE + cue ONCE', () => {
+    expect(planSoundEvents(classifyMoveSound(mv('Qxf7+', true)))).toEqual(['capture', 'check']);
+  });
+
+  it('castle check: castle sequence ONCE + cue ONCE', () => {
+    expect(planSoundEvents(classifyMoveSound(mv('O-O-O+', false, false)))).toEqual(['castle', 'check']);
+  });
+
+  it('plain moves never emit the check cue', () => {
+    expect(planSoundEvents(classifyMoveSound(mv('e4')))).toEqual(['move']);
+    expect(planSoundEvents(classifyMoveSound(mv('Nxe5', true)))).toEqual(['capture']);
+  });
+
+  it('checkmate emits base + end phrase, never the check cue', () => {
+    expect(planSoundEvents(classifyMoveSound(mv('Qh4#')))).toEqual(['move']);
+  });
+});

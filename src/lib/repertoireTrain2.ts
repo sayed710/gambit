@@ -118,3 +118,64 @@ export function lineupTraining(
       return positions;
   }
 }
+
+/* ---------- full position enumeration ---------- */
+
+import { expectedChildAt, sideToMoveAt } from './repertoireTrain';
+import type { GameTreeData } from './gameTree';
+
+export interface TrainablePosition extends RepertoireRef {
+  /** '__root__' for the line start */
+  nodeKey: string;
+}
+
+/** Stable SR key for a line position. */
+export function positionKey(lineId: string, nodeKey: string): string {
+  return `${lineId}:${nodeKey}`;
+}
+
+/**
+ * Enumerate EVERY trainable position in a line — the line start plus every
+ * node after which the repertoire side is to move, with the expected SAN
+ * (preferred child, else first). Reuses sideToMoveAt/expectedChildAt from
+ * repertoireTrain so traversal semantics live in exactly one place.
+ */
+export function enumerateLinePositions(
+  repertoireId: string,
+  lineId: string,
+  tree: GameTreeData,
+  side: 'w' | 'b',
+): TrainablePosition[] {
+  const out: TrainablePosition[] = [];
+  // preferred = {} — enumeration reflects the line's natural order; the
+  // trainer's own preferred-map lives in the repertoire store and is applied
+  // at drill time through the same expectedChildAt helper.
+  const lineView = { id: lineId, name: '', tree, preferred: {} as Record<string, string> };
+  const visit = (nodeId: string | null): void => {
+    if (sideToMoveAt(lineView, nodeId) === side) {
+      const expected = expectedChildAt(lineView, nodeId);
+      if (expected) out.push({ repertoireId, lineId, nodeKey: nodeId ?? '__root__', san: expected.san });
+    }
+    const children = nodeId === null ? tree.moves : (findNodeChildren(tree, nodeId) ?? []);
+    for (const child of children) visit(child.id);
+  };
+  visit(null);
+  return out;
+}
+
+function findNodeChildren(tree: GameTreeData, id: string) {
+  const stack = [...tree.moves];
+  while (stack.length) {
+    const n = stack.pop()!;
+    if (n.id === id) return n.children;
+    stack.push(...n.children);
+  }
+  return null;
+}
+
+/** All trainable positions across a set of repertoires. */
+export function enumerateRepertoirePositions(
+  repertoires: { id: string; side: 'w' | 'b'; lines: { id: string; tree: GameTreeData }[] }[],
+): TrainablePosition[] {
+  return repertoires.flatMap((r) => r.lines.flatMap((l) => enumerateLinePositions(r.id, l.id, l.tree, r.side)));
+}

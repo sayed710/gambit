@@ -24,6 +24,18 @@ export interface MoveSoundInput {
   promotion: boolean;
 }
 
+import type { SoundName } from './sound';
+
+/**
+ * The exact playback chain for a graded move. 'check' is a cue-only event
+ * (sounds.check adds one subtle contact); the base never replays inside it.
+ */
+export function planSoundEvents(plan: MoveSoundPlan): SoundName[] {
+  const events: SoundName[] = [plan.base];
+  if (plan.checkLayer) events.push('check');
+  return events;
+}
+
 export function classifyMoveSound(m: MoveSoundInput): MoveSoundPlan {
   const isCastle = m.san.startsWith('O-O');
   const base: MoveSoundBase = m.promotion ? 'promote' : isCastle ? 'castle' : m.capture ? 'capture' : 'move';

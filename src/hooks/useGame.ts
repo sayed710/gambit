@@ -5,7 +5,7 @@ import type { Move } from 'chess.js';
 import type { GameConfig, Ply } from '../lib/types';
 import { capturedFromFen, hasMatingMaterial, pliesFromGame } from '../lib/chessUtils';
 import { playSound } from '../lib/sound';
-import { classifyMoveSound } from '../lib/moveSound';
+import { classifyMoveSound, planSoundEvents } from '../lib/moveSound';
 import { useClock } from './useClock';
 
 export interface GameOverInfo {
@@ -159,8 +159,7 @@ export function useGame({ config, engineSearch, onGameOver, resume, initialFen }
   const soundForMove = useCallback((m: Move) => {
     // exactly one base sound; a single subtle check layer; mate -> end phrase
     const plan = classifyMoveSound({ san: m.san, capture: m.isCapture(), promotion: m.isPromotion() });
-    playSound(plan.base);
-    if (plan.checkLayer) playSound('check');
+    for (const event of planSoundEvents(plan)) playSound(event);
   }, []);
 
   const checkTermination = useCallback(
