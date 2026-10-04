@@ -538,6 +538,12 @@ textarea.input { font-family: var(--mono); font-size: 0.82rem; line-height: 1.5;
 /* ---------- engine controls ---------- */
 .engine-select { width: auto; padding: 0.25rem 0.5rem; font-size: 0.85rem; }
 
+/* ---------- insights ---------- */
+.table-wrap { border: 1px solid var(--border); border-radius: 10px; overflow-x: auto; background: var(--surface); }
+.table-wrap .table th { background: var(--bg-raised); }
+.motif-bar { display: inline-block; width: 90px; height: 6px; margin-left: 0.6rem; border-radius: 99px; background: var(--border); overflow: hidden; vertical-align: middle; }
+.motif-bar i { display: block; height: 100%; background: var(--sea); }
+
 /* ---------- review verdict + board navigation ---------- */
 .move-navbar {
   display: flex; align-items: center; gap: 0.35rem; flex-wrap: wrap;

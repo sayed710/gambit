@@ -89,6 +89,13 @@ export default function Training() {
         <TrainTabs current="/training" />
       </div>
 
+      <p className="small muted mb-1" style={{ margin: 0 }}>
+        Deep-dive into your record on the{' '}
+        <Link to="/insights" style={{ color: 'var(--ice)' }}>
+          Insights
+        </Link>{' '}
+        page.
+      </p>
       <div className="rep-stats mb-2" style={{ maxWidth: 640 }}>
         <div>
           <div className="v">{repDue}</div>

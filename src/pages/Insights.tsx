@@ -1,0 +1,242 @@
+import { useMemo } from 'react';
+import { Chess } from 'chess.js';
+import { Link } from 'react-router-dom';
+import { useProfile } from '../state/ProfileContext';
+import { bestWorstOpenings, openingInsights } from '../lib/openingInsights';
+import { loadTraining } from '../lib/trainingStore';
+import { phaseAccuracies } from '../lib/reviewInsights';
+import type { GameReport } from '../lib/review';
+import { loadJSON } from '../lib/storage';
+const FULL_DATE = new Intl.DateTimeFormat('en', { day: 'numeric', month: 'short', year: 'numeric' });
+
+/* ============================================================
+   Insights — personal chess statistics, real data only.
+   Accessed from Profile / Training (not the primary nav).
+   Every section shows an honest empty state when data is thin.
+   ============================================================ */
+
+const THEME_LABELS: Record<string, string> = {
+  fork: 'Forks',
+  'double-attack': 'Double attacks',
+  'pin-absolute': 'Absolute pins',
+  'pin-relative': 'Relative pins',
+  skewer: 'Skewers',
+  hanging: 'Hanging pieces',
+  'discovered-attack': 'Discovered attacks',
+  'discovered-check': 'Discovered checks',
+  'back-rank': 'Back-rank patterns',
+};
+
+function Section({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <section className="mb-3">
+      <div className="section-label">{title}</div>
+      {children}
+    </section>
+  );
+}
+
+export default function Insights() {
+  const { profile } = useProfile();
+  const training = useMemo(() => loadTraining(), []);
+
+  const insights = useMemo(
+    () =>
+      openingInsights(profile.games, (id) =>
+        loadJSON<GameReport | null>(`review.${id}`, null),
+      ),
+    [profile.games],
+  );
+  const extremes = useMemo(() => bestWorstOpenings(insights.openings), [insights.openings]);
+
+  // game-phase accuracies over games with real cached reviews
+  const phases = useMemo(() => {
+    let opening = 0;
+    let openingN = 0;
+    let middle = 0;
+    let middleN = 0;
+    let endgame = 0;
+    let endgameN = 0;
+    for (const g of profile.games) {
+      const report = loadJSON<GameReport | null>(`review.${g.id}`, null);
+      if (!report) continue;
+      const fens: string[] = [];
+      // reconstruct fens from the game's SAN list
+      const replay = new Chess();
+      fens.push(replay.fen());
+      for (const san of g.moves) {
+        try {
+          replay.move(san);
+          fens.push(replay.fen());
+        } catch {
+          break;
+        }
+      }
+      const p = phaseAccuracies(report, fens);
+      if (p.opening !== null) { opening += p.opening; openingN += 1; }
+      if (p.middlegame !== null) { middle += p.middlegame; middleN += 1; }
+      if (p.endgame !== null) { endgame += p.endgame; endgameN += 1; }
+    }
+    return {
+      opening: openingN ? Math.round(opening / openingN) : null,
+      middlegame: middleN ? Math.round(middle / middleN) : null,
+      endgame: endgameN ? Math.round(endgame / endgameN) : null,
+      reviewedGames: openingN,
+    };
+  }, [profile.games]);
+
+  const motifEntries = useMemo(
+    () =>
+      Object.entries(training.motifs)
+        .filter(([, s]) => s.opportunities > 0)
+        .sort((a, b) => b[1].missed - a[1].missed),
+    [training.motifs],
+  );
+
+  return (
+    <div className="page container">
+      <div className="page-head row between wrap" style={{ gap: '1rem' }}>
+        <div>
+          <h1>Insights</h1>
+          <p className="sub">
+            Everything here is computed from your own saved games and training record — nothing global, nothing
+            invented.
+          </p>
+        </div>
+        <Link to="/profile" className="btn btn-ghost btn-sm">
+          ← Profile
+        </Link>
+      </div>
+
+      <Section title="Openings">
+        {insights.openings.length === 0 && !insights.unidentified ? (
+          <p className="small muted">No games yet — play a few and your openings will be tabulated here.</p>
+        ) : (
+          <>
+            <p className="small muted mt-1" style={{ marginBottom: '0.6rem' }}>
+              Based on your saved games. Accuracy appears only for games with a completed review.
+            </p>
+            <div className="table-wrap">
+              <table className="table">
+                <thead>
+                  <tr>
+                    <th>Opening</th>
+                    <th>ECO</th>
+                    <th className="num">Games</th>
+                    <th className="num">W/D/L</th>
+                    <th className="num">Score</th>
+                    <th className="num">Accuracy</th>
+                    <th>Last played</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {insights.openings.slice(0, 12).map((o) => (
+                    <tr key={`${o.eco}${o.name}`}>
+                      <td>{o.name}</td>
+                      <td className="mono">{o.eco}</td>
+                      <td className="num">{o.games}</td>
+                      <td className="num">
+                        {o.wins}/{o.draws}/{o.losses}
+                      </td>
+                      <td className="num">{o.scorePct}%</td>
+                      <td className="num">{o.avgAccuracy !== null ? `${o.avgAccuracy}%` : '—'}</td>
+                      <td className="small muted">{FULL_DATE.format(o.lastPlayed)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            {insights.unidentified && (
+              <p className="small muted">
+                {insights.unidentified.games} game{insights.unidentified.games === 1 ? '' : 's'} didn’t match a known
+                opening line.
+              </p>
+            )}
+            <div className="row mt-2" style={{ gap: '2rem' }}>
+              {extremes.best && (
+                <p className="small">
+                  <strong>{extremes.best.name}</strong> is your strongest opening ({extremes.best.scorePct}% over{' '}
+                  {extremes.best.games} games).
+                </p>
+              )}
+              {extremes.worst && extremes.worst !== extremes.best && (
+                <p className="small">
+                  <strong>{extremes.worst.name}</strong> is your weakest ({extremes.worst.scorePct}% over{' '}
+                  {extremes.worst.games} games).
+                </p>
+              )}
+            </div>
+          </>
+        )}
+      </Section>
+
+      <Section title="Tactics">
+        {motifEntries.length === 0 ? (
+          <p className="small muted">
+            No confirmed tactical motifs recorded yet — complete a Game Review and missed tactics are tallied here.
+          </p>
+        ) : (
+          <div className="table-wrap">
+            <table className="table">
+              <thead>
+                <tr>
+                  <th>Motif</th>
+                  <th className="num">Opportunities</th>
+                  <th className="num">Found</th>
+                  <th className="num">Missed</th>
+                  <th>Rate</th>
+                </tr>
+              </thead>
+              <tbody>
+                {motifEntries.map(([type, s]) => {
+                  const rate = s.opportunities > 0 ? Math.round((s.found / s.opportunities) * 100) : 0;
+                  return (
+                    <tr key={type}>
+                      <td>{THEME_LABELS[type] ?? type}</td>
+                      <td className="num">{s.opportunities}</td>
+                      <td className="num">{s.found}</td>
+                      <td className="num">{s.missed}</td>
+                      <td>
+                        <span className="mono small">{rate}%</span>
+                        <span className="motif-bar" aria-hidden="true">
+                          <i style={{ width: `${rate}%` }} />
+                        </span>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </Section>
+
+      <Section title="Game phases">
+        {phases.reviewedGames === 0 ? (
+          <p className="small muted">Accuracy by phase appears once you complete a Game Review.</p>
+        ) : (
+          <>
+            <div className="rep-stats" style={{ maxWidth: 480 }}>
+              <div>
+                <div className="v">{phases.opening !== null ? `${phases.opening}%` : '—'}</div>
+                <div className="k">opening</div>
+              </div>
+              <div>
+                <div className="v">{phases.middlegame !== null ? `${phases.middlegame}%` : '—'}</div>
+                <div className="k">middlegame</div>
+              </div>
+              <div>
+                <div className="v">{phases.endgame !== null ? `${phases.endgame}%` : '—'}</div>
+                <div className="k">endgame</div>
+              </div>
+            </div>
+            <p className="small muted mt-1">
+              Across {phases.reviewedGames} reviewed game{phases.reviewedGames === 1 ? '' : 's'}. Phase heuristic:
+              opening is moves 1–10; endgame when material ≤ 14 points or after move 40.
+            </p>
+          </>
+        )}
+      </Section>
+    </div>
+  );
+}
