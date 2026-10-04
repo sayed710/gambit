@@ -1331,3 +1331,18 @@ body:has(.home) .site-footer {
   .rail-facts { grid-template-columns: 1fr 1fr; }
   .rail-fact:first-child { grid-column: 1 / -1; }
 }
+
+/* ---------- move-time graph ---------- */
+.time-graph {
+  display: flex; align-items: flex-end; gap: 2px;
+  height: 64px; padding-bottom: 4px;
+  border-bottom: 1px solid var(--border-strong);
+}
+.time-bar {
+  flex: 1; min-width: 3px; border-radius: 2px 2px 0 0;
+  background: var(--ice); opacity: 0.75;
+  transition: opacity 0.12s;
+}
+.time-bar:hover { opacity: 1; }
+.time-bar.pressured { background: var(--bad); opacity: 0.85; }
+.time-axis { display: flex; justify-content: space-between; margin-top: 0.3rem; }

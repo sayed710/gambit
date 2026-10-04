@@ -322,6 +322,8 @@ function GameScreen({
       // game-over callback fires (state may lag one move behind)
       moves: getMoves(),
       pgn: game.pgn(),
+      // real per-ply think times; old games (and this field) stay optional
+      moveTimings: game.getMoveTimings(),
       ratingBefore: profile.rating,
       ratingAfter: profile.rating + delta,
     };

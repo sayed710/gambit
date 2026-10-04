@@ -13,9 +13,11 @@ import { useProfile } from '../state/ProfileContext';
 import { loadJSON, saveJSON } from '../lib/storage';
 import { ChevronLeft, ChevronRight, XIcon } from '../components/Icons';
 import type { GameReport, MoveClass, PlyEval } from '../lib/review';
+import type { GameRecord } from '../lib/types';
 import { evalToUnit } from '../lib/review';
 import { runGameAnalysis, plyEvalFromEngineResult } from '../lib/reviewRunner';
 import { criticalMoments, refineGreatMoves, CLASSIFICATION_META, CLASSIFICATION_GLYPH, CRITICAL_CLASSES } from '../lib/review';
+import { pressureCorrelation, timingStats } from '../lib/timeAnalytics';
 import { biggestSwings, materialSeries, phaseAccuracies } from '../lib/reviewInsights';
 import { identifyOpening } from '../lib/openings';
 import { useClickToMove } from '../hooks/useClickToMove';
@@ -620,6 +622,9 @@ export default function Review() {
           </div>
 
           {report && fens.length > 1 && <InsightsPanel report={report} fens={fens} onJump={(ply) => setPlyIndex(ply)} />}
+          {record.moveTimings && record.moveTimings.length > 0 && report && (
+            <TimePanel record={record} report={report} onJump={(ply) => setPlyIndex(ply)} />
+          )}
 
           <div className="panel panel-pad">
             <div className="section-label">
@@ -1032,6 +1037,79 @@ function MoveNavBar({
           !►
         </button>
       </div>
+    </div>
+  );
+}
+
+
+function TimePanel({
+  record,
+  report,
+  onJump,
+}: {
+  record: GameRecord;
+  report: GameReport;
+  onJump: (ply: number) => void;
+}) {
+  const stats = useMemo(() => timingStats(record), [record]);
+  const correlation = useMemo(() => pressureCorrelation(record, report), [record, report]);
+  if (!stats) return null;
+
+  const maxThink = Math.max(...stats.playerTimings.map((t) => t.thinkMs), 1);
+  const threshold = stats.pressureThresholdMs;
+  const w = 100;
+
+  return (
+    <div className="panel panel-pad">
+      <div className="section-label">Move time</div>
+      <div className="rep-stats" style={{ maxWidth: 'none' }}>
+        <div>
+          <div className="v">{(stats.avgThinkMs / 1000).toFixed(1)}s</div>
+          <div className="k">avg</div>
+        </div>
+        <div>
+          <div className="v">{Math.round((stats.slowest?.thinkMs ?? 0) / 1000)}s</div>
+          <div className="k">slowest</div>
+        </div>
+        <div>
+          <div className="v">{stats.underPressure}</div>
+          <div className="k">in pressure</div>
+        </div>
+      </div>
+      <div className="mt-2" role="img" aria-label="Think time per move. Taller bars are slower moves. Bars at or below the pressure line are marked.">
+        <div className="time-graph">
+          {stats.playerTimings.map((t) => (
+            <button
+              key={t.ply}
+              type="button"
+              className={`time-bar${t.clockBeforeMs !== null && threshold > 0 && t.clockBeforeMs <= threshold ? ' pressured' : ''}`}
+              style={{ height: `${Math.max(6, (t.thinkMs / maxThink) * 100)}%` }}
+              onClick={() => onJump(t.ply)}
+              title={`Move ${Math.ceil(t.ply / 2)}: ${(t.thinkMs / 1000).toFixed(1)}s${t.clockBeforeMs !== null ? `, clock ${(t.clockBeforeMs / 1000).toFixed(0)}s` : ''}`}
+              aria-label={`Move ${Math.ceil(t.ply / 2)}: ${(t.thinkMs / 1000).toFixed(1)} seconds`}
+            />
+          ))}
+        </div>
+        <div className="time-axis small muted">
+          {stats.avgThinkOpeningMs !== null && stats.avgThinkMiddlegameMs !== null && (
+            <span>
+              opening {(stats.avgThinkOpeningMs / 1000).toFixed(1)}s · middlegame{' '}
+              {(stats.avgThinkMiddlegameMs / 1000).toFixed(1)}s
+            </span>
+          )}
+        </div>
+      </div>
+      {correlation.criticalTotal > 0 && correlation.sampleAdequate && (
+        <p className="small muted mt-1" style={{ marginBottom: 0 }}>
+          {correlation.criticalUnderPressure} of your {correlation.criticalTotal} critical mistakes were played under
+          time pressure (below {(threshold / 1000).toFixed(0)}s remaining).
+        </p>
+      )}
+      <p className="small muted mt-1" style={{ marginBottom: 0 }}>
+        Think time = your clock from move entitlement to commit, at 15% of the initial clock or 20 s (whichever is
+        higher) a move counts as time-pressured.
+      </p>
+      <div style={{ display: 'none' }}>{w}</div>
     </div>
   );
 }

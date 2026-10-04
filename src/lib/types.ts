@@ -27,7 +27,19 @@ export interface GameConfig {
 
 export type GameResultType = 'win' | 'loss' | 'draw';
 
+export interface MoveTiming {
+  ply: number;
+  color: Color;
+  /** wall-clock think time from move entitlement to commit (includes promotion choice) */
+  thinkMs: number;
+  /** remaining clock before the move; null for untimed games */
+  clockBeforeMs: number | null;
+  /** remaining clock after the move; null for untimed games */
+  clockAfterMs: number | null;
+}
+
 export interface GameRecord {
+  moveTimings?: MoveTiming[];
   id: string;
   date: number;
   mode: GameMode;

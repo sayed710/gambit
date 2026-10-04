@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { Chess } from 'chess.js';
 import type { Color, Square } from 'chess.js';
 import type { Move } from 'chess.js';
-import type { GameConfig, Ply } from '../lib/types';
+import type { GameConfig, MoveTiming, Ply } from '../lib/types';
 import { capturedFromFen, hasMatingMaterial, pliesFromGame } from '../lib/chessUtils';
 import { playSound } from '../lib/sound';
 import { classifyMoveSound, planSoundEvents } from '../lib/moveSound';
@@ -202,8 +202,24 @@ export function useGame({ config, engineSearch, onGameOver, resume, initialFen }
       clockSnapshots.current.push({ ...clock.clocks });
       const mover = m.color;
       const finished = checkTermination(game);
+      // real think time: entitlement -> commit (human only). Clock-before is
+      // the mover's remaining time BEFORE the increment/charge switch.
+      const now = performance.now();
+      const isHuman = config.mode === 'pass' || m.color === (playerColorRef.current ?? 'w');
+      const clockBeforeMs = unlimited ? null : Math.max(0, Math.round(clock.moverRemaining(m.color)));
       if (!finished && !unlimited) clock.switchTo(game.turn(), mover);
+      const clockAfterMs = unlimited ? null : Math.max(0, Math.round(clock.clocks[m.color]));
       soundForMove(m);
+      if (isHuman) {
+        moveTimingsRef.current.push({
+          ply: moveTimingsRef.current.length + 1,
+          color: m.color,
+          thinkMs: Math.max(0, Math.round(now - turnStartedAtRef.current)),
+          clockBeforeMs,
+          clockAfterMs,
+        });
+      }
+      baselineThinkClock();
       setFen(game.fen());
       setPlies(pliesFromGame(game));
       setLastMove({ from: m.from, to: m.to });
@@ -215,6 +231,16 @@ export function useGame({ config, engineSearch, onGameOver, resume, initialFen }
   // Promotion gate must be readable at call time — gating on the state value
   // races against React's commit, which broke choosePromotion entirely.
   const pendingPromotionRef = useRef<PendingPromotion | null>(null);
+  // ---- move-time analytics: real wall-clock think time per ply ----
+  // thinkMs measures entitlement -> commit; promotion choice IS part of the
+  // think time (the move isn't committed until the piece is chosen).
+  // Resume re-baselines so closed-app time is never counted.
+  const turnStartedAtRef = useRef<number>(performance.now());
+  const moveTimingsRef = useRef<MoveTiming[]>([]);
+
+  const baselineThinkClock = useCallback(() => {
+    turnStartedAtRef.current = performance.now();
+  }, []);
 
   const setPending = useCallback((p: PendingPromotion | null) => {
     pendingPromotionRef.current = p;
@@ -286,6 +312,12 @@ export function useGame({ config, engineSearch, onGameOver, resume, initialFen }
   // Latest-ref so per-frame clock re-renders never restart the engine search.
   const commitMoveRef = useRef(commitMove);
   commitMoveRef.current = commitMove;
+
+  // re-baseline the think clock whenever the mover changes (covers resume:
+  // closed-app time is not counted as thinking)
+  useEffect(() => {
+    baselineThinkClock();
+  }, [turn, baselineThinkClock]);
 
   // ---- engine opponent ----
   useEffect(() => {
@@ -393,7 +425,10 @@ export function useGame({ config, engineSearch, onGameOver, resume, initialFen }
     return null;
   })();
 
+  const getMoveTimings = useCallback(() => moveTimingsRef.current, []);
+
   return {
+    getMoveTimings,
     fen,
     plies,
     lastMove,
