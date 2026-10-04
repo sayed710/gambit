@@ -14,7 +14,7 @@ describe('adaptive training engine', () => {
   it('the weakest puzzle theme ranks first with an explanation', () => {
     const items = buildAdaptiveSession({
       now: NOW,
-      motifStats: { discovered: { seen: 5, missed: 4, lastSeen: NOW - DAY } },
+      motifStats: { discovered: { opportunities: 5, found: 1, missed: 4, lastSeen: NOW - DAY, recentMisses: [] } },
       puzzleThemes: { discovered: { solved: 1, failed: 4 } },
     });
     const top = items[0];

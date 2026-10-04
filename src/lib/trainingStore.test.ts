@@ -34,7 +34,7 @@ describe('training store — normalization', () => {
     expect(fixed.repScheduling.good.interval).toBe(0);
     expect(fixed.repScheduling.good.ease).toBe(3.2); // clamped to the documented cap
     expect(fixed.repScheduling.bad).toBeUndefined();
-    expect(fixed.motifs.fork.seen).toBe(0);
+    expect(fixed.motifs.fork.opportunities).toBe(0);
     expect(fixed.adaptive.queue).toEqual([]);
   });
 
@@ -112,5 +112,38 @@ describe('SM-2-lite scheduling (deterministic)', () => {
     const r = scheduleSr(fresh, 'good', NOW);
     const back: SrRecord = JSON.parse(JSON.stringify(r));
     expect(back).toEqual(r);
+  });
+});
+
+describe('motif stats v2 migration', () => {
+  it('migrates the v1 seen/missed shape additively without data loss', () => {
+    const fixed = normalizeTrainingState({
+      version: 1,
+      motifs: { fork: { seen: 7, missed: 3, lastSeen: 123 } },
+    });
+    expect(fixed.motifs.fork).toEqual({
+      opportunities: 7,
+      found: 4,
+      missed: 3,
+      lastSeen: 123,
+      recentMisses: [],
+    });
+  });
+
+  it('keeps the v2 shape and validates recentMisses', () => {
+    const fixed = normalizeTrainingState({
+      version: 1,
+      motifs: {
+        pin: {
+          opportunities: 5,
+          found: 2,
+          missed: 3,
+          lastSeen: 99,
+          recentMisses: [{ gameId: 'g1', ply: 12 }, { junk: true }, { gameId: 'g2', ply: 'x' }],
+        },
+      },
+    });
+    expect(fixed.motifs.pin.found).toBe(2);
+    expect(fixed.motifs.pin.recentMisses).toEqual([{ gameId: 'g1', ply: 12 }]);
   });
 });

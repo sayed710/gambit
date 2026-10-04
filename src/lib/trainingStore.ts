@@ -35,9 +35,13 @@ export interface SrRecord {
 }
 
 export interface MotifStat {
-  seen: number;
+  /** v2: total confirmed opportunities (was `seen`) */
+  opportunities: number;
+  /** player's move created the motif AND was engine-approved */
+  found: number;
   missed: number;
   lastSeen: number | null;
+  recentMisses: { gameId: string; ply: number }[];
 }
 
 export type AdaptiveItemKind = 'puzzle' | 'mistake' | 'repertoire' | 'endgame' | 'motif' | 'visualization';
@@ -123,10 +127,25 @@ export function normalizeTrainingState(raw: unknown): TrainingState {
   if (r.motifs && typeof r.motifs === 'object') {
     for (const [id, m] of Object.entries(r.motifs)) {
       if (!m || typeof m !== 'object') continue;
+      const raw = m as unknown as Record<string, unknown>;
+      // v1 shape {seen, missed, lastSeen} migrates additively: seen -> opportunities,
+      // found derived so totals are preserved; nothing is discarded.
+      const seen = int(raw.seen);
+      const missedRaw = int(raw.missed);
+      const opportunities = raw.opportunities === undefined ? seen : int(raw.opportunities);
+      const found = raw.found === undefined ? Math.max(0, seen - missedRaw) : int(raw.found);
+      const recent = Array.isArray(raw.recentMisses)
+        ? (raw.recentMisses as { gameId?: unknown; ply?: unknown }[])
+            .filter((x) => x && typeof x.gameId === 'string' && typeof x.ply === 'number')
+            .slice(0, 5)
+            .map((x) => ({ gameId: x.gameId as string, ply: x.ply as number }))
+        : [];
       motifs[id] = {
-        seen: int((m as MotifStat).seen),
-        missed: int((m as MotifStat).missed),
-        lastSeen: typeof (m as MotifStat).lastSeen === 'number' ? (m as MotifStat).lastSeen : null,
+        opportunities,
+        found,
+        missed: missedRaw,
+        lastSeen: typeof raw.lastSeen === 'number' ? (raw.lastSeen as number) : null,
+        recentMisses: recent,
       };
     }
   }

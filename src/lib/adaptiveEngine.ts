@@ -97,7 +97,7 @@ export function buildAdaptiveSession(src: AdaptiveSource = {}): AdaptiveItem[] {
     items.push({
       id: `motif-${motif}`,
       kind: 'motif',
-      reason: `Recommended because you missed this motif (${motif}) ${st.missed} time${st.missed === 1 ? '' : 's'}.`,
+      reason: `Recommended because you missed ${motif} tactics ${st.missed} of ${st.opportunities} confirmed opportunities.`,
       score: clampScore(12 + Math.min(20, st.missed * 8) + recencyBoost(st.lastSeen, now)),
       ref: { motif },
       createdAt: st.lastSeen ?? now,
