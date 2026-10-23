@@ -103,6 +103,8 @@ export function useGame({ config, engineSearch, onGameOver, resume, initialFen }
     (cfg?: Partial<GameConfig>) => {
       gameRef.current = new Chess(startFenRef.current ?? undefined);
       clockSnapshots.current = [];
+      moveTimingsRef.current = [];
+      baselineThinkClock();
       overRef.current = null;
       setOver(null);
       setPendingPromotion(null);
@@ -201,24 +203,36 @@ export function useGame({ config, engineSearch, onGameOver, resume, initialFen }
       const game = gameRef.current;
       clockSnapshots.current.push({ ...clock.clocks });
       const mover = m.color;
-      const finished = checkTermination(game);
       // real think time: entitlement -> commit (human only). Clock-before is
       // the mover's remaining time BEFORE the increment/charge switch.
       const now = performance.now();
       const isHuman = config.mode === 'pass' || m.color === (playerColorRef.current ?? 'w');
       const clockBeforeMs = unlimited ? null : Math.max(0, Math.round(clock.moverRemaining(m.color)));
-      if (!finished && !unlimited) clock.switchTo(game.turn(), mover);
-      const clockAfterMs = unlimited ? null : Math.max(0, Math.round(clock.clocks[m.color]));
-      soundForMove(m);
+      const thinkMs = Math.max(0, Math.round(now - turnStartedAtRef.current));
+      // the TRUE game ply (engine plies included) — never a sequence number,
+      // so Review can join timings to moves by ply.
+      const ply = game.history().length;
+      // Persist the timing BEFORE any termination check: the game-over
+      // callback snapshots the GameRecord synchronously and must see the
+      // final move's timing.
+      let timing: MoveTiming | null = null;
       if (isHuman) {
-        moveTimingsRef.current.push({
-          ply: moveTimingsRef.current.length + 1,
-          color: m.color,
-          thinkMs: Math.max(0, Math.round(now - turnStartedAtRef.current)),
-          clockBeforeMs,
-          clockAfterMs,
-        });
+        timing = { ply, color: m.color, thinkMs, clockBeforeMs, clockAfterMs: clockBeforeMs };
+        moveTimingsRef.current.push(timing);
       }
+      const finished = checkTermination(game);
+      if (!finished && !unlimited) clock.switchTo(game.turn(), mover);
+      if (timing) {
+        timing.clockAfterMs = unlimited
+          ? null
+          : finished
+            ? // the clock stops billing at game end — model the final charge
+              // from the real think time instead of the uncharged display value
+              (clockBeforeMs === null ? null : Math.max(0, clockBeforeMs - thinkMs))
+            : // synchronous post-charge value (clocksRef, not the lagging state)
+              Math.max(0, Math.round(clock.moverRemaining(mover)));
+      }
+      soundForMove(m);
       baselineThinkClock();
       setFen(game.fen());
       setPlies(pliesFromGame(game));
@@ -373,6 +387,11 @@ export function useGame({ config, engineSearch, onGameOver, resume, initialFen }
     if (snap && !unlimited) {
       clock.restore(snap, game.turn());
     }
+    // dropped moves must not leave stale timings: keep only entries whose ply
+    // still exists, so a replayed move replaces (not duplicates) its timing.
+    const remainingPlies = game.history().length;
+    moveTimingsRef.current = moveTimingsRef.current.filter((t) => t.ply <= remainingPlies);
+    baselineThinkClock();
     const hist = game.history({ verbose: true });
     const last = hist[hist.length - 1];
     setFen(game.fen());

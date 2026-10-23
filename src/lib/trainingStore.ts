@@ -64,6 +64,10 @@ export interface TrainingState {
   /** key: `${repertoireId}:${lineId}:${nodeKey}` */
   repScheduling: Record<string, SrRecord>;
   motifs: Record<string, MotifStat>;
+  /** games whose motif analysis already fed `motifs` — the idempotence set:
+   *  one contribution per game, first completed review wins, re-analysis
+   *  (cache cleared, refined classifications) never double-counts. */
+  motifGames: Record<string, number>;
   adaptive: { queue: AdaptiveItem[]; lastGenerated: number | null };
 }
 
@@ -77,6 +81,7 @@ export function emptyTrainingState(): TrainingState {
     endgame: {},
     repScheduling: {},
     motifs: {},
+    motifGames: {},
     adaptive: { queue: [], lastGenerated: null },
   };
 }
@@ -150,6 +155,13 @@ export function normalizeTrainingState(raw: unknown): TrainingState {
     }
   }
 
+  const motifGames: TrainingState['motifGames'] = {};
+  if (r.motifGames && typeof r.motifGames === 'object') {
+    for (const [id, at] of Object.entries(r.motifGames)) {
+      if (typeof at === 'number' && Number.isFinite(at)) motifGames[id] = at;
+    }
+  }
+
   const queue = Array.isArray(r.adaptive?.queue)
     ? (r.adaptive!.queue as AdaptiveItem[]).filter(
         (q): q is AdaptiveItem => !!q && typeof q === 'object' && typeof q.id === 'string' && typeof q.kind === 'string',
@@ -161,6 +173,7 @@ export function normalizeTrainingState(raw: unknown): TrainingState {
     endgame,
     repScheduling,
     motifs,
+    motifGames,
     adaptive: { queue, lastGenerated: typeof r.adaptive?.lastGenerated === 'number' ? r.adaptive!.lastGenerated : null },
   };
 }
