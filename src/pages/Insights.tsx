@@ -5,6 +5,8 @@ import { useProfile } from '../state/ProfileContext';
 import { bestWorstOpenings, openingInsights } from '../lib/openingInsights';
 import { loadTraining } from '../lib/trainingStore';
 import { phaseAccuracies } from '../lib/reviewInsights';
+import { timingStats } from '../lib/timeAnalytics';
+import type { GameRecord } from '../lib/types';
 import type { GameReport } from '../lib/review';
 import { loadJSON } from '../lib/storage';
 const FULL_DATE = new Intl.DateTimeFormat('en', { day: 'numeric', month: 'short', year: 'numeric' });
@@ -93,6 +95,64 @@ export default function Insights() {
     [training.motifs],
   );
 
+  // overview totals — all derived from stored games and cached reviews
+  const overview = useMemo(() => {
+    const games = profile.games;
+    const wins = games.filter((g) => g.result === 'win').length;
+    const draws = games.filter((g) => g.result === 'draw').length;
+    const losses = games.filter((g) => g.result === 'loss').length;
+    let accSum = 0;
+    let accN = 0;
+    for (const g of games) {
+      const report = loadJSON<GameReport | null>(`review.${g.id}`, null);
+      if (!report?.accuracy) continue;
+      accSum += g.playerColor === 'w' ? report.accuracy.w : report.accuracy.b;
+      accN += 1;
+    }
+    const avgMoves = games.length
+      ? Math.round(games.reduce((n, g) => n + Math.ceil(g.moves.length / 2), 0) / games.length)
+      : 0;
+    return {
+      games: games.length,
+      wins,
+      draws,
+      losses,
+      scorePct: games.length ? Math.round(((wins + draws / 2) / games.length) * 100) : 0,
+      avgAccuracy: accN ? Math.round(accSum / accN) : null,
+      avgMoves,
+    };
+  }, [profile.games]);
+
+  // time management — aggregated from real per-move timings of timed games
+  const timeMgmt = useMemo(() => {
+    let timedGames = 0;
+    let withTimings = 0;
+    let thinkSum = 0;
+    let thinkN = 0;
+    let pressured = 0;
+    let pressureGames = 0;
+    for (const g of profile.games) {
+      if (g.timeControl.minutes <= 0) continue;
+      timedGames += 1;
+      const stats = timingStats(g as GameRecord);
+      if (!stats || stats.playerTimings.length === 0) continue;
+      withTimings += 1;
+      for (const t of stats.playerTimings) {
+        thinkSum += t.thinkMs;
+        thinkN += 1;
+        if (t.clockBeforeMs !== null && t.clockBeforeMs <= stats.pressureThresholdMs) pressured += 1;
+      }
+      if (stats.underPressure > 0) pressureGames += 1;
+    }
+    return {
+      timedGames,
+      withTimings,
+      avgThinkMs: thinkN ? Math.round(thinkSum / thinkN) : null,
+      pressuredPct: thinkN ? Math.round((pressured / thinkN) * 100) : null,
+      pressureGames,
+    };
+  }, [profile.games]);
+
   return (
     <div className="page container">
       <div className="page-head row between wrap" style={{ gap: '1rem' }}>
@@ -107,6 +167,42 @@ export default function Insights() {
           ← Profile
         </Link>
       </div>
+
+      <Section title="Overview">
+        {overview.games === 0 ? (
+          <p className="small muted">No games yet — play a few and your record will be summarized here.</p>
+        ) : (
+          <>
+            <div className="rep-stats" style={{ maxWidth: 'none', flexWrap: 'wrap' }}>
+              <div>
+                <div className="v">{overview.games}</div>
+                <div className="k">games</div>
+              </div>
+              <div>
+                <div className="v">
+                  {overview.wins}/{overview.draws}/{overview.losses}
+                </div>
+                <div className="k">w/d/l</div>
+              </div>
+              <div>
+                <div className="v">{overview.scorePct}%</div>
+                <div className="k">score</div>
+              </div>
+              <div>
+                <div className="v">{overview.avgAccuracy !== null ? `${overview.avgAccuracy}%` : '—'}</div>
+                <div className="k">avg accuracy</div>
+              </div>
+              <div>
+                <div className="v">{overview.avgMoves}</div>
+                <div className="k">avg moves</div>
+              </div>
+            </div>
+            <p className="small muted mt-1">
+              Accuracy appears only when a game has a completed review.
+            </p>
+          </>
+        )}
+      </Section>
 
       <Section title="Openings">
         {insights.openings.length === 0 && !insights.unidentified ? (
@@ -207,6 +303,31 @@ export default function Insights() {
                 })}
               </tbody>
             </table>
+          </div>
+        )}
+      </Section>
+
+      <Section title="Time management">
+        {timeMgmt.timedGames === 0 ? (
+          <p className="small muted">Play a timed game and your clock usage will be summarized here.</p>
+        ) : timeMgmt.withTimings === 0 ? (
+          <p className="small muted">
+            Move timing data isn’t available for these games — it is recorded for new games from this version on.
+          </p>
+        ) : (
+          <div className="rep-stats" style={{ maxWidth: 'none', flexWrap: 'wrap' }}>
+            <div>
+              <div className="v">{((timeMgmt.avgThinkMs ?? 0) / 1000).toFixed(1)}s</div>
+              <div className="k">avg think</div>
+            </div>
+            <div>
+              <div className="v">{timeMgmt.pressuredPct}%</div>
+              <div className="k">moves in pressure</div>
+            </div>
+            <div>
+              <div className="v">{timeMgmt.withTimings}</div>
+              <div className="k">timed games</div>
+            </div>
           </div>
         )}
       </Section>

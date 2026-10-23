@@ -527,6 +527,26 @@ export default function Review() {
               playerColor={record.playerColor}
             />
           )}
+          {!practiceActive && currentReview && record && report && currentReview.color === record.playerColor && CRITICAL_CLASSES.includes(currentReview.classification) && (
+            <div className="row mt-2" style={{ gap: '0.4rem', flexWrap: 'wrap' }}>
+              <button className="btn btn-accent btn-sm" onClick={startPractice}>
+                Practice now
+              </button>
+              <button
+                className="btn btn-ghost btn-sm"
+                onClick={() =>
+                  saveForLater(
+                    fens[plyIndex - 1],
+                    'mistake',
+                    plyIndex,
+                    report?.evals[plyIndex - 1]?.bestSan ?? null,
+                  )
+                }
+              >
+                Save for later
+              </button>
+            </div>
+          )}
           {practiceActive && (
             <div className="status-banner mt-2" role="status" style={{ flexWrap: 'wrap', gap: '0.5rem' }}>
               <span>
@@ -543,26 +563,6 @@ export default function Review() {
                 {practiceFeedback ?? 'Your move, find the best continuation.'}
               </span>
               <span className="row" style={{ gap: '0.35rem', marginLeft: 'auto', flexWrap: 'wrap' }}>
-                {!drillQueue && currentReview && record && currentReview.color === record.playerColor && CRITICAL_CLASSES.includes(currentReview.classification) && (
-                  <>
-                    <button className="btn btn-accent btn-sm" onClick={startPractice}>
-                      Practice now
-                    </button>
-                    <button
-                      className="btn btn-ghost btn-sm"
-                      onClick={() =>
-                        saveForLater(
-                          fens[plyIndex - 1],
-                          'mistake',
-                          plyIndex,
-                          report?.evals[plyIndex - 1]?.bestSan ?? null,
-                        )
-                      }
-                    >
-                      Save for later
-                    </button>
-                  </>
-                )}
                 {drillQueue && (
                   <>
                     <button className="btn btn-ghost btn-sm" onClick={retryDrillPosition}>
