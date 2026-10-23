@@ -18,6 +18,11 @@ import { evalToUnit } from '../lib/review';
 import { runGameAnalysis, plyEvalFromEngineResult } from '../lib/reviewRunner';
 import { criticalMoments, refineGreatMoves, CLASSIFICATION_META, CLASSIFICATION_GLYPH, CRITICAL_CLASSES } from '../lib/review';
 import { pressureCorrelation, timingStats } from '../lib/timeAnalytics';
+import { buildCoachLessons, type CoachLesson } from '../lib/coachEngine';
+import { motifAnalysisForReport } from '../lib/motifReview';
+import { matchRepertoire } from '../lib/repertoireMatch';
+import { addPracticeItem, loadPractice, savePractice } from '../lib/practiceQueue';
+import { loadRepertoires } from '../lib/repertoireStore';
 import { biggestSwings, materialSeries, phaseAccuracies } from '../lib/reviewInsights';
 import { identifyOpening } from '../lib/openings';
 import { useClickToMove } from '../hooks/useClickToMove';
@@ -379,6 +384,39 @@ export default function Review() {
     return () => window.removeEventListener('keydown', onKey);
   }, [step, plies.length, jumpToCritical]);
 
+  // ---- Phase 8: coach + practice + deviation, all from the real report ----
+  const coachLessons = useMemo(() => {
+    if (!report || !record) return [];
+    const motifs = motifAnalysisForReport(fens, report, record.playerColor);
+    const repertoireMatch = matchRepertoire(loadRepertoires(), record.playerColor, record.moves);
+    const pressure = pressureCorrelation(record, report);
+    return buildCoachLessons({ record, report, motifs, repertoireMatch, pressure });
+  }, [report, record, fens]);
+
+  const repertoireDeviation = useMemo(() => {
+    if (!record) return null;
+    return matchRepertoire(loadRepertoires(), record.playerColor, record.moves);
+  }, [record]);
+
+  const saveForLater = useCallback(
+    (fen: string, kind: 'mistake' | 'missed-tactic' | 'repertoire', ply: number, expectedSan: string | null) => {
+      if (!record) return;
+      const list = loadPractice();
+      const created = addPracticeItem(list, {
+        kind,
+        sourceGameId: record.id,
+        ply,
+        fen,
+        side: record.playerColor,
+        objective: expectedSan ? `Find ${expectedSan}` : 'Find the better move',
+        expectedSan: expectedSan ?? undefined,
+      });
+      savePractice(list);
+      toast(created ? 'Saved for later — see Training.' : 'Already saved.');
+    },
+    [record, toast],
+  );
+
   if (!record) {
     return (
       <div className="page container">
@@ -409,6 +447,7 @@ export default function Review() {
   const oppLabel = youAreWhite ? 'Black (engine)' : 'White (engine)';
 
   const currentReview = plyIndex > 0 ? report?.reviews[plyIndex - 1] ?? null : null;
+
   const progressPct = analysis ? Math.round((analysis.done / analysis.total) * 100) : 0;
 
   return (
@@ -504,6 +543,26 @@ export default function Review() {
                 {practiceFeedback ?? 'Your move, find the best continuation.'}
               </span>
               <span className="row" style={{ gap: '0.35rem', marginLeft: 'auto', flexWrap: 'wrap' }}>
+                {!drillQueue && currentReview && record && currentReview.color === record.playerColor && CRITICAL_CLASSES.includes(currentReview.classification) && (
+                  <>
+                    <button className="btn btn-accent btn-sm" onClick={startPractice}>
+                      Practice now
+                    </button>
+                    <button
+                      className="btn btn-ghost btn-sm"
+                      onClick={() =>
+                        saveForLater(
+                          fens[plyIndex - 1],
+                          'mistake',
+                          plyIndex,
+                          report?.evals[plyIndex - 1]?.bestSan ?? null,
+                        )
+                      }
+                    >
+                      Save for later
+                    </button>
+                  </>
+                )}
                 {drillQueue && (
                   <>
                     <button className="btn btn-ghost btn-sm" onClick={retryDrillPosition}>
@@ -556,6 +615,89 @@ export default function Review() {
         </div>
 
         <aside className="col" style={{ gap: '0.9rem' }}>
+          {coachLessons.length > 0 && (
+            <div className="panel panel-pad">
+              <div className="section-label">What to take from this game</div>
+              <ol className="coach-list">
+                {coachLessons.map((lesson: CoachLesson) => (
+                  <li key={`${lesson.type}-${lesson.ply ?? 0}`} className="coach-lesson">
+                    <span className="coach-title">{lesson.title}</span>
+                    <span className="coach-evidence">{lesson.evidence}</span>
+                    {lesson.action && (
+                      <span className="coach-action">
+                        {lesson.action.kind === 'jump' && lesson.ply !== undefined && (
+                          <button className="btn btn-ghost btn-sm" onClick={() => setPlyIndex(lesson.ply!)}>
+                            {lesson.action.label}
+                          </button>
+                        )}
+                        {lesson.action.kind === 'practice' && lesson.ply !== undefined && (
+                          <button
+                            className="btn btn-accent btn-sm"
+                            onClick={() => {
+                              setPlyIndex(lesson.ply!);
+                              startPractice();
+                            }}
+                          >
+                            {lesson.action.label}
+                          </button>
+                        )}
+                        {lesson.action.kind === 'repertoire' && (
+                          <Link className="btn btn-ghost btn-sm" to="/repertoire">
+                            {lesson.action.label}
+                          </Link>
+                        )}
+                      </span>
+                    )}
+                  </li>
+                ))}
+              </ol>
+            </div>
+          )}
+          {repertoireDeviation?.deviation && (
+            <div className="panel panel-pad">
+              <div className="section-label">Repertoire</div>
+              {repertoireDeviation.deviation.who === 'user' ? (
+                <>
+                  <p className="small" style={{ margin: 0 }}>
+                    Followed {repertoireDeviation.followedPlies} plies, then played{' '}
+                    <strong>{repertoireDeviation.deviation.playedSan}</strong>
+                    {repertoireDeviation.deviation.expectedSan && (
+                      <>
+                        {' '}
+                        — your repertoire prefers <strong style={{ color: 'var(--sea)' }}>{repertoireDeviation.deviation.expectedSan}</strong>.
+                      </>
+                    )}
+                  </p>
+                  <div className="row mt-1" style={{ gap: '0.4rem' }}>
+                    <button
+                      className="btn btn-ghost btn-sm"
+                      onClick={() => setPlyIndex(repertoireDeviation.deviation!.ply - 1)}
+                    >
+                      See the position
+                    </button>
+                    <button
+                      className="btn btn-ghost btn-sm"
+                      onClick={() =>
+                        saveForLater(
+                          repertoireDeviation.deviation!.fen,
+                          'repertoire',
+                          repertoireDeviation.deviation!.ply,
+                          repertoireDeviation.deviation!.expectedSan,
+                        )
+                      }
+                    >
+                      Save for training
+                    </button>
+                  </div>
+                </>
+              ) : (
+                <p className="small" style={{ margin: 0 }}>
+                  You followed your repertoire for {repertoireDeviation.followedPlies} plies — your opponent left the
+                  book with <strong>{repertoireDeviation.deviation.playedSan}</strong>.
+                </p>
+              )}
+            </div>
+          )}
           <div className="panel panel-pad">
             <div className="section-label">
               Game report
