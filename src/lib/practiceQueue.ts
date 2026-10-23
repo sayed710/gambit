@@ -76,6 +76,21 @@ export function addPracticeItem(
   return created;
 }
 
+export type PracticeAssessment = 'correct' | 'wrong' | 'ungraded';
+
+/**
+ * Grade a played SAN against the item's verified expected move.
+ * v1 policy (documented): grading is exact-SAN against the engine's best
+ * move. Items without a verified expected move are UNGRADED — any legal
+ * move resolves them for play purposes but never counts as solved.
+ * Near-equivalent moves count as wrong until an engine-verified
+ * equivalence check exists.
+ */
+export function assessPracticeMove(item: PracticeItem, san: string): PracticeAssessment {
+  if (!item.expectedSan) return 'ungraded';
+  return san === item.expectedSan ? 'correct' : 'wrong';
+}
+
 export function recordPracticeAttempt(list: PracticeItem[], id: string, solved: boolean): void {
   const item = list.find((x) => x.id === id);
   if (!item) return;

@@ -47,6 +47,25 @@ export function motifAnalysisForReport(
   return out;
 }
 
+/**
+ * Idempotent per-game contribution: the FIRST completed review of a game
+ * feeds the motif statistics exactly once (recorded in state.motifGames).
+ * Re-opened reviews, cache loads and re-analyses with refined
+ * classifications never double-count — first analysis wins, by policy.
+ * Returns true when a new contribution was recorded.
+ */
+export function applyMotifAnalysis(
+  state: TrainingState,
+  analysis: PlyMotifs[],
+  gameId: string,
+  now: number,
+): boolean {
+  if (state.motifGames[gameId] !== undefined) return false;
+  state.motifGames[gameId] = now;
+  recordMotifAnalysis(state, analysis, gameId, now);
+  return true;
+}
+
 /** Fold a per-game motif analysis into the training store (additive). */
 export function recordMotifAnalysis(
   state: TrainingState,

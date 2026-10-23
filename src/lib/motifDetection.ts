@@ -171,8 +171,36 @@ const NAME: Record<string, string> = {
   p: 'pawn', n: 'knight', b: 'bishop', r: 'rook', q: 'queen', k: 'king',
 };
 
+/** True when the SAME absolute pin (slider shielding the king) already
+ * existed before the move — a pre-existing pin must not be attributed to
+ * an unrelated move. */
+function absolutePinExisted(
+  before: Chess,
+  kingSq: Square,
+  victSq: Square,
+  victType: string,
+  sliderSq: Square,
+  mine: Color,
+  enemy: Color,
+): boolean {
+  const kingBefore = before.get(kingSq);
+  const victBefore = before.get(victSq);
+  const sliderBefore = before.get(sliderSq);
+  if (!kingBefore || kingBefore.color !== enemy || kingBefore.type !== 'k') return false;
+  if (!victBefore || victBefore.color !== enemy || victBefore.type !== victType) return false;
+  if (!sliderBefore || sliderBefore.color !== mine) return false;
+  if (!strictlyBetween(sliderSq, kingSq, victSq)) return false;
+  const probe = new Chess(before.fen());
+  try {
+    probe.remove(victSq);
+  } catch {
+    return false;
+  }
+  return probe.attackers(kingSq, mine).includes(sliderSq);
+}
+
 /** Pins, proven mechanically by removing a piece and re-checking king safety. */
-function pinDetections(after: Chess, input: MotifMoveInput, enemy: Color): MotifDetection[] {
+function pinDetections(after: Chess, before: Chess, input: MotifMoveInput, enemy: Color): MotifDetection[] {
   const out: MotifDetection[] = [];
   const kingSq = piecesOf(after, enemy).find(([, t]) => t === 'k')?.[0];
   if (!kingSq) return out;
@@ -200,6 +228,7 @@ function pinDetections(after: Chess, input: MotifMoveInput, enemy: Color): Motif
     // confirmed absolute pin: without this piece the king is attacked
     const sliderSq = xRayAttackers[0];
     const sliderType = after.get(sliderSq)?.type ?? 'q';
+    if (absolutePinExisted(before, kingSq, victSq, victType, sliderSq, input.color, enemy)) continue; // not created by this move
     out.push(
       mk(
         'pin-absolute',
@@ -233,8 +262,29 @@ function alignedThrough(a: string, b: string, c: string): boolean {
   return cross === 0 && dot > 0;
 }
 
+/** True when the same skewer ray (slider, front, behind) existed before. */
+function skewerExisted(
+  before: Chess,
+  from0: Square,
+  frontSq: Square,
+  frontType: string,
+  behindSq: Square,
+  behindType: string,
+  mine: Color,
+  enemy: Color,
+): boolean {
+  const sliderBefore = before.get(from0);
+  const frontBefore = before.get(frontSq);
+  const behindBefore = before.get(behindSq);
+  if (!sliderBefore || sliderBefore.color !== mine) return false;
+  if (!frontBefore || frontBefore.color !== enemy || frontBefore.type !== frontType) return false;
+  if (!behindBefore || behindBefore.color !== enemy || behindBefore.type !== behindType) return false;
+  if (!attacksSquare(before, from0, frontSq)) return false;
+  return betweenSquares(from0, frontSq).every((b) => before.get(b) === undefined || b === from0 || b === frontSq);
+}
+
 /** Skewer: attacker -> higher-value enemy piece -> lower-value enemy piece, all on one ray. */
-function skewerDetections(after: Chess, input: MotifMoveInput, enemy: Color): MotifDetection[] {
+function skewerDetections(after: Chess, before: Chess, input: MotifMoveInput, enemy: Color): MotifDetection[] {
   const out: MotifDetection[] = [];
   for (const [from0, type0] of piecesOf(after, input.color)) {
     if (type0 !== 'b' && type0 !== 'r' && type0 !== 'q') continue;
@@ -252,6 +302,7 @@ function skewerDetections(after: Chess, input: MotifMoveInput, enemy: Color): Mo
         const behindSq = sq(f, r)!;
         const behindPiece = after.get(behindSq);
         if (behindPiece && behindPiece.color === enemy && behindPiece.type !== 'k' && VALUE[behindPiece.type] < frontValue) {
+          if (skewerExisted(before, from0, frontSq, frontType, behindSq, behindPiece.type, input.color, enemy)) break; // pre-existing
           out.push(
             mk(
               'skewer',
@@ -445,8 +496,34 @@ function backRankDetections(after: Chess, input: MotifMoveInput, enemy: Color): 
 }
 
 /** Run every detector over one move. */
+/** True when the same relative pin geometry existed before the move. */
+function relativePinExisted(
+  before: Chess,
+  victSq: Square,
+  victType: string,
+  behindSq: Square,
+  behindType: string,
+  sliderSq: Square,
+  mine: Color,
+  enemy: Color,
+): boolean {
+  const victBefore = before.get(victSq);
+  const behindBefore = before.get(behindSq);
+  const sliderBefore = before.get(sliderSq);
+  if (!victBefore || victBefore.color !== enemy || victBefore.type !== victType) return false;
+  if (!behindBefore || behindBefore.color !== enemy || behindBefore.type !== behindType) return false;
+  if (!sliderBefore || sliderBefore.color !== mine) return false;
+  const probe = new Chess(before.fen());
+  try {
+    probe.remove(victSq);
+  } catch {
+    return false;
+  }
+  return probe.attackers(behindSq, mine).includes(sliderSq) && alignedThrough(sliderSq, victSq, behindSq);
+}
+
 /** Relative pin: removing piece E newly exposes a MORE valuable enemy piece to one of our sliders. */
-function relativePinDetections(after: Chess, input: MotifMoveInput, enemy: Color): MotifDetection[] {
+function relativePinDetections(after: Chess, before: Chess, input: MotifMoveInput, enemy: Color): MotifDetection[] {
   const out: MotifDetection[] = [];
   for (const [victSq, victType] of piecesOf(after, enemy)) {
     if (victType === 'k') continue;
@@ -472,6 +549,7 @@ function relativePinDetections(after: Chess, input: MotifMoveInput, enemy: Color
       const sliderSq = newAttackers[0];
       if (!alignedThrough(sliderSq, victSq, behindSq)) continue;
       const sliderType = after.get(sliderSq)?.type ?? 'q';
+      if (relativePinExisted(before, victSq, victType, behindSq, behindType, sliderSq, input.color, enemy)) continue; // pre-existing
       out.push(
         mk(
           'pin-relative',
@@ -509,9 +587,9 @@ export function detectMotifs(input: MotifMoveInput): MotifDetection[] {
 
   const out: MotifDetection[] = [
     ...forkDetections(after, input, enemy),
-    ...pinDetections(after, input, enemy),
-    ...relativePinDetections(after, input, enemy),
-    ...skewerDetections(after, input, enemy),
+    ...pinDetections(after, before, input, enemy),
+    ...relativePinDetections(after, before, input, enemy),
+    ...skewerDetections(after, before, input, enemy),
     ...hangingDetections(after, before, input, enemy).filter(
       (h) => !discoveredTargets.has(h.targetSquares[0]),
     ),

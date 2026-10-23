@@ -19,7 +19,9 @@ import { runGameAnalysis, plyEvalFromEngineResult } from '../lib/reviewRunner';
 import { criticalMoments, refineGreatMoves, CLASSIFICATION_META, CLASSIFICATION_GLYPH, CRITICAL_CLASSES } from '../lib/review';
 import { pressureCorrelation, timingStats } from '../lib/timeAnalytics';
 import { buildCoachLessons, type CoachLesson } from '../lib/coachEngine';
-import { motifAnalysisForReport } from '../lib/motifReview';
+import { applyMotifAnalysis, motifAnalysisForReport } from '../lib/motifReview';
+import { loadTraining, saveTraining } from '../lib/trainingStore';
+import { practiceStartFen, practiceEvalIndex } from '../lib/practiceDrill';
 import { matchRepertoire } from '../lib/repertoireMatch';
 import { addPracticeItem, loadPractice, savePractice } from '../lib/practiceQueue';
 import { loadRepertoires } from '../lib/repertoireStore';
@@ -84,6 +86,24 @@ export default function Review() {
   // fens before each ply (index 0 = start position)
   const fens = useMemo(() => [START_FEN, ...plies.map((p) => p.fenAfter)], [plies]);
 
+  // fold the FINAL (refined) report's confirmed motifs into the persistent
+  // training stats — once per game (applyMotifAnalysis is the idempotence set)
+  const contributeMotifs = useCallback(
+    (rep: GameReport) => {
+      if (!record?.id) return;
+      try {
+        const analysis = motifAnalysisForReport(fens, rep, record.playerColor);
+        const training = loadTraining();
+        if (applyMotifAnalysis(training, analysis, record.id, Date.now())) {
+          saveTraining(training);
+        }
+      } catch {
+        /* stats must never break the review */
+      }
+    },
+    [fens, record?.id, record?.playerColor],
+  );
+
   const runAnalysis = useCallback(async () => {
     if (plies.length === 0 || analyzing) return;
     // finished games are immutable, cache the report so revisits are instant
@@ -123,14 +143,17 @@ export default function Review() {
               setGreatPass(true);
               setReport(refined);
               if (record?.id) saveJSON(`review.${record.id}`, refined);
+              contributeMotifs(refined); // final classifications -> stats, once per game
             })
-            .catch(() => {});
+            .catch(() => {
+              if (!isStale()) contributeMotifs(rep); // refinement failed: the base report is final
+            });
         },
         // a stale run owns no UI state: the newest run (or unmount) does
         onAbort: () => {},
       },
     );
-  }, [plies, fens, engine, analyzing, record?.id]);
+  }, [plies, fens, engine, analyzing, record?.id, contributeMotifs]);
 
   // second pass: mark Great moves (top choice with a much worse alternative)
   const refineGreat = useCallback(
@@ -226,13 +249,21 @@ export default function Review() {
     }
   }, [practiceFen]);
 
-  const startPractice = useCallback(() => {
-    if (plyIndex === 0 || !report) return;
-    setPractice({ startPly: plyIndex });
-    setPracticeFen(plies[plyIndex - 1].fenAfter);
-    setPracticeHistory([]);
-    setPracticeFeedback(null);
-  }, [plyIndex, plies, report]);
+  const startPractice = useCallback(
+    (plyArg?: number) => {
+      const ply = plyArg ?? plyIndex;
+      if (ply === 0 || !report) return;
+      // the position BEFORE the critical move — the player replaces their
+      // mistake, never answers the move that followed it.
+      const startFen = practiceStartFen(fens, ply);
+      if (!startFen) return;
+      setPractice({ startPly: ply });
+      setPracticeFen(startFen);
+      setPracticeHistory([]);
+      setPracticeFeedback(null);
+    },
+    [plyIndex, fens, report],
+  );
 
   const startDrill = useCallback(() => {
     if (!report) return;
@@ -246,24 +277,28 @@ export default function Review() {
       return;
     }
     const trimmed = queue.slice(0, 6);
+    const startFen = practiceStartFen(fens, trimmed[0]);
+    if (!startFen) return;
     setDrillQueue(trimmed);
     setDrillIdx(0);
     setDrillFirstTry([]);
     setPractice({ startPly: trimmed[0] });
-    setPracticeFen(plies[trimmed[0] - 1].fenAfter);
+    setPracticeFen(startFen);
     setPracticeHistory([]);
     setPracticeFeedback(null);
-  }, [report, record?.playerColor, criticalPlys, plies, toast]);
+  }, [report, record?.playerColor, criticalPlys, fens, toast]);
 
   const retryDrillPosition = useCallback(() => {
     if (!drillQueue) return;
     const ply = drillQueue[drillIdx];
+    const startFen = practiceStartFen(fens, ply);
+    if (!startFen) return;
     setPractice({ startPly: ply });
-    setPracticeFen(plies[ply - 1].fenAfter);
+    setPracticeFen(startFen);
     setPracticeHistory([]);
     setPracticeFeedback(null);
     setRevealBest(false);
-  }, [drillQueue, drillIdx, plies]);
+  }, [drillQueue, drillIdx, fens]);
 
   const nextDrillPosition = useCallback(() => {
     if (!drillQueue) return;
@@ -275,12 +310,14 @@ export default function Review() {
     }
     setDrillIdx((i) => i + 1);
     const ply = drillQueue[drillIdx + 1];
+    const startFen = practiceStartFen(fens, ply);
+    if (!startFen) return;
     setPractice({ startPly: ply });
-    setPracticeFen(plies[ply - 1].fenAfter);
+    setPracticeFen(startFen);
     setPracticeHistory([]);
     setPracticeFeedback(null);
     setRevealBest(false);
-  }, [drillQueue, drillIdx, plies, toast]);
+  }, [drillQueue, drillIdx, fens, toast]);
 
   const exitPractice = useCallback(() => {
     setPractice(null);
@@ -307,8 +344,9 @@ export default function Review() {
       const fenAfterPlayer = g.fen();
       const historyAfter = [...practiceHistory, { san: playedSan, fenAfter: fenAfterPlayer }];
 
-      // grade against the engine eval of the position before the move
-      const before = practice.startPly + practiceHistory.length > 0 ? report.evals[practice.startPly + practiceHistory.length] : report.evals[practice.startPly];
+      // grade against the engine eval of the position before the move;
+      // practice starts at fens[startPly - 1], so eval index = startPly - 1 + moves played
+      const before = report.evals[practiceEvalIndex(practice.startPly, practiceHistory.length)];
       const expected = before?.bestSan ?? null;
       const isFirstMove = practiceHistory.length === 0;
       if (drillQueue && isFirstMove) {
@@ -328,7 +366,7 @@ export default function Review() {
       setPracticeFen(fenAfterPlayer);
 
       // engine replies with the known best from the resulting position (free, already analyzed)
-      const after = report.evals[practice.startPly + practiceHistory.length + 1];
+      const after = report.evals[practiceEvalIndex(practice.startPly, practiceHistory.length + 1)];
       if (after?.bestSan && !g.isGameOver()) {
         try {
           const reply = g.move(after.bestSan);
@@ -529,7 +567,7 @@ export default function Review() {
           )}
           {!practiceActive && currentReview && record && report && currentReview.color === record.playerColor && CRITICAL_CLASSES.includes(currentReview.classification) && (
             <div className="row mt-2" style={{ gap: '0.4rem', flexWrap: 'wrap' }}>
-              <button className="btn btn-accent btn-sm" onClick={startPractice}>
+              <button className="btn btn-accent btn-sm" onClick={() => startPractice()}>
                 Practice now
               </button>
               <button
@@ -635,7 +673,7 @@ export default function Review() {
                             className="btn btn-accent btn-sm"
                             onClick={() => {
                               setPlyIndex(lesson.ply!);
-                              startPractice();
+                              startPractice(lesson.ply!); // explicit ply — setPlyIndex won't land in this closure
                             }}
                           >
                             {lesson.action.label}
@@ -803,7 +841,7 @@ export default function Review() {
               </div>
             )}
             <div className="row between" style={{ gap: '0.4rem', marginTop: '0.4rem' }}>
-              <button className="btn btn-accent btn-sm" onClick={startPractice} disabled={plyIndex === 0 || plyIndex === plies.length}>
+              <button className="btn btn-accent btn-sm" onClick={() => startPractice()} disabled={plyIndex === 0 || plyIndex === plies.length}>
                 Practice from here
               </button>
               <span className="small muted">learn from your mistakes</span>

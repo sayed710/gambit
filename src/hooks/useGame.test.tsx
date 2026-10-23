@@ -22,11 +22,19 @@ function config(overrides: Partial<GameConfig> = {}): GameConfig {
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 /** Render useGame and return a stable api proxy (result.current changes per render). */
-function setup(opts: { config?: GameConfig; initialFen?: string; onGameOver?: (info: { winnerColor: 'w' | 'b' | null; reason: string }) => void; resume?: SavedGame | null } = {}) {
+function setup(
+  opts: {
+    config?: GameConfig;
+    initialFen?: string;
+    onGameOver?: (info: { winnerColor: 'w' | 'b' | null; reason: string }) => void;
+    resume?: SavedGame | null;
+    engineSearch?: (fen: string, level?: number, recent?: string[]) => Promise<{ from: string; to: string; promotion?: string; san: string } | null>;
+  } = {},
+) {
   const utils = renderHook(() =>
     useGame({
       config: opts.config ?? config(),
-      engineSearch: vi.fn(async () => null),
+      engineSearch: opts.engineSearch ?? vi.fn(async () => null),
       onGameOver: opts.onGameOver,
       initialFen: opts.initialFen,
       resume: opts.resume,
@@ -550,5 +558,144 @@ describe('record consistency (bug 3 at the API level)', () => {
     for (const san of moves) replay.move(san);
     expect(replay.fen()).toBe(api().getFen());
     expect(replay.isCheckmate()).toBe(true);
+  });
+});
+
+/* ============================================================
+   Move-timing correctness (correctness audit area 1)
+   ============================================================ */
+describe('move timings: true game plies', () => {
+  it('human White vs engine: timings carry odd plies 1,3,5, color w', async () => {
+    const engine = vi.fn(async (fen: string) => {
+      const g = new Chess(fen);
+      const san = g.history().length === 1 ? 'e5' : 'Nc6';
+      const mv = g.moves({ verbose: true }).find((m) => m.san === san) ?? g.moves({ verbose: true })[0];
+      return { from: mv.from, to: mv.to, san: mv.san };
+    });
+    const { api } = setup({ config: config({ mode: 'ai', playerColor: 'w' }), engineSearch: engine });
+    await waitFor(() => expect(api().turn).toBe('w'));
+    act(() => { api().tryMove('e2', 'e4'); });
+    await waitFor(() => expect(api().plies.length).toBe(2));
+    act(() => { api().tryMove('g1', 'f3'); });
+    await waitFor(() => expect(api().plies.length).toBe(4));
+    act(() => { api().tryMove('f1', 'c4'); });
+    await waitFor(() => expect(api().plies.length).toBe(6));
+    const t = api().getMoveTimings();
+    expect(t.map((x) => x.ply)).toEqual([1, 3, 5]);
+    expect(t.every((x) => x.color === 'w')).toBe(true);
+    expect(t.every((x) => x.thinkMs >= 0)).toBe(true);
+  });
+
+  it('human Black vs engine: timings carry even plies 2,4, color b', async () => {
+    const engine = vi.fn(async (fen: string) => {
+      const g = new Chess(fen);
+      const san = g.history().length === 0 ? 'e4' : 'Nf3';
+      const mv = g.moves({ verbose: true }).find((m) => m.san === san) ?? g.moves({ verbose: true })[0];
+      return { from: mv.from, to: mv.to, san: mv.san };
+    });
+    const { api } = setup({ config: config({ mode: 'ai', playerColor: 'b' }), engineSearch: engine });
+    await waitFor(() => expect(api().plies.length).toBe(1));
+    await waitFor(() => expect(api().turn).toBe('b'));
+    act(() => { api().tryMove('e7', 'e5'); });
+    await waitFor(() => expect(api().plies.length).toBe(3));
+    act(() => { api().tryMove('g8', 'f6'); });
+    await waitFor(() => expect(api().plies.length).toBe(5));
+    const t = api().getMoveTimings();
+    expect(t.map((x) => x.ply)).toEqual([2, 4]);
+    expect(t.every((x) => x.color === 'b')).toBe(true);
+  });
+
+  it('pass-and-play: every ply is timed with its true number', async () => {
+    const { api } = setup();
+    act(() => { api().tryMove('e2', 'e4'); });
+    act(() => { api().tryMove('e7', 'e5'); });
+    act(() => { api().tryMove('g1', 'f3'); });
+    const t = api().getMoveTimings();
+    expect(t.map((x) => x.ply)).toEqual([1, 2, 3]);
+    expect(t.map((x) => x.color)).toEqual(['w', 'b', 'w']);
+  });
+
+  it('final move ending in checkmate: its timing exists BEFORE the game-over snapshot', async () => {
+    let capturedAtGameOver: { ply: number; color: string; thinkMs: number; clockBeforeMs: number | null; clockAfterMs: number | null }[] | null = null;
+    const overSpy = vi.fn();
+    const utils = renderHook(() =>
+      useGame({
+        config: config(),
+        engineSearch: vi.fn(async () => null),
+        onGameOver: (info) => {
+          overSpy(info);
+          // exactly what Play.tsx does inside handleOver: a synchronous snapshot
+          capturedAtGameOver = [...utils.result.current.getMoveTimings()];
+        },
+      }),
+    );
+    const api = () => utils.result.current;
+    // fool's mate as the mating side: 1.f3 e5 2.g4 Qh4#
+    act(() => { api().tryMove('f2', 'f3'); });
+    act(() => { api().tryMove('e7', 'e5'); });
+    act(() => { api().tryMove('g2', 'g4'); });
+    act(() => { api().tryMove('d8', 'h4'); });
+    await waitFor(() => expect(api().over).not.toBeNull());
+    expect(overSpy).toHaveBeenCalledTimes(1);
+    expect(String(overSpy.mock.calls[0][0].reason).toLowerCase()).toContain('checkmate');
+    // THE regression: the mating move's timing is present at snapshot time
+    expect(capturedAtGameOver!.map((x) => x.ply)).toEqual([1, 2, 3, 4]);
+    expect(capturedAtGameOver![3].color).toBe('b');
+  });
+
+  it('undo drops the stale timing; replaying replaces it (pass mode)', async () => {
+    const { api } = setup();
+    act(() => { api().tryMove('e2', 'e4'); });
+    act(() => { api().tryMove('e7', 'e5'); });
+    expect(api().getMoveTimings().map((x) => x.ply)).toEqual([1, 2]);
+    act(() => { api().undo(); });
+    expect(api().getMoveTimings().map((x) => x.ply)).toEqual([1]);
+    act(() => { api().tryMove('e7', 'e6'); });
+    const t = api().getMoveTimings();
+    expect(t.map((x) => x.ply)).toEqual([1, 2]); // replaced, not duplicated
+  });
+
+  it('undo in AI mode reverts the pair; replay keeps one ply-1 timing', async () => {
+    const engine = vi.fn(async (fen: string) => {
+      const g = new Chess(fen);
+      const mv = g.moves({ verbose: true }).find((m) => m.san === 'e5') ?? g.moves({ verbose: true })[0];
+      return { from: mv.from, to: mv.to, san: mv.san };
+    });
+    const { api } = setup({ config: config({ mode: 'ai', playerColor: 'w' }), engineSearch: engine });
+    act(() => { api().tryMove('e2', 'e4'); });
+    await waitFor(() => expect(api().plies.length).toBe(2));
+    act(() => { api().undo(); });
+    await waitFor(() => expect(api().plies.length).toBe(0));
+    expect(api().getMoveTimings()).toEqual([]);
+    act(() => { api().tryMove('d2', 'd4'); });
+    await waitFor(() => expect(api().plies.length).toBe(2));
+    const t = api().getMoveTimings();
+    expect(t.map((x) => x.ply)).toEqual([1]);
+  });
+
+  it('resume: pre-resume plies get NO fabricated timings; the next move uses its true ply', async () => {
+    const saved: SavedGame = {
+      config: config(),
+      playerColor: 'w',
+      pgn: '1. e4 e5 2. Nf3',
+      clocks: null,
+    };
+    const { api } = setup({ config: saved.config, resume: saved });
+    await waitFor(() => expect(api().getMoves()).toEqual(['e4', 'e5', 'Nf3']));
+    expect(api().getMoveTimings()).toEqual([]); // nothing fabricated for plies 1-3
+    act(() => { api().tryMove('b8', 'c6'); }); // ply 4
+    const t = api().getMoveTimings();
+    expect(t.map((x) => x.ply)).toEqual([4]);
+  });
+
+  it('restart via newGame clears timings from the previous game', async () => {
+    const { api } = setup();
+    act(() => { api().tryMove('e2', 'e4'); });
+    act(() => { api().tryMove('e7', 'e5'); });
+    expect(api().getMoveTimings().length).toBe(2);
+    act(() => { api().newGame(); });
+    expect(api().getMoveTimings()).toEqual([]);
+    act(() => { api().tryMove('d2', 'd4'); });
+    expect(api().getMoveTimings().map((x) => x.ply)).toEqual([1]);
   });
 });
