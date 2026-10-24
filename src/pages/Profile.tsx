@@ -11,6 +11,8 @@ import { LEVEL_RATINGS } from '../lib/engine/engine';
 
 type FilterKey = 'all' | 'win' | 'loss' | 'draw' | 'ai' | 'pass';
 
+import BackupRestore from '../components/BackupRestore';
+
 export default function Profile() {
   const { profile, deleteGame, togglePin, resetAll } = useProfile();
   const settings = useSettings();
@@ -224,6 +226,8 @@ export default function Profile() {
       </div>
 
       <div className="col" style={{ gap: '0.9rem' }}>
+        <BackupRestore />
+
         <div className="panel panel-pad">
           <div className="section-label">Breakdowns</div>
           <div className="row wrap" style={{ gap: '1.5rem' }}>
