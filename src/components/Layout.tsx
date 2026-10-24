@@ -126,6 +126,7 @@ function SettingsModal({ onClose }: { onClose: () => void }) {
 
 
 
+import PwaStatus from './PwaStatus';
 export default function Layout() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -188,6 +189,7 @@ export default function Layout() {
             ))}
           </nav>
           <div className="header-actions">
+            <PwaStatus />
             <button className="icon-btn" onClick={() => setSettingsOpen(true)} aria-label="Settings" title="Settings">
               <GearIcon />
             </button>
