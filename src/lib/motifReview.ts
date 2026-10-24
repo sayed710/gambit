@@ -2,7 +2,7 @@ import type { Chess } from 'chess.js';
 import type { GameReport } from './review';
 import { CRITICAL_CLASSES } from './review';
 import { detectMotifsForMove, type MotifDetection } from './motifDetection';
-import type { MotifStat, TrainingState } from './trainingStore';
+import { loadTraining, saveTraining, type MotifStat, type TrainingState } from './trainingStore';
 
 /* ============================================================
    motifReview — connects motif detection to REAL Game Review
@@ -45,6 +45,47 @@ export function motifAnalysisForReport(
     }
   });
   return out;
+}
+
+/**
+ * Load-modify-save wrapper used by BOTH Review paths (fresh analysis
+ * completion AND cached-report load). Because applyMotifAnalysis is the
+ * idempotence set, calling this on every cached load is safe: a report
+ * cached before contributions existed (or after an interrupted
+ * refinement) backfills exactly once, and an already-contributed game
+ * never increments again.
+ */
+export function contributeGameMotifs(
+  fens: string[],
+  report: GameReport,
+  gameId: string,
+  playerColor: 'w' | 'b',
+  now: number,
+): boolean {
+  const analysis = motifAnalysisForReport(fens, report, playerColor);
+  const state = loadTraining();
+  if (!applyMotifAnalysis(state, analysis, gameId, now)) return false;
+  saveTraining(state);
+  return true;
+}
+
+/**
+ * Idempotent per-game contribution: the FIRST completed review of a game
+ * feeds the motif statistics exactly once (recorded in state.motifGames).
+ * Re-opened reviews, cache loads and re-analyses with refined
+ * classifications never double-count — first analysis wins, by policy.
+ * Returns true when a new contribution was recorded.
+ */
+export function applyMotifAnalysis(
+  state: TrainingState,
+  analysis: PlyMotifs[],
+  gameId: string,
+  now: number,
+): boolean {
+  if (state.motifGames[gameId] !== undefined) return false;
+  state.motifGames[gameId] = now;
+  recordMotifAnalysis(state, analysis, gameId, now);
+  return true;
 }
 
 /** Fold a per-game motif analysis into the training store (additive). */

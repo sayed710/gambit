@@ -76,6 +76,39 @@ export function addPracticeItem(
   return created;
 }
 
+export type PracticeAssessment = 'correct' | 'wrong' | 'ungraded';
+
+/**
+ * Grade a played SAN against the item's verified expected move.
+ * v1 policy (documented): grading is exact-SAN against the engine's best
+ * move. Items without a verified expected move are UNGRADED — any legal
+ * move resolves them for play purposes but never counts as solved.
+ * Near-equivalent moves count as wrong until an engine-verified
+ * equivalence check exists.
+ */
+export function assessPracticeMove(item: PracticeItem, san: string): PracticeAssessment {
+  if (!item.expectedSan) return 'ungraded';
+  return san === item.expectedSan ? 'correct' : 'wrong';
+}
+
+export type SolveOutcome = 'clean' | 'after-wrong' | 'assisted' | 'ungraded';
+
+/**
+ * Clean-solve semantics (explicit, v1):
+ * - clean      correct on the FIRST try with no hint or reveal used
+ * - after-wrong correct without hints, but only after wrong guesses
+ * - assisted   correct, but a hint or reveal was used first
+ * - ungraded   no verified expected move exists (never counts as solved)
+ * Only 'clean' increments the solved counter — wrong guesses and hints are
+ * never silently treated as perfect performance.
+ */
+export function solveOutcome(opts: { firstTry: boolean; assisted: boolean; expectedMove: boolean }): SolveOutcome {
+  if (!opts.expectedMove) return 'ungraded';
+  if (opts.assisted) return 'assisted';
+  if (!opts.firstTry) return 'after-wrong';
+  return 'clean';
+}
+
 export function recordPracticeAttempt(list: PracticeItem[], id: string, solved: boolean): void {
   const item = list.find((x) => x.id === id);
   if (!item) return;

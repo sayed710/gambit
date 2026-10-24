@@ -85,12 +85,15 @@ export function pressureCorrelation(record: GameRecord, report: GameReport): Pre
     return { criticalTotal: 0, criticalUnderPressure: 0, sampleAdequate: false };
   }
   const threshold = pressureThresholdMs(record.timeControl.minutes);
+  // join by the stored game ply (review i == ply i+1). Timings skip engine
+  // plies, so array position would misalign for every AI game.
+  const byPly = new Map(timings.map((t) => [t.ply, t]));
   let criticalTotal = 0;
   let criticalUnderPressure = 0;
   report.reviews.forEach((r, i) => {
     if (r.color !== record.playerColor) return;
     if (!['blunder', 'mistake', 'miss'].includes(r.classification)) return;
-    const t = timings[i];
+    const t = byPly.get(i + 1);
     if (!t || t.color !== record.playerColor) return;
     criticalTotal += 1;
     if (t.clockBeforeMs !== null && t.clockBeforeMs <= threshold) criticalUnderPressure += 1;

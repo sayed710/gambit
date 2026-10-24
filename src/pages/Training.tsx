@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { ENDGAME_LESSONS } from '../data/endgames';
 import { buildAdaptiveSession, type AdaptiveItem } from '../lib/adaptiveEngine';
@@ -8,7 +8,7 @@ import { reviewMistakesFromReports } from '../lib/reviewSummary';
 import type { GameReport } from '../lib/review';
 import { loadJSON } from '../lib/storage';
 import { loadTraining } from '../lib/trainingStore';
-import { loadPractice, type PracticeItem } from '../lib/practiceQueue';
+import { assessPracticeMove, loadPractice, recordPracticeAttempt, savePractice, solveOutcome, type PracticeItem } from '../lib/practiceQueue';
 import { Chess } from 'chess.js';
 import type { Square } from 'chess.js';
 import GameBoard from '../components/GameBoard';
@@ -49,7 +49,8 @@ export default function Training() {
   const { profile } = useProfile();
   const training = useMemo(() => loadTraining(), []);
   const repertoires = useMemo(() => loadRepertoires(), []);
-  const practice = useMemo(() => loadPractice(), []);
+  const [practiceNonce, setPracticeNonce] = useState(0);
+  const practice = useMemo(() => loadPractice(), [practiceNonce]); // refresh after attempts
   const [activePractice, setActivePractice] = useState<PracticeItem | null>(null);
 
   const session = useMemo(() => {
@@ -162,7 +163,21 @@ export default function Training() {
         </div>
       )}
 
-      {activePractice && <PracticeRunner item={activePractice} onExit={() => setActivePractice(null)} />}
+      {activePractice && (
+        // keyed by item id: selecting a different Saved Practice item while a
+        // runner is mounted starts an entirely fresh session (refs, hint,
+        // reveal, feedback) — grading state never leaks across items, even
+        // when two items share the same FEN.
+        <PracticeRunner
+          key={activePractice.id}
+          item={activePractice}
+          onResolved={() => setPracticeNonce((n) => n + 1)}
+          onExit={() => {
+            setActivePractice(null);
+            setPracticeNonce((n) => n + 1);
+          }}
+        />
+      )}
 
       <div className="row wrap" style={{ gap: '0.9rem' }}>
         <div className="panel panel-pad" style={{ minWidth: 260 }}>
@@ -198,37 +213,88 @@ export default function Training() {
 }
 
 
-/** Exact-position practice: find the expected move; retry, hint, reveal. */
-function PracticeRunner({ item, onExit }: { item: PracticeItem; onExit: () => void }) {
+/** Exact-position practice: find the verified best move; retry, hint, reveal.
+ * Grading v1: exact SAN vs the engine best. No verified best -> ungraded
+ * (playable, never counted as solved). Hint/Reveal before finding the move
+ * marks the attempt assisted: recorded, but not as a clean solve.
+ * Promotions auto-queen (documented v1 — no underpromotion dialog here). */
+function PracticeRunner({ item, onResolved, onExit }: { item: PracticeItem; onResolved: () => void; onExit: () => void }) {
   const game = useMemo(() => new Chess(item.fen), [item.fen]);
   const fen = game.fen();
   const [hint, setHint] = useState(false);
   const [revealed, setRevealed] = useState(false);
   const [feedback, setFeedback] = useState<string | null>(null);
+  const assistedRef = useRef(false); // hint or reveal used this session
+  const firstTryRef = useRef(true); // no wrong guess yet this session
+  const resolvedRef = useRef(false);
+
+  const resolveAttempt = useCallback(
+    (solvedCleanly: boolean) => {
+      if (resolvedRef.current) return; // one recorded attempt per runner session
+      resolvedRef.current = true;
+      const list = loadPractice();
+      recordPracticeAttempt(list, item.id, solvedCleanly);
+      savePractice(list);
+      onResolved();
+    },
+    [item.id, onResolved],
+  );
 
   const onMove = useCallback(
     (from: Square, to: Square): 'ok' | 'illegal' => {
       const probe = new Chess(fen);
       let move;
       try {
-        move = probe.move({ from, to, promotion: 'q' });
+        move = probe.move({ from, to, promotion: 'q' }); // v1: auto-queen
       } catch {
         return 'illegal';
       }
       if (!move) return 'illegal';
-      if (item.expectedSan && move.san !== item.expectedSan) {
+      if (resolvedRef.current) return 'ok'; // session already recorded — replays never re-record
+      const assessment = assessPracticeMove(item, move.san);
+      if (assessment === 'wrong') {
+        firstTryRef.current = false; // a wrong guess ends first-try candidacy
         // click path already plays 'illegal' via useClickToMove
         setFeedback(`${move.san} is not it — the target move is different. Try again.`);
         return 'illegal'; // position stays until the target move is found
       }
-      playSound('win');
-      setFeedback(`Found it — ${move.san}.`);
+      if (assessment === 'ungraded') {
+        // no verified best move: playable, but never a solve
+        resolveAttempt(false);
+        setFeedback(`${move.san} played — this position has no verified best move, so it stays ungraded.`);
+        return 'ok';
+      }
+      // clean = first try AND no hint/reveal; anything else is an attempt,
+      // never silently counted as perfect
+      const outcome = solveOutcome({
+        firstTry: firstTryRef.current,
+        assisted: assistedRef.current,
+        expectedMove: true,
+      });
+      resolveAttempt(outcome === 'clean');
+      playSound(outcome === 'clean' ? 'win' : 'click');
+      if (outcome === 'clean') {
+        setFeedback(`Found it — ${move.san}. Clean first-try solve.`);
+      } else if (outcome === 'after-wrong') {
+        setFeedback(`Found it — ${move.san}, after wrong tries. Recorded as an attempt, not a clean solve.`);
+      } else {
+        setFeedback(`Found it — ${move.san} (with help). Recorded as an assisted attempt, not a clean solve.`);
+      }
       return 'ok';
     },
-    [fen, item.expectedSan],
+    [fen, item, resolveAttempt],
   );
 
   const click = useClickToMove({ fen, movableColor: item.side, tryMove: onMove });
+
+  const showHint = () => {
+    assistedRef.current = true;
+    setHint((h) => !h);
+  };
+  const toggleReveal = () => {
+    if (!revealed) assistedRef.current = true;
+    setRevealed((r) => !r);
+  };
 
   return (
     <div className="analysis-layout">
@@ -248,10 +314,10 @@ function PracticeRunner({ item, onExit }: { item: PracticeItem; onExit: () => vo
           }}
         />
         <div className="board-under">
-          <button className="btn btn-ghost btn-sm" onClick={() => setHint((h) => !h)}>
+          <button className="btn btn-ghost btn-sm" onClick={showHint}>
             {hint ? 'Hide hint' : 'Hint'}
           </button>
-          <button className="btn btn-ghost btn-sm" onClick={() => setRevealed((r) => !r)}>
+          <button className="btn btn-ghost btn-sm" onClick={toggleReveal}>
             {revealed ? 'Hide answer' : 'Reveal'}
           </button>
           <button className="btn btn-ghost btn-sm" onClick={onExit}>
@@ -261,7 +327,7 @@ function PracticeRunner({ item, onExit }: { item: PracticeItem; onExit: () => vo
         {hint && <p className="small muted mt-1">Look for the move that changes the evaluation most.</p>}
         {revealed && (
           <p className="small mt-1" style={{ color: 'var(--sea)' }}>
-            Answer: {item.expectedSan ?? 'any reasonable move'}
+            Answer: {item.expectedSan ?? 'no verified best move (ungraded position)'}
           </p>
         )}
         {feedback && <div className="status-banner mt-2" role="status">{feedback}</div>}
@@ -272,7 +338,9 @@ function PracticeRunner({ item, onExit }: { item: PracticeItem; onExit: () => vo
           {item.objective}
         </p>
         <p className="small muted mt-1" style={{ marginBottom: 0 }}>
-          The board holds until you find the target move — wrong tries do not advance the position.
+          {item.expectedSan
+            ? 'The board holds until you find the target move — wrong tries do not advance the position.'
+            : 'Ungraded position: play any reasonable move; nothing is counted as solved.'}
         </p>
       </aside>
     </div>
