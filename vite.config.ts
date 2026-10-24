@@ -8,6 +8,9 @@ export default defineConfig({
   plugins: [
     react(),
     VitePWA({
+      strategies: 'injectManifest', // hand-written SW (src/sw.ts) — no runtime module loader
+      srcDir: 'src',
+      filename: 'sw.ts',
       registerType: 'prompt',
       injectRegister: false, // src/lib/pwa.ts registers manually for status control // never interrupt an active game — the user reloads
       includeAssets: ['favicon.svg', 'icons.svg', 'pwa/icon-192.png', 'pwa/icon-512.png', 'pwa/icon-maskable-512.png'],
@@ -27,17 +30,11 @@ export default defineConfig({
           { src: '/pwa/icon-maskable-512.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' },
         ],
       },
-      workbox: {
+      injectManifest: { // (injectManifest strategy reads this key, not `workbox`)
         globPatterns: ['**/*.{js,css,html,svg,png,woff2,mp3,wasm}'],
-        // Stockfish lives in public/ and is NOT hashed — precache both files
-        // deliberately so the engine runs with zero network access.
-        additionalManifestEntries: [
-          { url: '/stockfish/stockfish-18-lite-single.js', revision: null },
-          { url: '/stockfish/stockfish-18-lite-single.wasm', revision: null },
-        ],
-        navigateFallback: 'index.html',
-        navigateFallbackDenylist: [/\/stockfish\//],
-        cleanupOutdatedCaches: true, // old precaches go; localStorage user data is never touched
+        // Stockfish is copied from public/ into dist/ and picked up by the
+        // glob WITH revision — additionalManifestEntries would duplicate the
+        // URLs and make workbox throw add-to-cache-list-conflicting-entries.
         // 7 MB of WASM on first install is the honest price of an offline engine
         maximumFileSizeToCacheInBytes: 8 * 1024 * 1024,
       },
