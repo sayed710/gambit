@@ -12,6 +12,8 @@
     "test:watch": "vitest"
   },
   "dependencies": {
+    "@fontsource/fraunces": "^5.3.0",
+    "@fontsource/inter": "^5.3.0",
     "chess.js": "^1.4.0",
     "react": "^19.2.8",
     "react-chessboard": "^5.12.1",
@@ -28,8 +30,13 @@
     "@vitejs/plugin-react": "^6.1.0",
     "jsdom": "^30.0.1",
     "oxlint": "^1.79.0",
+    "playwright": "^1.64.1",
+    "sharp": "^0.35.5",
     "typescript": "~6.0.2",
     "vite": "^8.2.2",
-    "vitest": "^5.0.0"
+    "vite-plugin-pwa": "^2.0.0",
+    "vitest": "^5.0.0",
+    "workbox-precaching": "^7.4.1",
+    "workbox-routing": "^7.4.1"
   }
 }
