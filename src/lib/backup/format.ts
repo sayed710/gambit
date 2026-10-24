@@ -52,8 +52,15 @@ export const ALL_SECTIONS: SectionName[] = [
   'lastConfig',
 ];
 
-/** sections whose absence in a v1 backup is tolerated (legacy/optional) */
-export const OPTIONAL_SECTIONS: SectionName[] = ['activeGame', 'lastConfig', 'library', 'reviews'];
+/**
+ * Sections whose absence in a v1 backup is tolerated. In v1 EVERY section
+ * is optional: a fresh install legitimately exports no settings, no
+ * repertoires, no reviews — and such a backup must be importable. Absent
+ * sections simply mean "not present at export time" (replace mode leaves
+ * them absent too). A file without a sections OBJECT at all is still
+ * rejected by the envelope checks in validate.ts.
+ */
+export const OPTIONAL_SECTIONS: SectionName[] = [...ALL_SECTIONS];
 
 export interface BackupIntegrity {
   /** entry count per section (games, studies, repertoire lines, ...) */
@@ -104,7 +111,12 @@ export function canonicalJson(value: unknown): string {
     }
     if (typeof v === 'object') {
       out.push('{');
-      const keys = Object.keys(v as Record<string, unknown>).sort();
+      // JSON.stringify drops undefined-valued properties — the canonical
+      // form must match that exactly or checksums break across a
+      // serialize/parse round-trip whenever a section was absent.
+      const keys = Object.keys(v as Record<string, unknown>)
+        .filter((k) => (v as Record<string, unknown>)[k] !== undefined)
+        .sort();
       keys.forEach((k, i) => {
         if (i > 0) out.push(',');
         out.push(JSON.stringify(k), ':');

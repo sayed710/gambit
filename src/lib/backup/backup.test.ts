@@ -214,6 +214,15 @@ describe('backup export', () => {
 });
 
 describe('backup round-trip (replace)', () => {
+  it('a PARTIAL export (many sections absent) survives its own checksum round-trip', () => {
+    // browser-QA regression: canonicalJson once emitted "key":null for
+    // undefined sections, which JSON.stringify drops — the file then
+    // failed its own checksum on import
+    localStorage.setItem('gambit.profile', JSON.stringify({ rating: 1000, games: [] }));
+    const text = buildBackup().text; // studies/training/... all absent
+    expect(() => parseBackupText(text)).not.toThrow();
+  });
+
   it('restores every domain byte-faithfully into an empty store', () => {
     seedPopulated();
     const before = snapshotAll();
