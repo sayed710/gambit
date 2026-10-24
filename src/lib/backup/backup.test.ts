@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { buildBackup, collectSections } from './exportBackup';
+import { buildBackup, buildIntegrity, collectSections } from './exportBackup';
 import { BackupError, parseBackupText, previewBackup } from './validate';
-import { restoreMerge, restoreReplace, snapshotAll, rollbackTo, persistRecoverySnapshot, loadRecoverySnapshot, discardRecoverySnapshot, applyRecoverySnapshot, RESTORE_RECOVERY_KEY } from './restore';
+import { restoreMerge, restoreReplace, snapshotAll, rollbackTo, rollbackToDetailed, verifySnapshotRestored, persistRecoverySnapshot, loadRecoverySnapshot, discardRecoverySnapshot, applyRecoverySnapshot, RESTORE_RECOVERY_KEY } from './restore';
 import { ALL_SECTIONS, BACKUP_FORMAT_VERSION, checksumOf, utf8Bytes } from './format';
 
 /* ============================================================
@@ -370,13 +370,10 @@ describe('merge mode', () => {
   });
 });
 
-/** Rebuild the full integrity block after mutating sections (checksum + bytes). */
+/** Rebuild the full integrity block after mutating sections, using the
+ *  SAME shared implementation the exporter and validator use. */
 function reseal(envelope: Record<string, unknown>): string {
-  envelope.integrity = {
-    ...(envelope.integrity as Record<string, unknown>),
-    checksum: checksumOf(envelope.sections as never),
-    bytes: utf8Bytes(JSON.stringify(envelope.sections)),
-  };
+  envelope.integrity = buildIntegrity(envelope.sections as never);
   return JSON.stringify(envelope);
 }
 
@@ -700,5 +697,187 @@ describe('rollback completeness and durable recovery (PR #2 review)', () => {
     expect(localStorage.getItem(RESTORE_RECOVERY_KEY)).toBeNull();
     const second = JSON.parse(buildBackup().text);
     expect(JSON.stringify(second.sections)).not.toContain('restore.recovery');
+  });
+});
+
+describe('recovery safety (PR #2 final review)', () => {
+  const backupOf = () => {
+    seedPopulated();
+    return buildBackup().text;
+  };
+
+  /** install silent/throwing storage faults */
+  function fault(opts: { throwOn?: string; silentOn?: string; silentRemove?: string | RegExp }) {
+    const realSet = Storage.prototype.setItem;
+    const realDel = Storage.prototype.removeItem;
+    const restore = () => {
+      Storage.prototype.setItem = realSet;
+      Storage.prototype.removeItem = realDel;
+    };
+    Storage.prototype.setItem = function (key: string, value: string) {
+      if (opts.throwOn === key) throw new DOMException('quota', 'QuotaExceededError');
+      if (opts.silentOn === key) return realSet.call(this, key, value.slice(0, 5)); // silently corrupts
+      return realSet.call(this, key, value);
+    };
+    Storage.prototype.removeItem = function (key: string) {
+      if (opts.silentRemove instanceof RegExp ? opts.silentRemove.test(key) : opts.silentRemove === key) return; // silently keeps the key
+      return realDel.call(this, key);
+    };
+    return restore;
+  }
+
+  // 1) write fails during restore AND rollback also fails -> snapshot remains
+  it('1. failed restore + failed rollback keeps the durable snapshot', () => {
+    const text = backupOf();
+    localStorage.clear();
+    localStorage.setItem('gambit.profile', JSON.stringify({ rating: 9, games: [] }));
+    // training write throws during restore; profile write ALSO throws during rollback
+    let restoreFailed = false;
+    const realSet = Storage.prototype.setItem;
+    Storage.prototype.setItem = function (key: string, value: string) {
+      if (key === 'gambit.training.v1' && !restoreFailed) {
+        restoreFailed = true;
+        throw new DOMException('quota', 'QuotaExceededError');
+      }
+      if (restoreFailed && key === 'gambit.profile') throw new DOMException('quota', 'QuotaExceededError');
+      return realSet.call(this, key, value);
+    };
+    try {
+      try {
+        restoreReplace(parseBackupText(text));
+        expect.unreachable('should throw');
+      } catch (e) {
+        expect((e as Error).message).toMatch(/snapshot has been KEPT/i);
+      }
+    } finally {
+      Storage.prototype.setItem = realSet;
+    }
+    expect(loadRecoverySnapshot()).not.toBeNull();
+  });
+
+  // 2) manual Recover fails -> snapshot remains
+  it('2. failed manual recovery keeps the snapshot and reports keys', () => {
+    localStorage.clear();
+    localStorage.setItem('gambit.profile', JSON.stringify({ rating: 9, games: [] }));
+    const snap = snapshotAll();
+    persistRecoverySnapshot(snap, 'replace');
+    localStorage.setItem('gambit.settings', 'mid-restore-garbage');
+    const undo = fault({ silentOn: 'gambit.profile' }); // rollback write silently corrupts profile
+    const report = applyRecoverySnapshot(loadRecoverySnapshot()!);
+    undo();
+    expect(report.ok).toBe(false);
+    expect(report.failedKeys).toContain('gambit.profile');
+    expect(loadRecoverySnapshot()).not.toBeNull(); // preserved for retry
+  });
+
+  // 3) successful manual recovery: snapshot discarded only after verification
+  it('3. verified recovery discards the snapshot exactly once', () => {
+    localStorage.clear();
+    localStorage.setItem('gambit.profile', JSON.stringify({ rating: 3, games: [] }));
+    const snap = snapshotAll();
+    persistRecoverySnapshot(snap, 'replace');
+    localStorage.setItem('gambit.review.junk', 'x'); // mid-restore key
+    localStorage.removeItem('gambit.profile');
+    const rec = loadRecoverySnapshot()!;
+    const report = applyRecoverySnapshot(rec);
+    expect(report.ok).toBe(true);
+    expect(verifySnapshotRestored(rec.data).ok).toBe(true);
+    discardRecoverySnapshot(); // the UI discards only after this proof
+    expect(loadRecoverySnapshot()).toBeNull();
+    expect(localStorage.getItem('gambit.profile')).toBe(JSON.stringify({ rating: 3, games: [] }));
+    expect(localStorage.getItem('gambit.review.junk')).toBeNull();
+  });
+
+  // 4) silent rollback WRITE failure detected by read-back
+  it('4. silent rollback write failure is detected and reported', () => {
+    localStorage.clear();
+    localStorage.setItem('gambit.profile', JSON.stringify({ rating: 5, games: [] }));
+    const snap = snapshotAll();
+    localStorage.setItem('gambit.profile', 'clobbered');
+    const undo = fault({ silentOn: 'gambit.profile' });
+    const report = rollbackToDetailed(snap);
+    undo();
+    expect(report.ok).toBe(false);
+    expect(report.failedKeys).toContain('gambit.profile');
+  });
+
+  // 5) silent rollback DELETE failure detected by read-back
+  it('5. silent rollback delete failure is detected and reported', () => {
+    localStorage.clear();
+    localStorage.setItem('gambit.profile', JSON.stringify({ rating: 5, games: [] }));
+    const snap = snapshotAll(); // taken BEFORE the leftover key appears
+    localStorage.setItem('gambit.review.leftover', 'should-be-removed'); // mid-restore creation
+    const undo = fault({ silentRemove: /^gambit\.review\./ });
+    const report = rollbackToDetailed(snap);
+    undo();
+    expect(report.ok).toBe(false);
+    expect(report.failedKeys).toContain('gambit.review.leftover');
+    expect(localStorage.getItem('gambit.review.leftover')).toBe('should-be-removed');
+  });
+
+  // 6) new restore with pending recovery is blocked, snapshot not overwritten
+  it('6. a pending recovery snapshot blocks new restores without touching it', () => {
+    const text = backupOf();
+    localStorage.clear();
+    localStorage.setItem('gambit.profile', JSON.stringify({ rating: 2, games: [] }));
+    const snap = snapshotAll();
+    persistRecoverySnapshot(snap, 'merge');
+    const before = localStorage.getItem(RESTORE_RECOVERY_KEY);
+    expect(() => restoreReplace(parseBackupText(text))).toThrow(/waiting to be recovered/i);
+    expect(() => restoreMerge(parseBackupText(text))).toThrow(/waiting to be recovered/i);
+    expect(localStorage.getItem(RESTORE_RECOVERY_KEY)).toBe(before); // untouched
+  });
+
+  // 7) valid restore leaves no recovery marker
+  it('7. a fully successful replace/merge leaves no recovery marker', () => {
+    const text = backupOf();
+    localStorage.clear();
+    restoreReplace(parseBackupText(text));
+    expect(localStorage.getItem(RESTORE_RECOVERY_KEY)).toBeNull();
+    restoreMerge(parseBackupText(text));
+    expect(localStorage.getItem(RESTORE_RECOVERY_KEY)).toBeNull();
+  });
+
+  // 8) incorrect integrity section counts rejected
+  it('8. integrity section counts that lie are rejected', () => {
+    seedPopulated();
+    const envelope = JSON.parse(buildBackup().text);
+    (envelope.integrity.sectionCounts as Record<string, number>).studies = 99;
+    envelope.integrity.checksum = checksumOf(envelope.sections); // attacker fixes checksum+bytes...
+    envelope.integrity.bytes = utf8Bytes(JSON.stringify(envelope.sections)); // ...but counts still lie
+    expect(() => parseBackupText(JSON.stringify(envelope))).toThrowError(/section counts do not match/i);
+  });
+
+  it('8b. non-numeric count values are rejected', () => {
+    seedPopulated();
+    const envelope = JSON.parse(buildBackup().text);
+    (envelope.integrity.sectionCounts as Record<string, unknown>).profile = 'many';
+    envelope.integrity.checksum = checksumOf(envelope.sections);
+    envelope.integrity.bytes = utf8Bytes(JSON.stringify(envelope.sections));
+    expect(() => parseBackupText(JSON.stringify(envelope))).toThrowError(/not a valid number/i);
+  });
+
+  // 9) valid partial backup accepted (counts recalc consistently)
+  it('9. a valid partial backup (few sections) passes count verification', () => {
+    localStorage.setItem('gambit.profile', JSON.stringify({ rating: 1, games: [] }));
+    expect(() => parseBackupText(buildBackup().text)).not.toThrow();
+  });
+
+  // 10) pre-existing user data + unrelated keys survive every path
+  it('10. user data and unrelated keys remain correct through failure paths', () => {
+    const text = backupOf();
+    localStorage.clear();
+    localStorage.setItem('gambit.profile', JSON.stringify({ rating: 42, games: [] }));
+    localStorage.setItem('gambit.review.mine', 'precious');
+    localStorage.setItem('foreign.app.key', 'untouchable');
+    const undo = fault({ throwOn: 'gambit.training.v1' });
+    try {
+      expect(() => restoreReplace(parseBackupText(text))).toThrow();
+    } finally {
+      undo();
+    }
+    expect(JSON.parse(localStorage.getItem('gambit.profile')!)).toEqual({ rating: 42, games: [] });
+    expect(localStorage.getItem('gambit.review.mine')).toBe('precious');
+    expect(localStorage.getItem('foreign.app.key')).toBe('untouchable');
   });
 });

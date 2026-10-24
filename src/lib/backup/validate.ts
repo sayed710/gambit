@@ -9,6 +9,7 @@
    ============================================================ */
 
 import { Chess } from 'chess.js';
+import { buildIntegrity } from './exportBackup';
 import {
   ALL_SECTIONS,
   BACKUP_APP,
@@ -373,11 +374,23 @@ export function validateBackup(raw: unknown): ParsedBackup {
   if (raw.integrity.bytes !== actualBytes) {
     throw new BackupError('CHECKSUM_MISMATCH', `integrity payload size ${raw.integrity.bytes} does not match the actual ${actualBytes} bytes`);
   }
-  for (const [name, claimed] of Object.entries(raw.integrity.sectionCounts as Record<string, number>)) {
+  // section counts are PROOF, not advice: values must be valid numbers and
+  // must equal a fresh recalculation with the exact implementation the
+  // exporter uses. Empty and partial backups recalculate consistently.
+  const claimedCounts = raw.integrity.sectionCounts as Record<string, unknown>;
+  for (const [name, value] of Object.entries(claimedCounts)) {
     if (!ALL_SECTIONS.includes(name as never) && name !== 'games') {
       throw new BackupError('BAD_ENVELOPE', `integrity counts mention unknown section "${name}"`);
     }
-    void claimed; // per-section count values are advisory; checksum+bytes carry the proof
+    if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) {
+      throw new BackupError('BAD_ENVELOPE', `integrity count for "${name}" is not a valid number`);
+    }
+  }
+  const expectedCounts = buildIntegrity(sections).sectionCounts;
+  const actualCountsJson = JSON.stringify(expectedCounts);
+  const claimedCountsJson = JSON.stringify(claimedCounts);
+  if (claimedCountsJson !== actualCountsJson) {
+    throw new BackupError('CHECKSUM_MISMATCH', 'integrity section counts do not match the actual backup contents');
   }
 
   return { envelope: raw as unknown as BackupEnvelope, bytes: utf8Bytes(JSON.stringify(raw.sections)) };

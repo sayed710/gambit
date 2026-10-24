@@ -71,8 +71,24 @@ export interface RollbackReport {
   failedKeys: string[];
 }
 
+/** Independently verify the live allowlisted storage matches a snapshot:
+ *  complete key set AND every value. Detects silent write/delete failures. */
+export function verifySnapshotRestored(snap: StorageMap): RollbackReport {
+  const failed = new Set<string>();
+  const wanted = new Set(Object.keys(snap));
+  const nowKeys = new Set(currentAllowlistedKeys());
+  for (const key of wanted) {
+    if (!nowKeys.has(key) && snap[key] !== null) failed.add(key); // should exist, missing
+    if (localStorage.getItem(key) !== snap[key]) failed.add(key); // wrong value / should be absent
+  }
+  for (const key of nowKeys) {
+    if (!wanted.has(key)) failed.add(key); // should have been removed, still there
+  }
+  return { ok: failed.size === 0, failedKeys: [...failed] };
+}
+
 export function rollbackToDetailed(snap: StorageMap): RollbackReport {
-  const failedKeys: string[] = [];
+  const failed = new Set<string>();
   // 1) remove allowlisted keys that did not exist before the restore
   const wanted = new Set(Object.keys(snap));
   for (const key of currentAllowlistedKeys()) {
@@ -80,7 +96,7 @@ export function rollbackToDetailed(snap: StorageMap): RollbackReport {
       try {
         localStorage.removeItem(key);
       } catch {
-        failedKeys.push(key);
+        failed.add(key);
       }
     }
   }
@@ -90,10 +106,14 @@ export function rollbackToDetailed(snap: StorageMap): RollbackReport {
       if (value === null) localStorage.removeItem(key);
       else localStorage.setItem(key, value);
     } catch {
-      failedKeys.push(key);
+      failed.add(key);
     }
   }
-  return { ok: failedKeys.length === 0, failedKeys };
+  // 3) READ-BACK PROOF: thrown errors alone prove nothing (silent write and
+  //    delete failures exist) — verify the complete key set + values.
+  const verification = verifySnapshotRestored(snap);
+  for (const key of verification.failedKeys) failed.add(key);
+  return { ok: failed.size === 0, failedKeys: [...failed] };
 }
 
 export function rollbackTo(snap: StorageMap): void {
@@ -193,7 +213,20 @@ export interface RestoreResult {
  * the backup are removed (reviews not in the backup are pruned), then
  * everything is verified by read-back.
  */
+/** A pending, unresolved recovery snapshot must never be overwritten:
+ *  new restores are refused until the user Recovers or explicitly Keeps. */
+export class RecoveryPendingError extends Error {
+  constructor() {
+    super('An interrupted restore is waiting to be recovered. Recover it or choose "Keep current data" in Backup & Restore before restoring again.');
+  }
+}
+
+function assertNoPendingRecovery(): void {
+  if (loadRecoverySnapshot() !== null) throw new RecoveryPendingError();
+}
+
 export function restoreReplace(parsed: ParsedBackup): RestoreResult {
+  assertNoPendingRecovery();
   const snap = snapshotAll();
   persistRecoverySnapshot(snap, 'replace'); // durable BEFORE any mutation
   try {
@@ -232,13 +265,20 @@ export function restoreReplace(parsed: ParsedBackup): RestoreResult {
     discardRecoverySnapshot(); // verified success — no recovery needed
     return summarize('replace', applied, removed);
   } catch (e) {
+    if (e instanceof RecoveryPendingError) throw e;
     const report = rollbackToDetailed(snap);
-    discardRecoverySnapshot();
-    if (!report.ok) {
-      throw new RestoreError('rollback', `restore failed AND rollback could not fully restore: ${report.failedKeys.join(', ')} — a recovery snapshot is available under Backup & Restore`);
+    if (report.ok) {
+      // rollback fully verified by read-back — the durable snapshot is
+      // no longer needed and is discarded
+      discardRecoverySnapshot();
+      if (e instanceof RestoreError) throw e;
+      throw new RestoreError('rollback', `restore failed and was fully rolled back: ${(e as Error).message}`);
     }
-    if (e instanceof RestoreError) throw e;
-    throw new RestoreError('rollback', `restore failed and was rolled back: ${(e as Error).message}`);
+    // incomplete rollback: KEEP the durable snapshot for manual recovery
+    throw new RestoreError(
+      'rollback',
+      `restore failed and rollback could not fully restore (${report.failedKeys.join(', ')}). The recovery snapshot has been KEPT — use Recover in Backup & Restore.`,
+    );
   }
 }
 
@@ -313,6 +353,7 @@ function trainingIsInitial(t: unknown): boolean {
  * - settings / activeGame / lastConfig: existing kept.
  */
 export function restoreMerge(parsed: ParsedBackup): RestoreResult {
+  assertNoPendingRecovery();
   const snap = snapshotAll();
   persistRecoverySnapshot(snap, 'merge'); // durable BEFORE any mutation
   try {
@@ -389,12 +430,16 @@ export function restoreMerge(parsed: ParsedBackup): RestoreResult {
     discardRecoverySnapshot(); // verified success — no recovery needed
     return summarize('merge', applied, []);
   } catch (e) {
+    if (e instanceof RecoveryPendingError) throw e;
     const report = rollbackToDetailed(snap);
-    discardRecoverySnapshot();
-    if (!report.ok) {
-      throw new RestoreError('rollback', `merge failed AND rollback could not fully restore: ${report.failedKeys.join(', ')} — a recovery snapshot is available under Backup & Restore`);
+    if (report.ok) {
+      discardRecoverySnapshot();
+      if (e instanceof RestoreError) throw e;
+      throw new RestoreError('rollback', `merge failed and was fully rolled back: ${(e as Error).message}`);
     }
-    if (e instanceof RestoreError) throw e;
-    throw new RestoreError('rollback', `merge failed and was rolled back: ${(e as Error).message}`);
+    throw new RestoreError(
+      'rollback',
+      `merge failed and rollback could not fully restore (${report.failedKeys.join(', ')}). The recovery snapshot has been KEPT — use Recover in Backup & Restore.`,
+    );
   }
 }

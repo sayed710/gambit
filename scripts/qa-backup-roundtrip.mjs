@@ -165,8 +165,46 @@ async function run() {
   await pageB.waitForSelector('text=Backup &');
   const banner = await pageB.locator('text=Interrupted restore detected').count();
   log('recovery: interrupted restore detected on next load', banner === 1);
+
+  // pending guard: a new restore must be blocked while the snapshot waits
+  const chooserG = pageB.waitForEvent('filechooser');
+  await pageB.locator('input[type="file"]').click();
+  (await chooserG).setFiles({ name: 'bk.json', mimeType: 'application/json', buffer: Buffer.from(backupText, 'utf-8') });
+  await pageB.waitForSelector('text=Backup from', { timeout: 5000 });
+  await pageB.locator('button', { hasText: 'Merge this backup' }).click();
+  await pageB.waitForTimeout(400);
+  const blockedMsg = await pageB.evaluate(() => document.body.textContent.includes('still waiting'));
+  const markerUntouched = await pageB.evaluate(() => localStorage.getItem('gambit.restore.recovery.v1') !== null);
+  log('recovery: new restore blocked while a snapshot is pending', blockedMsg && markerUntouched);
+
+  // FAILURE flow: silently corrupt profile writes, Recover must fail honestly
+  await pageB.evaluate(() => {
+    const real = Storage.prototype.setItem;
+    window.__faultActive = true;
+    Storage.prototype.setItem = function (key, value) {
+      if (window.__faultActive && key === 'gambit.profile') return real.call(this, key, String(value).slice(0, 5));
+      return real.call(this, key, value);
+    };
+  });
   await pageB.click('button:has-text("Recover pre-restore data")');
-  await pageB.waitForTimeout(1600); // reload
+  await pageB.waitForTimeout(600);
+  const failState = await pageB.evaluate(() => ({
+    kept: localStorage.getItem('gambit.restore.recovery.v1') !== null,
+    errorText: Array.from(document.querySelectorAll('[role="alert"]')).some((e) => (e.textContent ?? '').includes('could not fully restore')),
+    noSuccess: !document.body.textContent.includes('recovered and verified'),
+  }));
+  log(
+    'recovery: FAILED recover keeps the snapshot, names keys, claims no success',
+    failState.kept && failState.errorText && failState.noSuccess,
+    JSON.stringify(failState),
+  );
+
+  // SUCCESS flow: remove the fault, Recover verifies and discards
+  await pageB.evaluate(() => {
+    window.__faultActive = false;
+  });
+  await pageB.click('button:has-text("Recover pre-restore data")');
+  await pageB.waitForTimeout(1600); // verified success -> reload
   await pageB.goto(`${BASE}/#/profile`);
   await pageB.waitForSelector('text=Backup &');
   const recovered = await pageB.evaluate(() => ({
@@ -175,7 +213,7 @@ async function run() {
     marker: localStorage.getItem('gambit.restore.recovery.v1'),
   }));
   log(
-    'recovery: pre-restore data restored, partial garbage removed, marker discarded',
+    'recovery: verified recover restores data and discards the snapshot',
     recovered.profile?.games?.length === 1 && recovered.partial === null && recovered.marker === null,
     JSON.stringify({ games: recovered.profile?.games?.length, partial: recovered.partial, marker: recovered.marker }),
   );

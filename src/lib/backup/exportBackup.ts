@@ -7,6 +7,7 @@
    classifications and practice history all survive verbatim.
    ============================================================ */
 
+import type { BackupIntegrity } from './format';
 import {
   ALL_SECTIONS,
   BACKUP_APP,
@@ -105,8 +106,18 @@ export function buildBackup(opts: ExportOptions = {}): BuiltBackup {
   };
 }
 
-// small indirection so the envelope used for the checksum and the
-// serialized one are built identically
+/**
+ * The one integrity builder — used at export AND at import validation, so
+ * the counting/checksumming rules can never drift apart.
+ */
+export function buildIntegrity(sections: BackupEnvelope['sections']): BackupIntegrity {
+  return {
+    sectionCounts: sectionCounts(sections),
+    checksum: checksumOf(sections),
+    bytes: utf8Bytes(JSON.stringify(sections)),
+  };
+}
+
 function envelopeOf(sections: BackupEnvelope['sections'], now: Date): BackupEnvelope {
   return {
     app: BACKUP_APP,
@@ -114,11 +125,7 @@ function envelopeOf(sections: BackupEnvelope['sections'], now: Date): BackupEnve
     exportedAt: now.toISOString(),
     sourceVersion: APP_VERSION,
     sections,
-    integrity: {
-      sectionCounts: sectionCounts(sections),
-      checksum: checksumOf(sections),
-      bytes: utf8Bytes(JSON.stringify(sections)),
-    },
+    integrity: buildIntegrity(sections),
   };
 }
 

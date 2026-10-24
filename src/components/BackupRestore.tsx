@@ -1,7 +1,7 @@
 import { useMemo, useRef, useState } from 'react';
 import { buildBackup } from '../lib/backup/exportBackup';
 import { BackupError, parseBackupText, previewBackup, type ParsedBackup } from '../lib/backup/validate';
-import { applyRecoverySnapshot, discardRecoverySnapshot, loadRecoverySnapshot, restoreMerge, restoreReplace, type RecoverySnapshot } from '../lib/backup/restore';
+import { applyRecoverySnapshot, discardRecoverySnapshot, loadRecoverySnapshot, restoreMerge, restoreReplace, verifySnapshotRestored, RecoveryPendingError, type RecoverySnapshot } from '../lib/backup/restore';
 import { loadJSON } from '../lib/storage';
 import type { BackupPreview } from '../lib/backup/validate';
 import { useToast } from './Toast';
@@ -49,6 +49,7 @@ export default function BackupRestore() {
   const [phase, setPhase] = useState<Phase>('idle');
   const [result, setResult] = useState<string | null>(null);
   const [interruptedRestore, setInterruptedRestore] = useState<RecoverySnapshot | null>(() => loadRecoverySnapshot());
+  const [recoveryError, setRecoveryError] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
   function handleExport() {
@@ -87,6 +88,11 @@ export default function BackupRestore() {
 
   function confirmRestore() {
     if (!parsed) return;
+    if (loadRecoverySnapshot() !== null) {
+      setResult('An interrupted restore is still waiting. Recover it or choose "Keep current data" above before restoring again.');
+      setPhase('done');
+      return;
+    }
     try {
       const res = mode === 'replace' ? restoreReplace(parsed) : restoreMerge(parsed);
       const added = res.applied.length;
@@ -103,7 +109,7 @@ export default function BackupRestore() {
     } catch (e) {
       // the error's own message states whether the rollback fully succeeded;
       // we never claim the data is unchanged unless it actually is
-      setResult(`Restore failed. ${(e as Error).message}`);
+      setResult(`Restore failed. ${e instanceof RecoveryPendingError ? e.message : (e as Error).message}`);
       setInterruptedRestore(loadRecoverySnapshot());
       setPhase('done');
     }
@@ -121,11 +127,27 @@ export default function BackupRestore() {
             <button
               className="btn btn-primary btn-sm"
               onClick={() => {
-                applyRecoverySnapshot(interruptedRestore);
-                discardRecoverySnapshot();
-                setInterruptedRestore(null);
-                toast('Pre-restore data recovered — reloading.');
-                setTimeout(() => window.location.reload(), 800);
+                setRecoveryError(null);
+                try {
+                  const report = applyRecoverySnapshot(interruptedRestore);
+                  if (!report.ok) {
+                    // snapshot KEPT — the user can retry after freeing space
+                    setRecoveryError(`Recovery could not fully restore: ${report.failedKeys.join(', ')}. The recovery snapshot has been kept — resolve the failing keys (e.g. free storage) and try again.`);
+                    return;
+                  }
+                  // independent read-back proof before discarding the snapshot
+                  const verification = verifySnapshotRestored(interruptedRestore.data);
+                  if (!verification.ok) {
+                    setRecoveryError(`Recovery verification failed: ${verification.failedKeys.join(', ')}. The recovery snapshot has been kept.`);
+                    return;
+                  }
+                  discardRecoverySnapshot(); // only now is the snapshot spent
+                  setInterruptedRestore(null);
+                  toast('Pre-restore data recovered and verified — reloading.');
+                  setTimeout(() => window.location.reload(), 800);
+                } catch (e) {
+                  setRecoveryError(`Recovery failed with a storage error: ${(e as Error).message}. The recovery snapshot has been kept.`);
+                }
               }}
             >
               Recover pre-restore data
@@ -135,11 +157,20 @@ export default function BackupRestore() {
               onClick={() => {
                 discardRecoverySnapshot();
                 setInterruptedRestore(null);
-                toast('Recovery snapshot discarded — keeping current data.');
+                setRecoveryError(null);
+                toast('Recovery snapshot permanently discarded — keeping current data.');
               }}
             >
               Keep current data
             </button>
+            <p className="small muted" style={{ margin: '0.4rem 0 0' }}>
+              “Keep current data” permanently deletes the recovery snapshot — your data stays exactly as it is now, and the pre-restore state can no longer be restored.
+            </p>
+            {recoveryError && (
+              <p className="small" style={{ margin: '0.4rem 0 0', color: 'var(--bad)' }} role="alert">
+                {recoveryError}
+              </p>
+            )}
           </div>
         </div>
       )}
