@@ -1,5 +1,5 @@
 import { act, renderHook, waitFor } from '@testing-library/react';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Chess } from 'chess.js';
 import { useGame } from './useGame';
 import type { SavedGame } from './useGame';
@@ -697,5 +697,95 @@ describe('move timings: true game plies', () => {
     expect(api().getMoveTimings()).toEqual([]);
     act(() => { api().tryMove('d2', 'd4'); });
     expect(api().getMoveTimings().map((x) => x.ply)).toEqual([1]);
+  });
+});
+
+/* ============================================================
+   Terminal move: clock charged exactly once (PR review P1).
+   Fake performance.now + rAF make every elapsed millisecond
+   deterministic; the assertions run INSIDE the game-over
+   callback, the same synchronous snapshot Play.tsx saves.
+   ============================================================ */
+describe('terminal move clock charged exactly once', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  const MATE_IN_1 = '6k1/5ppp/8/8/8/8/8/R6K w - - 0 1';
+
+  function timedMate(tc: TimeControl) {
+    let captured: { ply: number; thinkMs: number; clockBeforeMs: number | null; clockAfterMs: number | null }[] | null =
+      null;
+    const utils = renderHook(() =>
+      useGame({
+        config: config({ mode: 'pass', timeControl: tc }),
+        engineSearch: vi.fn(async () => null),
+        initialFen: MATE_IN_1,
+        onGameOver: () => {
+          // deep snapshot INSIDE the callback — the values Play persists
+          captured = utils.result.current.getMoveTimings().map((t) => ({ ...t }));
+        },
+      }),
+    );
+    const api = () => utils.result.current;
+    return { api, getCaptured: () => captured };
+  }
+
+  it('checkmate, no increment: 5000ms of thinking billed exactly once', async () => {
+    vi.useFakeTimers({ toFake: ['performance', 'requestAnimationFrame', 'cancelAnimationFrame'] });
+    const { api, getCaptured } = timedMate({ id: '1+0', label: '1 min', category: 'Bullet', minutes: 1, increment: 0 });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5000);
+    });
+    act(() => {
+      api().tryMove('a1', 'a8'); // Ra8# — terminal
+    });
+    expect(api().over).not.toBeNull();
+    const t = getCaptured()!;
+    expect(t.map((x) => x.ply)).toEqual([1]);
+    expect(t[0].clockBeforeMs).toBe(55_000); // 60_000 - 5_000, pre-charge
+    expect(t[0].clockAfterMs).toBe(55_000); // billed the same 5_000 once, +0 increment
+  });
+
+  it('checkmate, +3s increment: the increment still applies on the mating move', async () => {
+    vi.useFakeTimers({ toFake: ['performance', 'requestAnimationFrame', 'cancelAnimationFrame'] });
+    const { api, getCaptured } = timedMate({ id: '1+3', label: '1 min', category: 'Bullet', minutes: 1, increment: 3 });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5000);
+    });
+    act(() => {
+      api().tryMove('a1', 'a8');
+    });
+    expect(api().over).not.toBeNull();
+    const t = getCaptured()!;
+    expect(t[0].clockBeforeMs).toBe(55_000);
+    expect(t[0].clockAfterMs).toBe(58_000); // 55_000 billed once + 3_000 increment
+  });
+
+  it('non-terminal timed move bills through the same single-charge path', async () => {
+    vi.useFakeTimers({ toFake: ['performance', 'requestAnimationFrame', 'cancelAnimationFrame'] });
+    const utils = renderHook(() =>
+      useGame({
+        config: config({ mode: 'pass', timeControl: { id: '1+0', label: '1 min', category: 'Bullet', minutes: 1, increment: 0 } }),
+        engineSearch: vi.fn(async () => null),
+      }),
+    );
+    const api = () => utils.result.current;
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2000);
+    });
+    act(() => {
+      api().tryMove('e2', 'e4'); // ordinary move, game continues
+    });
+    const t = api().getMoveTimings();
+    expect(t[0].clockBeforeMs).toBe(58_000);
+    expect(t[0].clockAfterMs).toBe(58_000); // one charge, no increment
+    // black's clock now runs; the white clock must not be billed again
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1000);
+    });
+    expect(api().clock.clocks.w).toBeLessThanOrEqual(58_000);
+    expect(api().clock.clocks.w).toBeGreaterThanOrEqual(57_900);
+    expect(api().clock.clocks.b).toBeLessThan(60_000); // black is the one ticking
   });
 });

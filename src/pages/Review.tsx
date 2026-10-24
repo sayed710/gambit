@@ -19,8 +19,7 @@ import { runGameAnalysis, plyEvalFromEngineResult } from '../lib/reviewRunner';
 import { criticalMoments, refineGreatMoves, CLASSIFICATION_META, CLASSIFICATION_GLYPH, CRITICAL_CLASSES } from '../lib/review';
 import { pressureCorrelation, timingStats } from '../lib/timeAnalytics';
 import { buildCoachLessons, type CoachLesson } from '../lib/coachEngine';
-import { applyMotifAnalysis, motifAnalysisForReport } from '../lib/motifReview';
-import { loadTraining, saveTraining } from '../lib/trainingStore';
+import { contributeGameMotifs, motifAnalysisForReport } from '../lib/motifReview';
 import { practiceStartFen, practiceEvalIndex } from '../lib/practiceDrill';
 import { matchRepertoire } from '../lib/repertoireMatch';
 import { addPracticeItem, loadPractice, savePractice } from '../lib/practiceQueue';
@@ -86,17 +85,15 @@ export default function Review() {
   // fens before each ply (index 0 = start position)
   const fens = useMemo(() => [START_FEN, ...plies.map((p) => p.fenAfter)], [plies]);
 
-  // fold the FINAL (refined) report's confirmed motifs into the persistent
-  // training stats — once per game (applyMotifAnalysis is the idempotence set)
+  // fold a report's confirmed motifs into the persistent training stats —
+  // once per game (applyMotifAnalysis is the idempotence set). Used by BOTH
+  // the fresh-analysis path and the cached-report path so pre-existing
+  // caches and interrupted refinements backfill exactly once.
   const contributeMotifs = useCallback(
     (rep: GameReport) => {
       if (!record?.id) return;
       try {
-        const analysis = motifAnalysisForReport(fens, rep, record.playerColor);
-        const training = loadTraining();
-        if (applyMotifAnalysis(training, analysis, record.id, Date.now())) {
-          saveTraining(training);
-        }
+        contributeGameMotifs(fens, rep, record.id, record.playerColor, Date.now());
       } catch {
         /* stats must never break the review */
       }
@@ -110,6 +107,7 @@ export default function Review() {
     const cached = loadJSON<GameReport | null>(`review.${record?.id}`, null);
     if (cached && cached.reviews.length === plies.length) {
       setReport(cached);
+      contributeMotifs(cached); // backfill caches saved before contributions existed (idempotent)
       return;
     }
     const token = ++runTokenRef.current; // stale runs (StrictMode remount, redo) self-abort

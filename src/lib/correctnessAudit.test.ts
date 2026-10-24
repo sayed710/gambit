@@ -1,11 +1,11 @@
-import { describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it } from 'vitest';
 import { detectMotifsForMove } from './motifDetection';
-import { applyMotifAnalysis, motifAnalysisForReport } from './motifReview';
+import { applyMotifAnalysis, contributeGameMotifs, motifAnalysisForReport } from './motifReview';
 import { emptyTrainingState } from './trainingStore';
 import type { GameReport } from './review';
 import { pressureCorrelation, timingStats } from './timeAnalytics';
 import { practiceStartFen, practiceEvalIndex } from './practiceDrill';
-import { assessPracticeMove, recordPracticeAttempt, type PracticeItem } from './practiceQueue';
+import { assessPracticeMove, recordPracticeAttempt, solveOutcome, type PracticeItem } from './practiceQueue';
 import type { GameRecord, MoveTiming } from './types';
 import { Chess } from 'chess.js';
 
@@ -266,5 +266,98 @@ describe('practice runner grading policy (v1: exact SAN)', () => {
     list[0].solved = 0;
       recordPracticeAttempt(list, 'p2', false);
     expect(list[0]).toMatchObject({ attempts: 1, solved: 0 });
+  });
+});
+
+describe('cached-report backfill (PR review P1b)', () => {
+  beforeEach(() => localStorage.clear());
+
+  // player blundered with a quiet king move; the engine's best Ra1 creates
+  // a confirmed skewer -> exactly one missed-skewer opportunity
+  const SKEWER_FEN = 'r6k/8/8/q7/8/8/6K1/7R w - - 0 1';
+  function skewerReport(bestSan: string): GameReport {
+    return {
+      reviews: [{ san: 'Kf1', color: 'w', cpl: 400, classification: 'blunder' }],
+      evals: [
+        { cp: 20, mateIn: null, bestSan },
+        { cp: -380, mateIn: null, bestSan: null },
+        { cp: 0, mateIn: null, bestSan: null },
+      ],
+      accuracy: { w: 40, b: 95 },
+      counts: {
+        w: { best: 0, brilliant: 0, excellent: 0, great: 0, good: 0, inaccuracy: 0, mistake: 0, miss: 0, blunder: 1, book: 0 },
+        b: { best: 0, brilliant: 0, excellent: 0, great: 0, good: 0, inaccuracy: 0, mistake: 0, miss: 0, blunder: 0, book: 0 },
+      },
+      avgCpl: { w: 400, b: 0 },
+    };
+  }
+  const fens = [SKEWER_FEN, 'placeholder-after-1', 'placeholder-after-2'];
+
+  it('1+2+3: cached report with no marker contributes exactly once; reopening never re-counts', () => {
+    localStorage.setItem('gambit.training.v1', JSON.stringify({ version: 1, endgame: {}, repScheduling: {}, motifs: {}, motifGames: {}, adaptive: { queue: [], lastGenerated: null } }));
+    // simulate: report was cached by an earlier Review, before contributions existed
+    expect(contributeGameMotifs(fens, skewerReport('Ra1'), 'g1', 'w', 1000)).toBe(true);
+    let state = JSON.parse(localStorage.getItem('gambit.training.v1')!);
+    expect(state.motifs.skewer).toMatchObject({ opportunities: 1, missed: 1 });
+    expect(state.motifGames.g1).toBe(1000);
+    // reopen the same cached report: unchanged
+    expect(contributeGameMotifs(fens, skewerReport('Ra1'), 'g1', 'w', 2000)).toBe(false);
+    state = JSON.parse(localStorage.getItem('gambit.training.v1')!);
+    expect(state.motifs.skewer).toMatchObject({ opportunities: 1, missed: 1 });
+    expect(state.motifGames.g1).toBe(1000); // first contribution timestamp wins
+  });
+
+  it('4: interrupted refinement — cached base report contributes when the review is reopened', () => {
+    localStorage.setItem('gambit.training.v1', JSON.stringify({ version: 1, endgame: {}, repScheduling: {}, motifs: {}, motifGames: {}, adaptive: { queue: [], lastGenerated: null } }));
+    // the user left during refinement: the BASE report is cached but no
+    // contribution ever ran (no marker). Reopening hits the cached path.
+    expect(contributeGameMotifs(fens, skewerReport('Ra1'), 'g9', 'w', 5000)).toBe(true);
+    const state = JSON.parse(localStorage.getItem('gambit.training.v1')!);
+    expect(state.motifs.skewer.opportunities).toBe(1);
+    expect(state.motifGames.g9).toBe(5000);
+    // even a later, DIFFERENT (refined) report for that game adds nothing
+    expect(contributeGameMotifs(fens, skewerReport('Rb1'), 'g9', 'w', 9000)).toBe(false);
+  });
+
+  it('a game with no confirmed motifs only records its marker', () => {
+    localStorage.setItem('gambit.training.v1', JSON.stringify({ version: 1, endgame: {}, repScheduling: {}, motifs: {}, motifGames: {}, adaptive: { queue: [], lastGenerated: null } }));
+    const quiet = skewerReport('Kf1'); // best == played: no missed motif
+    expect(contributeGameMotifs(fens, quiet, 'g2', 'w', 1)).toBe(true);
+    const state = JSON.parse(localStorage.getItem('gambit.training.v1')!);
+    expect(state.motifs).toEqual({});
+    expect(state.motifGames.g2).toBe(1);
+  });
+});
+
+describe('solve outcome semantics (PR review P2)', () => {
+  it('clean = first try, no hint, graded', () => {
+    expect(solveOutcome({ firstTry: true, assisted: false, expectedMove: true })).toBe('clean');
+  });
+
+  it('correct after wrong guesses is an attempt, never a clean solve', () => {
+    expect(solveOutcome({ firstTry: false, assisted: false, expectedMove: true })).toBe('after-wrong');
+  });
+
+  it('hint/reveal-assisted is recorded as assisted even on the first try', () => {
+    expect(solveOutcome({ firstTry: true, assisted: true, expectedMove: true })).toBe('assisted');
+    expect(solveOutcome({ firstTry: false, assisted: true, expectedMove: true })).toBe('assisted');
+  });
+
+  it('ungraded items stay ungraded in every condition', () => {
+    expect(solveOutcome({ firstTry: true, assisted: false, expectedMove: false })).toBe('ungraded');
+    expect(solveOutcome({ firstTry: false, assisted: true, expectedMove: false })).toBe('ungraded');
+  });
+
+  it('only clean outcomes increment solved; after-wrong and assisted do not', () => {
+    const list: PracticeItem[] = [
+      { id: 'a', kind: 'mistake', fen: 'x', side: 'w', objective: 'o', createdAt: 1, attempts: 0, solved: 0, lastPracticed: null, expectedSan: 'Nf3' },
+      { id: 'b', kind: 'mistake', fen: 'x', side: 'w', objective: 'o', createdAt: 1, attempts: 0, solved: 0, lastPracticed: null, expectedSan: 'Nf3' },
+    ];
+    const outcomeA = solveOutcome({ firstTry: false, assisted: false, expectedMove: true });
+    const outcomeB = solveOutcome({ firstTry: true, assisted: false, expectedMove: true });
+    recordPracticeAttempt(list, 'a', outcomeA === 'clean');
+    recordPracticeAttempt(list, 'b', outcomeB === 'clean');
+    expect(list[0]).toMatchObject({ attempts: 1, solved: 0 }); // after-wrong
+    expect(list[1]).toMatchObject({ attempts: 1, solved: 1 }); // clean
   });
 });

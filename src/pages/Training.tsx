@@ -8,7 +8,7 @@ import { reviewMistakesFromReports } from '../lib/reviewSummary';
 import type { GameReport } from '../lib/review';
 import { loadJSON } from '../lib/storage';
 import { loadTraining } from '../lib/trainingStore';
-import { assessPracticeMove, loadPractice, recordPracticeAttempt, savePractice, type PracticeItem } from '../lib/practiceQueue';
+import { assessPracticeMove, loadPractice, recordPracticeAttempt, savePractice, solveOutcome, type PracticeItem } from '../lib/practiceQueue';
 import { Chess } from 'chess.js';
 import type { Square } from 'chess.js';
 import GameBoard from '../components/GameBoard';
@@ -219,7 +219,8 @@ function PracticeRunner({ item, onResolved, onExit }: { item: PracticeItem; onRe
   const [hint, setHint] = useState(false);
   const [revealed, setRevealed] = useState(false);
   const [feedback, setFeedback] = useState<string | null>(null);
-  const assistedRef = useRef(false);
+  const assistedRef = useRef(false); // hint or reveal used this session
+  const firstTryRef = useRef(true); // no wrong guess yet this session
   const resolvedRef = useRef(false);
 
   const resolveAttempt = useCallback(
@@ -246,6 +247,7 @@ function PracticeRunner({ item, onResolved, onExit }: { item: PracticeItem; onRe
       if (!move) return 'illegal';
       const assessment = assessPracticeMove(item, move.san);
       if (assessment === 'wrong') {
+        firstTryRef.current = false; // a wrong guess ends first-try candidacy
         // click path already plays 'illegal' via useClickToMove
         setFeedback(`${move.san} is not it — the target move is different. Try again.`);
         return 'illegal'; // position stays until the target move is found
@@ -256,14 +258,22 @@ function PracticeRunner({ item, onResolved, onExit }: { item: PracticeItem; onRe
         setFeedback(`${move.san} played — this position has no verified best move, so it stays ungraded.`);
         return 'ok';
       }
-      const assisted = assistedRef.current;
-      resolveAttempt(!assisted);
-      playSound('win');
-      setFeedback(
-        assisted
-          ? `Found it — ${move.san} (with help). Saved as an assisted attempt, not a clean solve.`
-          : `Found it — ${move.san}.`,
-      );
+      // clean = first try AND no hint/reveal; anything else is an attempt,
+      // never silently counted as perfect
+      const outcome = solveOutcome({
+        firstTry: firstTryRef.current,
+        assisted: assistedRef.current,
+        expectedMove: true,
+      });
+      resolveAttempt(outcome === 'clean');
+      playSound(outcome === 'clean' ? 'win' : 'click');
+      if (outcome === 'clean') {
+        setFeedback(`Found it — ${move.san}. Clean first-try solve.`);
+      } else if (outcome === 'after-wrong') {
+        setFeedback(`Found it — ${move.san}, after wrong tries. Recorded as an attempt, not a clean solve.`);
+      } else {
+        setFeedback(`Found it — ${move.san} (with help). Recorded as an assisted attempt, not a clean solve.`);
+      }
       return 'ok';
     },
     [fen, item, resolveAttempt],

@@ -137,6 +137,26 @@ async function run() {
     marker1 !== null && marker1 !== undefined && trainingAfter.marker === marker1,
     `marker=${marker1} afterReopen=${trainingAfter.marker}`,
   );
+  const motifsBeforeBackfill = JSON.stringify(trainingAfter.motifs);
+  // backfill: wipe the marker (simulates a report cached before contributions
+  // existed), reload the CACHED review — it must re-contribute exactly once
+  await page.evaluate((gid) => {
+    const t = JSON.parse(localStorage.getItem('gambit.training.v1') ?? '{}');
+    delete t.motifGames?.[gid];
+    localStorage.setItem('gambit.training.v1', JSON.stringify(t));
+  }, gameId);
+  await page.reload();
+  await page.waitForSelector('text=What to take from this game', { timeout: 90000 });
+  await page.waitForTimeout(800);
+  const backfill = await page.evaluate((gid) => {
+    const t = JSON.parse(localStorage.getItem('gambit.training.v1') ?? '{}');
+    return { marker: t.motifGames?.[gid] ?? null, motifs: JSON.stringify(t.motifs ?? {}) };
+  }, gameId);
+  log(
+    'cached report backfills a missing contribution exactly once',
+    backfill.marker !== null && backfill.motifs === motifsBeforeBackfill,
+    `marker=${backfill.marker} sameTotals=${backfill.motifs === motifsBeforeBackfill}`,
+  );
   const reviewUrl = page.url();
 
   // (4) runner persistence: save from review, solve assisted then clean
@@ -186,7 +206,7 @@ async function run() {
   );
   await t2.click('button:has-text("Exit")');
   await t2.waitForTimeout(300);
-  // second session: clean solve — the expected SAN is stable, play it directly
+  // second session: clean first-try solve — the expected SAN is stable
   await t2.locator('.study-card', { hasText: 'mistake' }).locator('button:has-text("Practice")').first().click();
   await t2.waitForSelector('[data-square="e2"]');
   await clickMove(sq2[0], sq2[1]);
@@ -196,9 +216,26 @@ async function run() {
   }, savedItem.id);
   const listShows = await t2.evaluate(() => document.body.textContent.includes('attempts 2'));
   log(
-    'clean solve increments solved; queue UI refreshes',
+    'clean first-try solve increments solved; queue UI refreshes',
     afterClean?.attempts === 2 && afterClean?.solved === 1 && listShows,
     JSON.stringify(afterClean),
+  );
+  await t2.click('button:has-text("Exit")');
+  await t2.waitForTimeout(300);
+  // third session: wrong guess first, then the correct move — an attempt, never a clean solve
+  await t2.locator('.study-card', { hasText: 'mistake' }).locator('button:has-text("Practice")').first().click();
+  await t2.waitForSelector('[data-square="e2"]');
+  await clickMove('b1', 'c3'); // wrong guess (board holds)
+  await clickMove(sq2[0], sq2[1]); // then the target move, no hint used
+  const afterWrongThenRight = await t2.evaluate((id) => {
+    const it = JSON.parse(localStorage.getItem('gambit.practice.v1') ?? '[]').find((x) => x.id === id);
+    return it ? { attempts: it.attempts, solved: it.solved } : null;
+  }, savedItem.id);
+  const afterWrongMsg = await t2.evaluate(() => document.body.textContent.includes('after wrong tries'));
+  log(
+    'correct-after-wrong counts as attempt, not a clean solve',
+    afterWrongThenRight?.attempts === 3 && afterWrongThenRight?.solved === 1 && afterWrongMsg,
+    JSON.stringify(afterWrongThenRight),
   );
   await t2.close();
 
