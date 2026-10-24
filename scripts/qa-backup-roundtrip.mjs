@@ -148,6 +148,38 @@ async function run() {
   const rejectText = await pageB.evaluate(() => document.querySelector('[role="alert"]')?.textContent ?? '');
   log('restore: illegal move list rejected with a specific reason', rejected === 1 && /illegal SAN/i.test(rejectText), rejectText.slice(0, 60));
 
+  /* ---------- interrupted restore: durable recovery across a "crash" ---------- */
+  // simulate: restore began, wrote partial data, browser died before rollback
+  await pageB.evaluate(() => {
+    localStorage.setItem('gambit.restore.recovery.v1', JSON.stringify({
+      savedAt: Date.now(),
+      mode: 'replace',
+      data: {
+        'gambit.profile': localStorage.getItem('gambit.profile'), // pre-restore value captured above
+        'gambit.review.g-qa-1': null, // this key did not exist before the interrupted restore
+      },
+    }));
+    localStorage.setItem('gambit.review.g-qa-1', 'partial-garbage'); // mid-restore write
+  });
+  await pageB.reload(); // "next app boot"
+  await pageB.waitForSelector('text=Backup &');
+  const banner = await pageB.locator('text=Interrupted restore detected').count();
+  log('recovery: interrupted restore detected on next load', banner === 1);
+  await pageB.click('button:has-text("Recover pre-restore data")');
+  await pageB.waitForTimeout(1600); // reload
+  await pageB.goto(`${BASE}/#/profile`);
+  await pageB.waitForSelector('text=Backup &');
+  const recovered = await pageB.evaluate(() => ({
+    profile: JSON.parse(localStorage.getItem('gambit.profile') ?? 'null'),
+    partial: localStorage.getItem('gambit.review.g-qa-1'),
+    marker: localStorage.getItem('gambit.restore.recovery.v1'),
+  }));
+  log(
+    'recovery: pre-restore data restored, partial garbage removed, marker discarded',
+    recovered.profile?.games?.length === 1 && recovered.partial === null && recovered.marker === null,
+    JSON.stringify({ games: recovered.profile?.games?.length, partial: recovered.partial, marker: recovered.marker }),
+  );
+
   await ctxB.close();
   await browser.close();
   const failed = results.filter((r) => !r).length;

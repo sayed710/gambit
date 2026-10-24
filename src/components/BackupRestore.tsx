@@ -1,7 +1,7 @@
 import { useMemo, useRef, useState } from 'react';
 import { buildBackup } from '../lib/backup/exportBackup';
 import { BackupError, parseBackupText, previewBackup, type ParsedBackup } from '../lib/backup/validate';
-import { restoreMerge, restoreReplace } from '../lib/backup/restore';
+import { applyRecoverySnapshot, discardRecoverySnapshot, loadRecoverySnapshot, restoreMerge, restoreReplace, type RecoverySnapshot } from '../lib/backup/restore';
 import { loadJSON } from '../lib/storage';
 import type { BackupPreview } from '../lib/backup/validate';
 import { useToast } from './Toast';
@@ -48,6 +48,7 @@ export default function BackupRestore() {
   const [mode, setMode] = useState<'replace' | 'merge'>('merge');
   const [phase, setPhase] = useState<Phase>('idle');
   const [result, setResult] = useState<string | null>(null);
+  const [interruptedRestore, setInterruptedRestore] = useState<RecoverySnapshot | null>(() => loadRecoverySnapshot());
   const fileRef = useRef<HTMLInputElement>(null);
 
   function handleExport() {
@@ -100,7 +101,10 @@ export default function BackupRestore() {
       // every in-memory context must re-read the restored storage
       setTimeout(() => window.location.reload(), 900);
     } catch (e) {
-      setResult(`Restore failed and was rolled back — your data is unchanged. (${(e as Error).message})`);
+      // the error's own message states whether the rollback fully succeeded;
+      // we never claim the data is unchanged unless it actually is
+      setResult(`Restore failed. ${(e as Error).message}`);
+      setInterruptedRestore(loadRecoverySnapshot());
       setPhase('done');
     }
   }
@@ -108,6 +112,37 @@ export default function BackupRestore() {
   return (
     <div className="panel panel-pad">
       <div className="section-label">Backup &amp; restore</div>
+
+      {interruptedRestore && (
+        <div className="status-banner mb-2" role="alert" style={{ borderColor: 'var(--sea)' }}>
+          <strong>Interrupted restore detected.</strong> A restore started at{' '}
+          {new Date(interruptedRestore.savedAt).toLocaleString()} did not finish — your data may be mixed.
+          <div className="row mt-1" style={{ gap: '0.4rem' }}>
+            <button
+              className="btn btn-primary btn-sm"
+              onClick={() => {
+                applyRecoverySnapshot(interruptedRestore);
+                discardRecoverySnapshot();
+                setInterruptedRestore(null);
+                toast('Pre-restore data recovered — reloading.');
+                setTimeout(() => window.location.reload(), 800);
+              }}
+            >
+              Recover pre-restore data
+            </button>
+            <button
+              className="btn btn-ghost btn-sm"
+              onClick={() => {
+                discardRecoverySnapshot();
+                setInterruptedRestore(null);
+                toast('Recovery snapshot discarded — keeping current data.');
+              }}
+            >
+              Keep current data
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* YOUR DATA */}
       <div className="rep-stats" style={{ maxWidth: 'none', flexWrap: 'wrap', marginTop: '0.6rem' }}>
@@ -208,7 +243,7 @@ export default function BackupRestore() {
           <p className="small muted mt-1">
             {mode === 'merge'
               ? 'Adds only records this device does not have (by id). Existing games, studies, repertoires and training progress always win; nothing is ever double-counted. Importing the same file twice changes nothing.'
-              : 'The backup becomes the complete dataset — current data not in the backup is discarded (a recovery snapshot is written first and restored automatically if anything fails).'}
+              : 'The backup becomes the complete dataset — current data not in the backup is discarded. A recovery snapshot of your current data is stored on this device first: failures the app can catch are rolled back automatically, and if the browser dies mid-restore the snapshot is offered for recovery on the next load.'}
           </p>
           <button className="btn btn-danger btn-sm mt-1" onClick={confirmRestore}>
             {mode === 'replace' ? 'Replace everything with this backup' : 'Merge this backup'}

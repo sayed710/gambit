@@ -58,17 +58,11 @@ async function offlineFlow(viewport, label) {
   });
   log(`[${label}] precache holds shell, assets and Stockfish WASM`, cached.total > 50 && cached.wasm && cached.fonts >= 4, JSON.stringify(cached));
 
-  // 4) close and reopen (SW persists in the context)
+  // 4) reopen (SW persists); then REAL offline via Playwright's own switch
   await page.goto(`${BASE}/#/play`);
-
-  // 5) REAL offline: abort every request at the network layer
-  await ctx.route('**/*', (route) => route.abort());
-  const offlineFlag = await page.evaluate(() => {
-    // simulate the browser's offline state for navigator.onLine
-    Object.defineProperty(navigator, 'onLine', { get: () => false });
-    return true;
-  });
-  log(`[${label}] network cut`, offlineFlag);
+  await ctx.setOffline(true);
+  const offlineFlag = !(await page.evaluate(() => navigator.onLine));
+  log(`[${label}] network cut (setOffline)`, offlineFlag);
 
   await page.reload();
   await page.waitForSelector('.site-header', { timeout: 15_000 });
@@ -121,39 +115,85 @@ async function offlineFlow(viewport, label) {
   });
   log(`[${label}] chess moves playable offline`, e4Ok);
 
-  // 8) run Stockfish offline — the engine opponent must produce a move
-  const engineMoved = await page.evaluate(() => new Promise((resolve) => {
-    const start = Date.now();
-    const check = () => {
-      const body = document.body.innerText;
-      // pass-mode has no engine; verify via the analysis page instead below
-      resolve(null);
-    };
-    check();
-  }));
-  void engineMoved;
-  await page.goto(`${BASE}/#/analysis`);
-  await page.waitForTimeout(800);
-  // click a square then make any move to trigger eval
-  const evalShown = await page.evaluate(async () => {
-    // the analysis page shows an evaluation once the engine runs; wait for any
-    // numeric eval text, engine boots lazily on first move
-    return new Promise((resolve) => {
-      const t0 = Date.now();
-      const iv = setInterval(() => {
-        const el = document.querySelector('[class*="eval"], .evalbar, .analysis-eval');
-        const txt = document.body.innerText;
-        if (/\+?\d+\.\d/.test(txt) || el) {
-          clearInterval(iv);
-          resolve(true);
-        } else if (Date.now() - t0 > 20000) {
-          clearInterval(iv);
-          resolve(false);
-        }
-      }, 500);
-    });
+  // 8a) verify the engine's own assets are served from the OFFLINE cache
+  const wasmFromCache = await page.evaluate(async () => {
+    const res = await fetch('/stockfish/stockfish-18-lite-single.wasm');
+    if (!res.ok) return { ok: false, why: `status ${res.status}` };
+    const buf = await res.arrayBuffer();
+    return { ok: buf.byteLength > 7_000_000, why: `${buf.byteLength} bytes` };
   });
-  log(`[${label}] Stockfish evaluates offline (Analysis)`, evalShown === true);
+  log(`[${label}] Stockfish WASM served from the offline cache`, wasmFromCache.ok, wasmFromCache.why);
+
+  // 8b) REAL engine opponent offline: start an AI game, play a legal move,
+  //     and wait for an actual legal engine reply in the move list
+  await page.goto(`${BASE}/#/play`);
+  // the earlier pass-mode test stored lastConfig — clear both so the setup
+  // screen (with engine mode) shows again; localStorage works offline
+  await page.evaluate(() => {
+    localStorage.removeItem('gambit.lastConfig');
+    localStorage.removeItem('gambit.activeGame');
+  });
+  await page.goto(`${BASE}/#/play`);
+  await page.reload();
+  await page.waitForSelector('.mode-switch .mode-row', { timeout: 10_000 });
+  await page.locator('[role="radiogroup"][aria-label="Your color"] button', { hasText: 'White' }).click();
+  await page.click('form button.btn-accent'); // vs Engine is the default mode
+  await page.waitForSelector('[data-square="e2"]');
+  await page.locator('[data-square="e2"]').click();
+  await page.waitForTimeout(150);
+  await page.locator('[data-square="e4"]').click();
+  const engineReply = await page
+    .waitForFunction(
+      () => {
+        // the move list shows one full move pair only after BOTH sans exist
+        const rows = document.querySelectorAll('.move-list tr');
+        for (const r of rows) {
+          const sans = Array.from(r.querySelectorAll('.mv')).map((td) => (td.textContent ?? '').trim());
+          if (sans.length >= 2 && sans[0] && sans[1]) return { human: sans[0], engine: sans[1] };
+        }
+        return null;
+      },
+      null,
+      { timeout: 30_000, polling: 400 },
+    )
+    .then((r) => r.jsonValue())
+    .catch(() => null);
+  const engineOk =
+    engineReply !== null &&
+    engineReply.human === 'e4' &&
+    /^[a-hKQRBN][a-h1-8x+=#-]+$/.test(engineReply.engine) &&
+    engineReply.engine !== 'e4';
+  log(`[${label}] engine opponent replies with a real legal move (offline)`, engineOk, engineOk ? `1. e4 ${engineReply.engine}` : 'no reply');
+
+  // 8c) Analysis: the page auto-runs a genuine engine evaluation of the
+  //     initial position on mount (debounced). Wait for the COMPLETED
+  //     result: a rendered MultiPV line (eval + principal variation) AND a
+  //     numeric depth report (not 'thinking…'/'idle'). CSS uppercases DOM
+  //     text, so both checks are case-insensitive.
+  await page.goto(`${BASE}/#/analysis`);
+  await page.waitForSelector('[data-square="e2"]', { timeout: 10_000 });
+  const evalDone = await page
+    .waitForFunction(
+      () => /[+-]\d+\.\d+\s*\n?\s*1\.[a-hKQRBN]/i.test(document.body.innerText),
+      null,
+      { timeout: 90_000, polling: 500 },
+    )
+    .then(() => true)
+    .catch(() => false);
+  const depthOk = evalDone
+    ? await page
+        .waitForFunction(() => /depth\s+\d+/i.test(document.body.innerText), null, { timeout: 90_000, polling: 500 })
+        .then(() => true)
+        .catch(() => false)
+    : false;
+  const lineSample = evalDone
+    ? await page.evaluate(() => (document.body.innerText.match(/[+-]\d+\.\d+\s*\n?\s*1\..{0,60}/i) ?? [''])[0])
+    : '';
+  log(
+    `[${label}] Analysis engine completes a real search offline (eval + PV + depth report)`,
+    evalDone && depthOk,
+    JSON.stringify(lineSample),
+  );
 
   // 9-10) open a saved game + review path offline (cached report re-view)
   await page.goto(`${BASE}/#/profile`);
@@ -177,7 +217,7 @@ async function offlineFlow(viewport, label) {
   const realErrors = errors.filter((e) => !/net::|Failed to load resource|ERR_FAILED/i.test(e));
   log(`[${label}] no unexpected console errors offline`, realErrors.length === 0, realErrors.slice(0, 2).join(' | '));
 
-  await ctx.unroute('**/*');
+  await ctx.setOffline(false);
   await browser.close();
 }
 

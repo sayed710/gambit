@@ -58,16 +58,64 @@ export function checkedWrite(key: string, text: string): void {
   }
 }
 
-/** Restore the snapshot verbatim (rollback path). Best-effort by necessity. */
-export function rollbackTo(snap: StorageMap): void {
+/**
+ * Restore the snapshot verbatim (rollback path), including REMOVING
+ * allowlisted keys created during the failed restore (e.g. new
+ * gambit.review.* entries) — the post-rollback key set equals the exact
+ * pre-restore allowlisted key set. Best-effort by necessity: localStorage
+ * offers no transactions, and a write failing here is reported to the
+ * caller via rollbackToDetailed.
+ */
+export interface RollbackReport {
+  ok: boolean;
+  failedKeys: string[];
+}
+
+export function rollbackToDetailed(snap: StorageMap): RollbackReport {
+  const failedKeys: string[] = [];
+  // 1) remove allowlisted keys that did not exist before the restore
+  const wanted = new Set(Object.keys(snap));
+  for (const key of currentAllowlistedKeys()) {
+    if (!wanted.has(key)) {
+      try {
+        localStorage.removeItem(key);
+      } catch {
+        failedKeys.push(key);
+      }
+    }
+  }
+  // 2) put every snapshotted value back (null = absent before)
   for (const [key, value] of Object.entries(snap)) {
     try {
       if (value === null) localStorage.removeItem(key);
       else localStorage.setItem(key, value);
     } catch {
-      /* best effort — surfaced by verify below */
+      failedKeys.push(key);
     }
   }
+  return { ok: failedKeys.length === 0, failedKeys };
+}
+
+export function rollbackTo(snap: StorageMap): void {
+  rollbackToDetailed(snap);
+}
+
+/** All allowlisted keys that exist right now (reviews included). */
+function currentAllowlistedKeys(): string[] {
+  const out: string[] = [];
+  for (let i = 0; i < localStorage.length; i += 1) {
+    const key = localStorage.key(i);
+    if (key && isAllowlistedKey(key)) out.push(key);
+  }
+  return out;
+}
+
+export function isAllowlistedKey(key: string): boolean {
+  return (
+    Object.values(SECTION_KEYS).includes(key as never) ||
+    Object.values(SESSION_KEYS).includes(key as never) ||
+    (key.startsWith(REVIEWS_PREFIX) && key.length > REVIEWS_PREFIX.length)
+  );
 }
 
 function writeJsonChecked(key: string, value: unknown): void {
@@ -82,6 +130,54 @@ function existingReviewIds(): string[] {
     if (key && key.startsWith(REVIEWS_PREFIX) && key.length > REVIEWS_PREFIX.length) out.push(key.slice(REVIEWS_PREFIX.length));
   }
   return out;
+}
+
+/** ============================================================
+   Durable recovery snapshot.
+   localStorage has no transactions; a restore that dies mid-write
+   (tab closed, crash) would otherwise leave a mixed state. Before any
+   mutation, the exact pre-restore snapshot is persisted under
+   RESTORE_RECOVERY_KEY; after VERIFIED success it is discarded. If the
+   app boots and finds a recovery snapshot, an interrupted restore is
+   known to have happened and the user can put their previous data back
+   from Backup & Restore. This is crash recovery, not atomicity: writes
+   are still individually non-transactional.
+   ============================================================ */
+
+export const RESTORE_RECOVERY_KEY = 'gambit.restore.recovery.v1';
+
+export interface RecoverySnapshot {
+  savedAt: number;
+  mode: 'replace' | 'merge';
+  data: StorageMap;
+}
+
+/** Persist the pre-restore snapshot durably BEFORE mutating anything. */
+export function persistRecoverySnapshot(snap: StorageMap, mode: 'replace' | 'merge', now = Date.now()): void {
+  checkedWrite(RESTORE_RECOVERY_KEY, JSON.stringify({ savedAt: now, mode, data: snap } satisfies RecoverySnapshot));
+}
+
+/** Remove the recovery marker after a verified successful restore. */
+export function discardRecoverySnapshot(): void {
+  localStorage.removeItem(RESTORE_RECOVERY_KEY);
+}
+
+/** A leftover marker means a restore was interrupted before verification. */
+export function loadRecoverySnapshot(): RecoverySnapshot | null {
+  const raw = localStorage.getItem(RESTORE_RECOVERY_KEY);
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw) as RecoverySnapshot;
+    if (!parsed || typeof parsed.savedAt !== 'number' || !parsed.data || typeof parsed.data !== 'object') return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+/** Put the interrupted restore's pre-restore state back (user action). */
+export function applyRecoverySnapshot(rec: RecoverySnapshot): RollbackReport {
+  return rollbackToDetailed(rec.data);
 }
 
 export interface RestoreResult {
@@ -99,6 +195,7 @@ export interface RestoreResult {
  */
 export function restoreReplace(parsed: ParsedBackup): RestoreResult {
   const snap = snapshotAll();
+  persistRecoverySnapshot(snap, 'replace'); // durable BEFORE any mutation
   try {
     const applied: string[] = [];
     const removed: string[] = [];
@@ -132,9 +229,14 @@ export function restoreReplace(parsed: ParsedBackup): RestoreResult {
       applied.push(name);
     }
     verifyAgainst(parsed.envelope);
+    discardRecoverySnapshot(); // verified success — no recovery needed
     return summarize('replace', applied, removed);
   } catch (e) {
-    rollbackTo(snap);
+    const report = rollbackToDetailed(snap);
+    discardRecoverySnapshot();
+    if (!report.ok) {
+      throw new RestoreError('rollback', `restore failed AND rollback could not fully restore: ${report.failedKeys.join(', ')} — a recovery snapshot is available under Backup & Restore`);
+    }
     if (e instanceof RestoreError) throw e;
     throw new RestoreError('rollback', `restore failed and was rolled back: ${(e as Error).message}`);
   }
@@ -212,6 +314,7 @@ function trainingIsInitial(t: unknown): boolean {
  */
 export function restoreMerge(parsed: ParsedBackup): RestoreResult {
   const snap = snapshotAll();
+  persistRecoverySnapshot(snap, 'merge'); // durable BEFORE any mutation
   try {
     const applied: string[] = [];
     const incoming = parsed.envelope.sections as Record<string, unknown>;
@@ -283,9 +386,14 @@ export function restoreMerge(parsed: ParsedBackup): RestoreResult {
       if (wrote) applied.push('reviews');
     }
 
+    discardRecoverySnapshot(); // verified success — no recovery needed
     return summarize('merge', applied, []);
   } catch (e) {
-    rollbackTo(snap);
+    const report = rollbackToDetailed(snap);
+    discardRecoverySnapshot();
+    if (!report.ok) {
+      throw new RestoreError('rollback', `merge failed AND rollback could not fully restore: ${report.failedKeys.join(', ')} — a recovery snapshot is available under Backup & Restore`);
+    }
     if (e instanceof RestoreError) throw e;
     throw new RestoreError('rollback', `merge failed and was rolled back: ${(e as Error).message}`);
   }

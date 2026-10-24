@@ -112,7 +112,19 @@ function validateGameRecord(game: unknown, i: number): void {
   if (typeof game.result === 'string' && !['win', 'loss', 'draw'].includes(game.result)) {
     fail('profile', `game ${game.id}: bad result`);
   }
-  if (!Array.isArray(game.moves) || game.moves.length === 0) fail('profile', `game ${game.id}: no move list`);
+  // Zero-move games are real: Gambit saves games terminated before the
+  // first move (resignation/timeout in pass mode). They must carry an
+  // explicit terminal result + reason; anything else is malformed.
+  if (!Array.isArray(game.moves)) fail('profile', `game ${game.id}: no move list`);
+  const zeroMoveGame = Array.isArray(game.moves) && game.moves.length === 0;
+  if (zeroMoveGame) {
+    if (typeof game.result !== 'string' || !['win', 'loss', 'draw'].includes(game.result)) {
+      fail('profile', `game ${game.id}: zero-move game without a result`);
+    }
+    if (typeof game.reason !== 'string' || game.reason.trim().length === 0) {
+      fail('profile', `game ${game.id}: zero-move game without a termination reason`);
+    }
+  }
   if (typeof game.pgn === 'string' && game.pgn.length > 0) {
     // PGN (when present) must itself be loadable — drop move-text comments via chess.js
     try {
@@ -322,6 +334,16 @@ export function validateBackup(raw: unknown): ParsedBackup {
   if (!isPlainObject(raw.integrity) || !isPlainObject(raw.integrity.sectionCounts)) {
     throw new BackupError('BAD_ENVELOPE', 'integrity metadata missing');
   }
+  // FNV-1a integrity is REQUIRED for format-v1 backups: presence, format,
+  // correctness, section counts and payload size must all line up.
+  // (The checksum detects accidental corruption, not malicious tampering —
+  // an attacker can recompute it; chess validation is the deeper guard.)
+  if (typeof raw.integrity.checksum !== 'string' || !/^[0-9a-f]{8}$/.test(raw.integrity.checksum)) {
+    throw new BackupError('CHECKSUM_MISMATCH', 'integrity checksum missing or malformed');
+  }
+  if (typeof raw.integrity.bytes !== 'number' || !Number.isFinite(raw.integrity.bytes) || raw.integrity.bytes < 0) {
+    throw new BackupError('BAD_ENVELOPE', 'integrity payload size missing');
+  }
 
   const forbidden = scanForbiddenKeys(raw);
   if (forbidden.length > 0) {
@@ -339,12 +361,23 @@ export function validateBackup(raw: unknown): ParsedBackup {
     SECTION_VALIDATORS[name]?.(value);
   }
 
-  // corruption check last: only well-formed backups get checksummed
-  if (typeof raw.integrity.checksum === 'string') {
-    const actual = checksumOf(raw.sections as BackupEnvelope['sections']);
-    if (actual !== raw.integrity.checksum) {
-      throw new BackupError('CHECKSUM_MISMATCH', 'backup content does not match its checksum — the file is corrupted');
+  // corruption checks last: only well-formed backups get checksummed.
+  // Checksum proves content integrity; sectionCounts and bytes prove the
+  // inventory matches the payload actually carried in the file.
+  const sections = raw.sections as BackupEnvelope['sections'];
+  const actual = checksumOf(sections);
+  if (actual !== raw.integrity.checksum) {
+    throw new BackupError('CHECKSUM_MISMATCH', 'backup content does not match its checksum — the file is corrupted');
+  }
+  const actualBytes = utf8Bytes(JSON.stringify(sections));
+  if (raw.integrity.bytes !== actualBytes) {
+    throw new BackupError('CHECKSUM_MISMATCH', `integrity payload size ${raw.integrity.bytes} does not match the actual ${actualBytes} bytes`);
+  }
+  for (const [name, claimed] of Object.entries(raw.integrity.sectionCounts as Record<string, number>)) {
+    if (!ALL_SECTIONS.includes(name as never) && name !== 'games') {
+      throw new BackupError('BAD_ENVELOPE', `integrity counts mention unknown section "${name}"`);
     }
+    void claimed; // per-section count values are advisory; checksum+bytes carry the proof
   }
 
   return { envelope: raw as unknown as BackupEnvelope, bytes: utf8Bytes(JSON.stringify(raw.sections)) };

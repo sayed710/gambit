@@ -6,6 +6,8 @@
    build assets, Stockfish WASM). Registration alone proves nothing.
    ============================================================ */
 
+import { assessOfflineReadiness, type ReadinessInput } from './offlineReadiness';
+
 export type OfflineStatus = 'unsupported' | 'preparing' | 'ready';
 
 export interface PwaState {
@@ -37,23 +39,22 @@ export function subscribePwa(l: Listener): () => void {
   return () => listeners.delete(l);
 }
 
-/** True when the SW precache holds every offline-critical asset. */
-async function verifyOfflineAssets(): Promise<boolean> {
+/** Full readiness input: precache URLs + the RUNNING document's entry script. */
+async function collectReadiness(): Promise<ReadinessInput | null> {
   try {
-    if (typeof caches === 'undefined') return false;
+    if (typeof caches === 'undefined') return null;
     const names = await caches.keys();
     const precache = names.find((n) => n.includes('precache'));
-    if (!precache) return false;
+    if (!precache) return null;
     const cache = await caches.open(precache);
     const keys = await cache.keys();
-    const urls = new Set(keys.map((r) => r.url));
-    const has = (pred: (u: string) => boolean) => [...urls].some(pred);
-    return (
-      has((u) => u.endsWith('/')) || // navigations (index.html)
-      has((u) => u.includes('index.html'))
-    ) && has((u) => u.endsWith('.wasm') || u.includes('stockfish')) && has((u) => u.endsWith('.js'));
+    return {
+      precacheUrls: keys.map((r) => r.url),
+      runningEntryScript:
+        (typeof document !== 'undefined' ? document.querySelector<HTMLScriptElement>('script[type="module"][src]')?.src : undefined) ?? null,
+    };
   } catch {
-    return false;
+    return null;
   }
 }
 
@@ -91,7 +92,8 @@ export function initPwa(): void {
     .register('/sw.js')
     .then(async (reg) => {
       const check = async () => {
-        const ok = reg.active !== null && (await verifyOfflineAssets());
+        const input = reg.active !== null ? await collectReadiness() : null;
+        const ok = input !== null && assessOfflineReadiness(input).ready;
         set({ status: ok ? 'ready' : 'preparing' });
       };
       reg.addEventListener('updatefound', () => {

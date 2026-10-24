@@ -1,8 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { buildBackup, collectSections } from './exportBackup';
 import { BackupError, parseBackupText, previewBackup } from './validate';
-import { restoreMerge, restoreReplace, snapshotAll, rollbackTo } from './restore';
-import { ALL_SECTIONS, BACKUP_FORMAT_VERSION, checksumOf } from './format';
+import { restoreMerge, restoreReplace, snapshotAll, rollbackTo, persistRecoverySnapshot, loadRecoverySnapshot, discardRecoverySnapshot, applyRecoverySnapshot, RESTORE_RECOVERY_KEY } from './restore';
+import { ALL_SECTIONS, BACKUP_FORMAT_VERSION, checksumOf, utf8Bytes } from './format';
 
 /* ============================================================
    Backup & Restore — the full durability contract.
@@ -370,6 +370,16 @@ describe('merge mode', () => {
   });
 });
 
+/** Rebuild the full integrity block after mutating sections (checksum + bytes). */
+function reseal(envelope: Record<string, unknown>): string {
+  envelope.integrity = {
+    ...(envelope.integrity as Record<string, unknown>),
+    checksum: checksumOf(envelope.sections as never),
+    bytes: utf8Bytes(JSON.stringify(envelope.sections)),
+  };
+  return JSON.stringify(envelope);
+}
+
 describe('validation rejects bad files', () => {
   it('rejects malformed JSON', () => {
     expect(() => parseBackupText('{not json')).toThrowError(BackupError);
@@ -426,8 +436,7 @@ describe('validation rejects bad files', () => {
     delete envelope.sections.reviews;
     delete envelope.sections.activeGame;
     delete envelope.sections.lastConfig;
-    envelope.integrity.checksum = checksumOf(envelope.sections);
-    const parsed = parseBackupText(JSON.stringify(envelope));
+    const parsed = parseBackupText(reseal(envelope));
     expect(previewBackup(parsed).practiceItems).toBe(1);
   });
 
@@ -438,8 +447,7 @@ describe('validation rejects bad files', () => {
     delete game.moveTimings;
     delete game.pgn;
     delete game.ratingBefore;
-    envelope.integrity.checksum = checksumOf(envelope.sections);
-    expect(() => parseBackupText(JSON.stringify(envelope))).not.toThrow();
+    expect(() => parseBackupText(reseal(envelope))).not.toThrow();
   });
 });
 
@@ -499,5 +507,198 @@ describe('failure recovery', () => {
     expect(localStorage.getItem('gambit.profile')).toBe('keep-me');
     expect(localStorage.getItem('gambit.review.gone')).toBe('gone-value');
     expect(localStorage.getItem('gambit.settings')).toBeNull();
+  });
+});
+
+describe('zero-move finished games (real lifecycle)', () => {
+  it('a game resigned before the first move round-trips', () => {
+    // produced by the real Play.tsx lifecycle: resign() before any move
+    // => moves: [], pgn: '', result/reason set
+    const resigned = {
+      id: 'g-zero',
+      date: 1792000099999,
+      mode: 'pass',
+      timeControl: { id: '10+0', label: '10 min', category: 'Rapid', minutes: 10, increment: 0 },
+      playerColor: 'w',
+      opponentName: 'Pass & play',
+      opponentRating: 1200,
+      result: 'loss',
+      reason: 'By resignation',
+      moves: [],
+      pgn: '',
+      ratingBefore: 1200,
+      ratingAfter: 1180,
+    };
+    localStorage.setItem('gambit.profile', JSON.stringify({ rating: 1180, games: [resigned] }));
+    const text = buildBackup().text;
+    localStorage.clear();
+    const result = restoreReplace(parseBackupText(text));
+    expect(result.gamesAfter).toBe(1);
+    const profile = JSON.parse(localStorage.getItem('gambit.profile')!);
+    expect(profile.games[0]).toEqual(resigned);
+  });
+
+  it('a zero-move game WITHOUT a terminal reason is malformed', () => {
+    seedPopulated();
+    const envelope = JSON.parse(buildBackup().text);
+    envelope.sections.profile.games = [{ id: 'bad', result: 'draw', reason: '', moves: [], pgn: '' }];
+    try {
+      parseBackupText(reseal(envelope));
+      expect.unreachable('should have thrown');
+    } catch (e) {
+      expect((e as { message: string }).message).toMatch(/zero-move game without a termination reason/);
+    }
+  });
+});
+
+describe('integrity enforcement (PR #2 review)', () => {
+  it('rejects a backup with no checksum at all', () => {
+    seedPopulated();
+    const envelope = JSON.parse(buildBackup().text);
+    delete envelope.integrity.checksum;
+    try {
+      parseBackupText(JSON.stringify(envelope));
+      expect.unreachable('should have thrown');
+    } catch (e) {
+      expect(String((e as Error).message)).toMatch(/checksum missing|malformed/i);
+    }
+  });
+
+  it('rejects a checksum that is present but malformed', () => {
+    seedPopulated();
+    const envelope = JSON.parse(buildBackup().text);
+    envelope.integrity.checksum = 'not-a-fnv';
+    expect(() => parseBackupText(JSON.stringify(envelope))).toThrowError(/checksum/);
+  });
+
+  it('rejects a payload whose declared size does not match the content', () => {
+    seedPopulated();
+    const envelope = JSON.parse(buildBackup().text);
+    envelope.integrity.bytes = (envelope.integrity.bytes as number) + 999;
+    envelope.integrity.checksum = checksumOf(envelope.sections);
+    expect(() => parseBackupText(JSON.stringify(envelope))).toThrowError(/payload size/);
+  });
+});
+
+describe('rollback completeness and durable recovery (PR #2 review)', () => {
+  const backupOf = () => {
+    seedPopulated();
+    return buildBackup().text;
+  };
+
+  it('a failed REPLACE after creating a NEW review key removes it on rollback', () => {
+    const text = backupOf();
+    localStorage.clear();
+    const realSet = Storage.prototype.setItem;
+    Storage.prototype.setItem = function (key: string, value: string) {
+      if (key === 'gambit.training.v1') throw new DOMException('quota', 'QuotaExceededError');
+      return realSet.call(this, key, value);
+    };
+    try {
+      expect(() => restoreReplace(parseBackupText(text))).toThrow();
+    } finally {
+      Storage.prototype.setItem = realSet;
+    }
+    expect(localStorage.getItem('gambit.review.g-keep-1')).toBeNull();
+  });
+
+  it('a failed MERGE after adding records rolls back to the exact prior key set', () => {
+    const text = backupOf();
+    localStorage.clear();
+    localStorage.setItem('gambit.profile', JSON.stringify({ rating: 1, games: [] }));
+    localStorage.setItem('unrelated.foreign', 'keep');
+    const before = snapshotAll();
+    const realSet = Storage.prototype.setItem;
+    Storage.prototype.setItem = function (key: string, value: string) {
+      if (key === 'gambit.studies.v1') throw new DOMException('quota', 'QuotaExceededError');
+      return realSet.call(this, key, value);
+    };
+    try {
+      expect(() => restoreMerge(parseBackupText(text))).toThrow();
+    } finally {
+      Storage.prototype.setItem = realSet;
+    }
+    const after = snapshotAll();
+    expect(Object.keys(after).sort()).toEqual(Object.keys(before).sort());
+    expect(JSON.parse(localStorage.getItem('gambit.profile')!)).toEqual({ rating: 1, games: [] });
+    expect(localStorage.getItem('unrelated.foreign')).toBe('keep');
+  });
+
+  it('existing DELETED review keys are restored by rollback', () => {
+    const text = backupOf();
+    localStorage.clear();
+    localStorage.setItem('gambit.review.g-mine', '{"v":1}');
+    const realSet = Storage.prototype.setItem;
+    Storage.prototype.setItem = function (key: string, value: string) {
+      if (key === 'gambit.settings') throw new DOMException('quota', 'QuotaExceededError');
+      return realSet.call(this, key, value);
+    };
+    try {
+      expect(() => restoreReplace(parseBackupText(text))).toThrow();
+    } finally {
+      Storage.prototype.setItem = realSet;
+    }
+    expect(localStorage.getItem('gambit.review.g-mine')).toBe('{"v":1}');
+  });
+
+  it('an injected failure DURING rollback is reported, never claimed as unchanged', () => {
+    const text = backupOf();
+    localStorage.clear();
+    localStorage.setItem('gambit.profile', JSON.stringify({ rating: 5, games: [] }));
+    const realSet = Storage.prototype.setItem;
+    let restoreFailed = false;
+    Storage.prototype.setItem = function (key: string, value: string) {
+      if (key === 'gambit.training.v1' && !restoreFailed) {
+        restoreFailed = true;
+        throw new DOMException('quota', 'QuotaExceededError');
+      }
+      if (restoreFailed && key === 'gambit.profile') {
+        throw new DOMException('quota', 'QuotaExceededError');
+      }
+      return realSet.call(this, key, value);
+    };
+    try {
+      try {
+        restoreReplace(parseBackupText(text));
+        expect.unreachable('should have thrown');
+      } catch (e) {
+        const msg = (e as Error).message;
+        expect(msg).toMatch(/could not fully restore/);
+        expect(msg).toMatch(/gambit.profile/);
+        expect(msg).not.toMatch(/unchanged/i);
+      }
+    } finally {
+      Storage.prototype.setItem = realSet;
+    }
+  });
+
+  it('durable recovery: snapshot persists across a simulated crash and restores exactly', () => {
+    backupOf();
+    localStorage.clear();
+    localStorage.setItem('gambit.profile', JSON.stringify({ rating: 777, games: [] }));
+    localStorage.setItem('gambit.review.g-old', 'pre-restore');
+    const snap = snapshotAll();
+    persistRecoverySnapshot(snap, 'replace');
+    localStorage.setItem('gambit.review.g-keep-1', 'partial-import'); // mid-restore write
+    localStorage.removeItem('gambit.review.g-old'); // mid-restore delete
+    const rec = loadRecoverySnapshot();
+    expect(rec).not.toBeNull();
+    expect(rec!.mode).toBe('replace');
+    const report = applyRecoverySnapshot(rec!);
+    expect(report.ok).toBe(true);
+    expect(localStorage.getItem('gambit.profile')).toBe(JSON.stringify({ rating: 777, games: [] }));
+    expect(localStorage.getItem('gambit.review.g-old')).toBe('pre-restore');
+    expect(localStorage.getItem('gambit.review.g-keep-1')).toBeNull();
+    discardRecoverySnapshot();
+    expect(loadRecoverySnapshot()).toBeNull();
+  });
+
+  it('successful restores discard the recovery marker; the marker never enters a backup', () => {
+    const text = backupOf();
+    localStorage.clear();
+    restoreReplace(parseBackupText(text));
+    expect(localStorage.getItem(RESTORE_RECOVERY_KEY)).toBeNull();
+    const second = JSON.parse(buildBackup().text);
+    expect(JSON.stringify(second.sections)).not.toContain('restore.recovery');
   });
 });
