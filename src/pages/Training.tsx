@@ -164,7 +164,12 @@ export default function Training() {
       )}
 
       {activePractice && (
+        // keyed by item id: selecting a different Saved Practice item while a
+        // runner is mounted starts an entirely fresh session (refs, hint,
+        // reveal, feedback) — grading state never leaks across items, even
+        // when two items share the same FEN.
         <PracticeRunner
+          key={activePractice.id}
           item={activePractice}
           onResolved={() => setPracticeNonce((n) => n + 1)}
           onExit={() => {
@@ -245,6 +250,7 @@ function PracticeRunner({ item, onResolved, onExit }: { item: PracticeItem; onRe
         return 'illegal';
       }
       if (!move) return 'illegal';
+      if (resolvedRef.current) return 'ok'; // session already recorded — replays never re-record
       const assessment = assessPracticeMove(item, move.san);
       if (assessment === 'wrong') {
         firstTryRef.current = false; // a wrong guess ends first-try candidacy

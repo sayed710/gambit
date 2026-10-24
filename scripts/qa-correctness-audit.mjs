@@ -279,6 +279,83 @@ async function run() {
   void reviewUrl;
   await page2.close();
 
+  /* ---------- (6) PracticeRunner lifecycle: fresh session per item id ---------- */
+  const page3 = await ctx.newPage();
+  await page3.goto(`${BASE}/`);
+  await page3.evaluate(() => {
+    localStorage.clear();
+    const FEN = 'rnbqkbnr/pppp1ppp/8/4p3/4P3/8/PPPPPPPP/RNBQKBNR w KQkq - 0 2';
+    const mk = (id, expectedSan, objective) => ({
+      id, kind: 'mistake', fen: FEN, side: 'w', objective, expectedSan,
+      createdAt: Date.now(), attempts: 0, solved: 0, lastPracticed: null,
+    });
+    localStorage.setItem(
+      'gambit.practice.v1',
+      JSON.stringify([mk('qa-a', 'Nf3', 'Find Nf3 (A)'), mk('qa-b', 'Nc3', 'Find Nc3 (B)')]),
+    ); // same FEN, different ids — the keying must still remount
+  });
+  await page3.goto(`${BASE}/#/training`);
+  await page3.waitForSelector('text=Saved practice', { timeout: 10000 });
+  const readItem = (id) =>
+    page3.evaluate((i) => {
+      const it = JSON.parse(localStorage.getItem('gambit.practice.v1') ?? '[]').find((x) => x.id === i);
+      return it ? { attempts: it.attempts, solved: it.solved } : null;
+    }, id);
+  const openCard = async (label) => {
+    await page3.locator('.study-card', { hasText: label }).locator('button:has-text("Practice")').first().click();
+    await page3.waitForTimeout(400);
+  };
+  const clickMove3 = async (from, to) => {
+    await page3.locator(`[data-square="${from}"]`).first().click();
+    await page3.waitForTimeout(140);
+    await page3.locator(`[data-square="${to}"]`).first().click();
+    await page3.waitForTimeout(350);
+  };
+
+  // 1) solve A cleanly
+  await openCard('Find Nf3 (A)');
+  await clickMove3('g1', 'f3');
+  let a = await readItem('qa-a');
+  let b = await readItem('qa-b');
+  log('lifecycle 1: A solves clean', a?.attempts === 1 && a?.solved === 1 && b?.attempts === 0, JSON.stringify({ a, b }));
+
+  // 2+3) switch WITHOUT exiting, solve B first-try
+  await openCard('Find Nc3 (B)');
+  await clickMove3('b1', 'c3');
+  a = await readItem('qa-a');
+  b = await readItem('qa-b');
+  const bCleanMsg = await page3.evaluate(() => document.body.textContent.includes('Clean first-try solve'));
+  log(
+    'lifecycle 2+3: B records its own clean solve; A untouched',
+    a?.attempts === 1 && a?.solved === 1 && b?.attempts === 1 && b?.solved === 1 && bCleanMsg,
+    JSON.stringify({ a, b }),
+  );
+
+  // 5) hint on A, switch to B — B still counts clean (no assisted leak)
+  await openCard('Find Nf3 (A)');
+  await page3.click('button:has-text("Hint")'); // assisted flag on A's session only
+  await openCard('Find Nc3 (B)');
+  await clickMove3('b1', 'c3');
+  b = await readItem('qa-b');
+  const bCleanAgain = await page3.evaluate(() => document.body.textContent.includes('Clean first-try solve'));
+  log(
+    'lifecycle 5: hint on A does not stain B (B clean)',
+    b?.attempts === 2 && b?.solved === 2 && bCleanAgain,
+    JSON.stringify(b),
+  );
+
+  // 7) completed session: replaying moves records nothing further
+  await clickMove3('b1', 'c3');
+  await clickMove3('g1', 'f3');
+  await page3.waitForTimeout(300);
+  b = await readItem('qa-b');
+  log(
+    'lifecycle 7: completed runner never records another attempt',
+    b?.attempts === 2 && b?.solved === 2,
+    JSON.stringify(b),
+  );
+  await page3.close();
+
   await browser.close();
   const failed = results.filter((r) => !r).length;
   console.log(failed === 0 ? 'ALL CORRECTNESS QA PASS' : `${failed} FAILURES`);
