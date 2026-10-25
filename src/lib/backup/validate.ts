@@ -342,6 +342,9 @@ export function parseEmergencyGame(text: string): ParsedEmergency {
   if (!isPlainObject(raw) || raw.app !== 'gambit' || raw.kind !== 'emergency-game') {
     throw new BackupError('BAD_ENVELOPE', 'this is not a Gambit emergency-game file');
   }
+  if (raw.format !== 1) {
+    throw new BackupError('UNSUPPORTED_VERSION', `Unsupported emergency file format ${String(raw.format)} (expected 1)`);
+  }
   if (typeof raw.reason !== 'string' || typeof raw.exportedAt !== 'string' || !('game' in raw)) {
     throw new BackupError('BAD_ENVELOPE', 'emergency file is incomplete');
   }

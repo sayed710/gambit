@@ -13,7 +13,8 @@ import { useClickToMove } from '../hooks/useClickToMove';
 import type { GameOverInfo } from '../hooks/useGame';
 import { LEVEL_RATINGS } from '../lib/engine/engine';
 import { PERSONAS, isPersonaId, type EnginePersonaId } from '../lib/engine/personas';
-import { usePersistFailures } from '../lib/persistStatus';
+import { usePersistFailures, reportPersistFailure, clearPersistStatus } from '../lib/persistStatus';
+import { checkedSetJSON, checkedRemove } from '../lib/persist';
 import { buildEmergencyGameFile, emergencyFilename } from '../lib/persist';
 import type { Level } from '../lib/engine/engine';
 import { DEFAULT_TIME_CONTROL, TIME_CONTROLS, timeControlById, NO_CLOCK } from '../data/timeControls';
@@ -396,6 +397,22 @@ function GameScreen({
     // from persistStatus (a synchronous hasFailures() here would read stale
     // state before the effect runs).
     setUnsavedGame(record);
+    // The over-effect above removed the active snapshot with verifiedRemove.
+    // If that removal FAILS, the stale snapshot would present a finished
+    // game as resumable — re-mark it with the finished record id so the
+    // resume UI can tell the truth.
+    const removal = checkedRemove(ACTIVE_GAME_KEY);
+    if (!removal.ok) {
+      const mark = checkedSetJSON(ACTIVE_GAME_KEY, {
+        config,
+        playerColor,
+        pgn: game.pgn(),
+        clocks: null,
+        savedAt: Date.now(),
+        finishedId: record.id,
+      } satisfies SavedGame & { savedAt: number; finishedId: string });
+      if (!mark.ok) reportPersistFailure(mark.kind, 'gambit.' + ACTIVE_GAME_KEY, 'active-game', mark.detail);
+    }
   };
 
   useEffect(() => {
@@ -407,23 +424,28 @@ function GameScreen({
     if (config.mode === 'pass') setOrientation(turn === 'w' ? 'white' : 'black');
   }, [config.mode, turn]);
 
-  // Keep the active game recoverable: persisted after every move, cleared when it ends.
+  // Keep the active game recoverable: VERIFIED persistence after every move,
+  // cleared (verified) when it ends. A failed removal must not leave the
+  // finished game presented as resumable — the snapshot is re-marked with the
+  // finished record id so the resume UI can tell the truth.
   useEffect(() => {
-    if (over) {
-      removeKey(ACTIVE_GAME_KEY);
+    if (over || plies.length === 0) {
+      if (!savedRef.current) {
+        const res = checkedRemove(ACTIVE_GAME_KEY);
+        if (!res.ok) reportPersistFailure(res.kind, 'gambit.' + ACTIVE_GAME_KEY, 'active-game', res.detail);
+        else clearPersistStatus('gambit.' + ACTIVE_GAME_KEY);
+      }
       return;
     }
-    if (plies.length === 0) {
-      removeKey(ACTIVE_GAME_KEY);
-      return;
-    }
-    saveJSON(ACTIVE_GAME_KEY, {
+    const res = checkedSetJSON(ACTIVE_GAME_KEY, {
       config,
       playerColor,
       pgn: game.pgn(),
       clocks: unlimited ? null : { w: Math.round(clock.clocks.w), b: Math.round(clock.clocks.b) },
       savedAt: Date.now(),
     } satisfies SavedGame & { savedAt: number });
+    if (res.ok) clearPersistStatus('gambit.' + ACTIVE_GAME_KEY);
+    else reportPersistFailure(res.kind, 'gambit.' + ACTIVE_GAME_KEY, 'active-game', res.detail);
     // clock.clocks intentionally excluded from deps: persisting on move boundaries
     // is enough for an honest resume, and per-frame writes would churn storage.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -843,25 +865,35 @@ export default function Play() {
         {saved && saved.config && (
           <div className="panel panel-pad row between wrap mb-2" style={{ borderColor: 'var(--accent)' }}>
             <div>
-              <strong>Game in progress</strong>
+              <strong>{(saved as { finishedId?: string }).finishedId ? 'Finished game snapshot' : 'Game in progress'}</strong>
               <div className="small muted">
                 {saved.config.mode === 'ai' ? `vs Engine · ${['Gentle', 'Casual', 'Club', 'Sharp'][saved.config.aiLevel - 1]}` : 'Pass & play'} ·{' '}
                 {saved.config.timeControl.minutes > 0 ? `${saved.config.timeControl.minutes}+${saved.config.timeControl.increment}` : 'no clock'} ·{' '}
                 {Math.ceil((saved.pgn.match(/\./g)?.length ?? 0))} moves played
               </div>
+              {(saved as { finishedId?: string }).finishedId && (
+                <div className="small" role="note" style={{ color: 'var(--bad)', marginTop: '0.25rem' }}>
+                  This game already ended and could not be removed from storage — it is NOT resumable. Its record:{' '}
+                  {(saved as { finishedId?: string }).finishedId && (loadJSON<{ games?: GameRecord[] }>('profile', {})).games?.some((g: { id: string }) => g.id === (saved as { finishedId?: string }).finishedId)
+                    ? 'is saved in your history (open it from Profile).'
+                    : 'could not be saved — it is lost; only Discard is available.'}
+                </div>
+              )}
             </div>
             <span className="row" style={{ gap: '0.45rem' }}>
-              <button
-                className="btn btn-primary btn-sm"
-                onClick={() => {
-                  saveJSON(LAST_CONFIG_KEY, saved.config);
-                  setResume(saved);
-                  setConfig(saved.config);
-                  setGameKey((k) => k + 1);
-                }}
-              >
-                Resume
-              </button>
+              {!(saved as { finishedId?: string }).finishedId && (
+                <button
+                  className="btn btn-primary btn-sm"
+                  onClick={() => {
+                    saveJSON(LAST_CONFIG_KEY, saved.config);
+                    setResume(saved);
+                    setConfig(saved.config);
+                    setGameKey((k) => k + 1);
+                  }}
+                >
+                  Resume
+                </button>
+              )}
               <button
                 className="btn btn-ghost btn-sm"
                 onClick={() => {

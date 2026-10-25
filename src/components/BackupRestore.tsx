@@ -40,7 +40,7 @@ function useDataInventory() {
 
 export default function BackupRestore() {
   const { toast } = useToast();
-  const { recordGame } = useProfile();
+  const { importGameRecord } = useProfile();
   const inventory = useDataInventory();
   const [includeReviews, setIncludeReviews] = useState(true);
   const [exportInfo, setExportInfo] = useState<string | null>(null);
@@ -104,16 +104,23 @@ export default function BackupRestore() {
 
   function importEmergency() {
     if (!emergency) return;
-    try {
-      const game = emergency.game as Parameters<typeof recordGame>[0];
-      recordGame(game); // recordGame persists via verified writes; failures re-surface in the banner
-      setResult(`Emergency game imported: ${String((game as { id?: string }).id ?? '')}. It is now saved (verified) — reload not required.`);
+    setPhase('done'); // the result banner only renders in the done phase
+    const res = importGameRecord(emergency.game as Parameters<typeof importGameRecord>[0]);
+    if (!res.ok) {
+      // KEEP the emergency file selected so the user can retry after freeing
+      // space; never claim recovery on failed persistence.
+      setResult(`Emergency import FAILED — the file is kept for retry. ${res.detail ?? ''}`);
+      return;
+    }
+    if (res.duplicate) {
       setEmergency(null);
       if (fileRef.current) fileRef.current.value = '';
-      toast('Emergency game recovered into your history.');
-    } catch (e) {
-      setResult(`Emergency import failed: ${(e as Error).message}`);
+      setResult('Already in your history — nothing changed (verified).');
+      return;
     }
+    setEmergency(null);
+    if (fileRef.current) fileRef.current.value = '';
+    setResult('Emergency game imported AND verified in durable storage. Recovered games are records-only: your rating was not recalculated.');
   }
 
   function confirmRestore() {

@@ -118,8 +118,8 @@ function mkGame(id: string, after: number, rated = true): GameRecord {
 }
 
 function useRecorder() {
-  const { profile, recordGame } = useProfile();
-  return { profile, recordGame };
+  const { profile, recordGame, importGameRecord } = useProfile();
+  return { profile, recordGame, importGameRecord };
 }
 
 describe('game history durability (PR-A)', () => {
@@ -209,15 +209,22 @@ describe('game history durability (PR-A)', () => {
     resetPersistStatusForTests();
     expect(getFailures().some((f) => f.key === 'gambit.profile')).toBe(true);
     // reload: fresh provider reads storage — the failed game is absent (the
-    // honest truth) and the provider's verified re-save of the OLD state is
-    // consistent, so its success clears the stale failure marker
+    // honest truth) and the failure marker SURVIVES (a re-save of old state
+    // does not recover the lost record); it clears only via Acknowledge or
+    // an explicit recovery
     const reborn = renderHook(() => useRecorder(), { wrapper: ProfileProvider });
     expect(reborn.result.current.profile.games.map((g) => g.id)).toEqual(['pre']);
+    expect(getFailures().some((f) => f.key === 'gambit.profile')).toBe(true);
+    // recovery of the lost record clears it (verified durable write)
+    act(() => {
+      reborn.result.current.importGameRecord(mkGame('gone', 1250));
+    });
     expect(getFailures().some((f) => f.key === 'gambit.profile')).toBe(false);
+    expect(reborn.result.current.profile.games.map((g) => g.id)).toContain('gone');
     void rerender;
   });
 
-  it('a successful write after a failure clears the failure state', () => {
+  it('a re-save does NOT auto-clear the failure: the unsaved record was not recovered (explicit recovery or Acknowledge clears)', () => {
     const { result } = setup();
     const real = Storage.prototype.setItem;
     let fail = true;
@@ -227,18 +234,25 @@ describe('game history durability (PR-A)', () => {
     };
     try {
       act(() => {
-        result.current.recordGame(mkGame('a', 1200));
+        result.current.recordGame(mkGame('lost', 1200));
       });
       expect(getFailures().length).toBe(1);
-      fail = false;
-      act(() => {
-        result.current.recordGame(mkGame('b', 1210));
-      });
-      expect(getFailures().length).toBe(0);
-      expect(clearPersistStatus).toBeDefined();
+      // NOTE: any later SUCCESSFUL profile write persists the whole in-memory
+      // profile (whole-blob storage), so 'lost' would ride along — this test
+      // keeps storage failed until recovery to isolate the marker semantics.
+      void fail;
     } finally {
       Storage.prototype.setItem = real;
     }
+    // the lost record is durable-absent; explicit recovery writes it (verified)
+    // and clears the marker honestly
+    let importResult: { ok: boolean; duplicate?: boolean; conflict?: boolean; detail?: string } | null = null;
+    act(() => {
+      importResult = result.current.importGameRecord(mkGame('lost', 1250));
+    });
+    expect((importResult as { ok?: boolean } | null)?.ok).toBe(true);
+    expect(getFailures().length).toBe(0);
+    expect(result.current.profile.games.map((g) => g.id)).toContain('lost');
   });
 });
 
@@ -272,5 +286,68 @@ describe('emergency export/import (PR-A)', () => {
     const bad = JSON.parse(JSON.stringify(file));
     bad.game.moves = 'not-a-list';
     expect(() => parseEmergencyGame(JSON.stringify(bad))).toThrow();
+  });
+});
+
+describe('emergency import: idempotence + rating safety (PR #5 review)', () => {
+  function setup() {
+    return renderHook(() => useRecorder(), { wrapper: ProfileProvider });
+  }
+
+  it('repeated imports of the same file are idempotent (single record)', () => {
+    const { result } = setup();
+    const game = mkGame('dup-1', 1250);
+    const results: boolean[] = [];
+    for (let i = 0; i < 3; i += 1) {
+      act(() => {
+        results.push(result.current.importGameRecord(game).ok);
+      });
+    }
+    expect(results).toEqual([true, true, true]);
+    expect(result.current.profile.games.filter((g) => g.id === 'dup-1')).toHaveLength(1);
+    const stored = JSON.parse(localStorage.getItem('gambit.profile')!).games.filter((g: { id: string }) => g.id === 'dup-1');
+    expect(stored).toHaveLength(1);
+  });
+
+  it('a rated recovered game never recalculates rating/peak/history (records-only policy)', () => {
+    const { result } = setup();
+    const before = {
+      rating: result.current.profile.rating,
+      peak: result.current.profile.peakRating,
+      history: result.current.profile.ratingHistory.slice(),
+    };
+    act(() => {
+      result.current.importGameRecord(mkGame('rated-import', 1900, true)); // would be +700 if counted
+    });
+    expect(result.current.profile.rating).toBe(before.rating);
+    expect(result.current.profile.peakRating).toBe(before.peak);
+    expect(result.current.profile.ratingHistory).toEqual(before.history);
+    expect(result.current.profile.games.map((g) => g.id)).toContain('rated-import'); // record preserved
+  });
+
+  it('same-ID conflict: the durable record is protected, the import rejected', () => {
+    const { result } = setup();
+    act(() => {
+      result.current.recordGame(mkGame('conflict', 1220)); // durable, ratingAfter 1220
+    });
+    const durable = JSON.parse(localStorage.getItem('gambit.profile')!).games.find((g: { id: string }) => g.id === 'conflict');
+    let res: { ok: boolean; conflict?: boolean; duplicate?: boolean; detail?: string } | null = null;
+    act(() => {
+      res = result.current.importGameRecord(mkGame('conflict', 9999)); // same id, different content
+    });
+    const r = res as { ok: boolean; conflict?: boolean } | null;
+    expect(r?.conflict).toBe(true);
+    const after = JSON.parse(localStorage.getItem('gambit.profile')!).games.find((g: { id: string }) => g.id === 'conflict');
+    expect(after).toEqual(durable); // durable record untouched
+    expect(result.current.profile.games.filter((g) => g.id === 'conflict')).toHaveLength(1);
+  });
+
+  it('emergency file format/version is validated before import', () => {
+    const file = buildEmergencyGameFile(mkGame('v', 1250), 'r');
+    const badVersion = { ...file, kind: 'emergency-game', format: 99 };
+    expect(() => parseEmergencyGame(JSON.stringify(badVersion))).toThrow();
+    const noGame = { ...file, format: 1 };
+    delete (noGame as { game?: unknown }).game;
+    expect(() => parseEmergencyGame(JSON.stringify(noGame))).toThrow();
   });
 });
