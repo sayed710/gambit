@@ -41,7 +41,7 @@ function itemLink(item: AdaptiveItem): { to: string; cta: string } {
     case 'motif':
       return { to: '/puzzles', cta: 'Practice' };
     case 'visualization':
-      return { to: '/coordinates', cta: 'Warm up' };
+      return { to: item.ref.level ? `/blindfold?level=${String(item.ref.level).replace('l', '')}` : '/blindfold', cta: 'Visualize' };
   }
 }
 
@@ -66,6 +66,7 @@ export default function Training() {
       puzzleThemes: profile.puzzle.byTheme,
       motifStats: training.motifs,
       endgame: training.endgame,
+      blindfoldLevels: training.blindfold.levels,
       repScheduling: training.repScheduling,
       repertoirePositions: enumerateRepertoirePositions(repertoires),
       reviewMistakes,

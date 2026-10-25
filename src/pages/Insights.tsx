@@ -307,6 +307,31 @@ export default function Insights() {
         )}
       </Section>
 
+      <Section title="Visualization">
+        {(() => {
+          const levels = [1, 2, 3, 4].map((l) => ({ l, ...(training.blindfold.levels[`l${l}`] ?? { attempted: 0, solved: 0, lastPracticed: null }) }));
+          const total = levels.reduce((n, x) => n + x.attempted, 0);
+          if (total === 0) {
+            return <p className="small muted">No blindfold exercises yet — start at Train → Blindfold and your accuracy per level appears here.</p>;
+          }
+          return (
+            <>
+              <div className="rep-stats" style={{ maxWidth: 'none', flexWrap: 'wrap' }}>
+                {levels.map(({ l, attempted, solved }) => (
+                  <div key={l}>
+                    <div className="v">{attempted ? `${Math.round((solved / attempted) * 100)}%` : '—'}</div>
+                    <div className="k">level {l} · {attempted} ex</div>
+                  </div>
+                ))}
+              </div>
+              <p className="small muted mt-1">
+                Across {total} exercise{total === 1 ? '' : 's'}. Exercises revisit on a spaced schedule; weak levels are recommended in Today.
+              </p>
+            </>
+          );
+        })()}
+      </Section>
+
       <Section title="Time management">
         {timeMgmt.timedGames === 0 ? (
           <p className="small muted">Play a timed game and your clock usage will be summarized here.</p>

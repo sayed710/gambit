@@ -236,6 +236,17 @@ const validateTraining: SectionValidator = (v) => {
     }
   }
   if (v.motifGames !== undefined && !isPlainObject(v.motifGames)) fail('training', 'motifGames is not a map');
+  if (v.blindfold !== undefined) {
+    if (!isPlainObject(v.blindfold)) fail('training', 'blindfold is not an object');
+    const bf = v.blindfold as { levels?: unknown; scheduling?: unknown };
+    if (bf.levels !== undefined && !isPlainObject(bf.levels)) fail('training', 'blindfold.levels is not a map');
+    if (bf.scheduling !== undefined && !isPlainObject(bf.scheduling)) fail('training', 'blindfold.scheduling is not a map');
+    if (isPlainObject(bf.scheduling)) {
+      for (const rec of Object.values(bf.scheduling)) {
+        if (!isPlainObject(rec) || !isNum((rec as Record<string, unknown>).due)) fail('training', 'malformed blindfold SR record');
+      }
+    }
+  }
   if (v.adaptive !== undefined && !isPlainObject(v.adaptive)) fail('training', 'adaptive is not an object');
 };
 

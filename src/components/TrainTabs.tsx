@@ -12,6 +12,7 @@ export const TRAIN_TABS = [
   { to: '/repertoire', label: 'Repertoire' },
   { to: '/endgames', label: 'Endgames' },
   { to: '/coordinates', label: 'Coordinates' },
+  { to: '/blindfold', label: 'Blindfold' },
 ];
 
 export default function TrainTabs({ current }: { current: string }) {

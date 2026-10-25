@@ -34,9 +34,17 @@ const PALETTES_DARK: Record<string, { light: string; dark: string; border: strin
   return { ...p, dot: 'rgba(125, 160, 190, 0.5)' };
 }
 
+/** How much of the position the player may SEE.
+ *  - full: normal pieces
+ *  - ghost: every piece as the same neutral outline (position exists, identity hidden)
+ *  - none: coordinates only — true blindfold */
+export type PieceVisibility = 'full' | 'ghost' | 'none';
+
 export interface GameBoardProps {
   fen: string;
   orientation: 'white' | 'black';
+  /** default 'full' — set on blindfold pages only */
+  pieceVisibility?: PieceVisibility;
   /** squares of the last move, highlighted */
   lastMove?: { from: Square; to: Square } | null;
   /** square of a king in check */
@@ -62,9 +70,33 @@ export interface GameBoardProps {
 
 const PROMO_PIECES: ('q' | 'n' | 'r' | 'b')[] = ['q', 'n', 'r', 'b'];
 
+/** Ghost render: one neutral disc for every piece, both colors identical. */
+function ghostPieces(): Record<string, (props?: { square?: string }) => React.JSX.Element> {
+  const out: Record<string, (props?: { square?: string }) => React.JSX.Element> = {};
+  for (const key of ['wP', 'wN', 'wB', 'wR', 'wQ', 'wK', 'bP', 'bN', 'bB', 'bR', 'bQ', 'bK']) {
+    out[key] = (props) => (
+      <span
+        key={props?.square}
+        aria-hidden
+        style={{
+          display: 'block',
+          width: '72%',
+          height: '72%',
+          margin: '14% auto',
+          borderRadius: '50%',
+          background: 'color-mix(in srgb, var(--muted) 55%, transparent)',
+          border: '2px solid var(--border-strong)',
+        }}
+      />
+    );
+  }
+  return out;
+}
+
 export default function GameBoard({
   fen,
   orientation,
+  pieceVisibility = 'full',
   lastMove,
   checkSquare,
   selected,
@@ -290,6 +322,7 @@ export default function GameBoard({
             id: boardId,
             position: fen,
             boardOrientation: orientation,
+            pieces: pieceVisibility === 'full' ? undefined : pieceVisibility === 'ghost' ? ghostPieces() : {}, // 'none': all squares empty visually
             animationDurationInMs: ANIMATION_MS[animationSpeed],
             showNotation: showCoordinates,
             allowDragging: movableColor !== null,
