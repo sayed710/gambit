@@ -273,7 +273,9 @@ export function resolveEngineChoice(input: SelectionInput): SelectionResult {
 
   // cp-loss vs the best comparable candidate (all cp share the side-to-move perspective)
   const inCeiling = comparable.filter((c) => best.cp !== null && c.cp !== null && best.cp - c.cp <= ceiling);
-  if (inCeiling.length === 0) {
+  // 0 or 1 in-ceiling candidates: there is no genuine stylistic CHOICE —
+  // the engine's own best is the only acceptable move
+  if (inCeiling.length <= 1) {
     return { uci: best.uci, candidate: best, via: 'engine-best', reason: 'all-above-ceiling' };
   }
 
