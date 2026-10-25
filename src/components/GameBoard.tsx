@@ -45,6 +45,9 @@ export interface GameBoardProps {
   orientation: 'white' | 'black';
   /** default 'full' — set on blindfold pages only */
   pieceVisibility?: PieceVisibility;
+  /** square-selection mode: click/keyboard answer input WITHOUT chess
+   *  movement. Enables focus+keys even with movableColor=null. */
+  selectable?: boolean;
   /** squares of the last move, highlighted */
   lastMove?: { from: Square; to: Square } | null;
   /** square of a king in check */
@@ -106,6 +109,7 @@ export default function GameBoard({
   fen,
   orientation,
   pieceVisibility = 'full',
+  selectable = false,
   lastMove,
   checkSquare,
   selected,
@@ -124,7 +128,10 @@ export default function GameBoard({
 }: GameBoardProps) {
   const { boardTheme, resolvedTheme, showLegalHints, showCoordinates, animationSpeed } = useSettings();
   const colors = useMemo(() => boardColors(boardTheme, resolvedTheme), [boardTheme, resolvedTheme]);
-  const interactive = movableColor !== null;
+  // movement and square-selection are DIFFERENT capabilities: blindfold
+  // answers need click/keyboard square input with no piece dragging.
+  const interactive = movableColor !== null || (selectable && !!onSquareClick);
+  const canMove = movableColor !== null;
 
   // --- keyboard play: arrow keys move a cursor, Enter selects/moves ---
   const [cursor, setCursor] = useState<Square | null>(null);
@@ -227,9 +234,9 @@ export default function GameBoard({
       const target = squareAt(base[0] + df, base[1] + dr);
       if (!target) return;
       setCursor(target);
-      setAnnounce(`${target}, ${pieceName(target)}`);
+      setAnnounce(selectable ? `${target}` : `${target}, ${pieceName(target)}`);
     },
-    [cursor, cursorFileRank, orientation, pieceName, squareAt],
+    [cursor, cursorFileRank, orientation, pieceName, selectable, squareAt],
   );
 
   const handleBoardKeyDown = useCallback(
@@ -257,7 +264,9 @@ export default function GameBoard({
           e.preventDefault();
           if (cursor) {
             onSquareClick?.(cursor, pieceTypeAt(fen, cursor));
-            setAnnounce(`${cursor}, ${pieceName(cursor)}`);
+            // identity must not leak through announcements in selectable
+            // (answer-input) mode — square name only
+            setAnnounce(selectable ? `${cursor}` : `${cursor}, ${pieceName(cursor)}`);
           } else {
             moveCursor(0, 0);
           }
@@ -269,7 +278,7 @@ export default function GameBoard({
           break;
       }
     },
-    [interactive, moveCursor, cursor, onSquareClick, pieceName, fen, onClearSelection],
+    [interactive, selectable, moveCursor, cursor, onSquareClick, pieceName, fen, onClearSelection],
   );
 
   const squareStyles = useMemo(() => {
@@ -315,9 +324,11 @@ export default function GameBoard({
         tabIndex={interactive ? 0 : -1}
         role="group"
         aria-label={
-          interactive
+          canMove
             ? 'Chessboard. Use arrow keys to explore squares, Enter to pick up or place a piece, Escape to clear.'
-            : 'Chessboard'
+            : selectable
+              ? 'Chessboard. Use arrow keys to explore squares, Enter to answer with the focused square, Escape to clear.'
+              : 'Chessboard'
         }
         onKeyDown={interactive ? handleBoardKeyDown : undefined}
       >
@@ -339,8 +350,8 @@ export default function GameBoard({
                   : emptyPieces(), // 'none': renderer returns nothing for every piece
             animationDurationInMs: ANIMATION_MS[animationSpeed],
             showNotation: showCoordinates,
-            allowDragging: movableColor !== null,
-            canDragPiece: ({ piece }) => movableColor !== null && (dragAnyColor || piece.pieceType[0] === movableColor),
+            allowDragging: canMove,
+            canDragPiece: ({ piece }) => canMove && (dragAnyColor || piece.pieceType[0] === movableColor),
             onPieceDrag: () => {
               dragActiveRef.current = true;
               // a real drag supersedes click-to-move; never leave stale selection
@@ -380,7 +391,7 @@ export default function GameBoard({
             },
             alphaNotationStyle: { paddingBottom: '0.3rem', paddingRight: '0.35rem' },
             numericNotationStyle: { paddingTop: '0.3rem', paddingLeft: '0.35rem' },
-            allowDrawingArrows: movableColor !== null,
+            allowDrawingArrows: canMove,
             arrows,
             clearArrowsOnPositionChange: true,
             dropSquareStyle: { boxShadow: 'inset 0 0 0 4px rgba(113, 159, 148, 0.6)' },          }}

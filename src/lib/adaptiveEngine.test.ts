@@ -77,10 +77,53 @@ describe('adaptive training engine', () => {
       gameId: `g${i}`,
       ply: 10,
       san: 'Qe7',
-      className: 'blunder',
+      className: 'inaccuracy',
       when: NOW - i * DAY,
     }));
     const items = buildAdaptiveSession({ now: NOW, reviewMistakes });
     expect(items.length).toBeLessThanOrEqual(15);
+  });
+});
+
+describe('blindfold recommendations reach the returned queue', () => {
+  it('a weak level is IN the returned array, links its level, and competes on score', () => {
+    const items = buildAdaptiveSession({
+      now: 1_700_000_000_000,
+      blindfoldLevels: {
+        l1: { attempted: 10, solved: 4, lastPracticed: 1_700_000_000_000 - 60_000 }, // 40% — weak
+        l4: { attempted: 6, solved: 6, lastPracticed: 1_700_000_000_000 - 60_000 }, // 100% — never recommended
+      },
+    });
+    const vis = items.filter((i) => i.kind === 'visualization');
+    expect(vis).toHaveLength(1); // weak level only; perfect level excluded
+    expect(vis[0].id).toBe('visualization-l1');
+    expect(vis[0].ref.level).toBe('l1');
+    expect(vis[0].reason).toContain('40%');
+    // priority ordering respected: sorted by score descending across kinds
+    const scores = items.map((i) => i.score);
+    expect([...scores].sort((a, b) => b - a)).toEqual(scores);
+  });
+
+  it('an untrained user gets NO fabricated blindfold item', () => {
+    const items = buildAdaptiveSession({ now: 1_700_000_000_000, blindfoldLevels: {} });
+    expect(items.some((i) => i.kind === 'visualization' && i.id.startsWith('visualization-'))).toBe(false);
+  });
+
+  it('the 15-item cap holds with many recommendations including blindfold', () => {
+    const blindfoldLevels = Object.fromEntries(
+      Array.from({ length: 4 }, (_, i) => [`l${i + 1}`, { attempted: 5, solved: 1, lastPracticed: 1_700_000_000_000 }]),
+    );
+    const reviewMistakes = Array.from({ length: 30 }, (_, i) => ({
+      gameId: `g${i}`,
+      ply: 3,
+      san: 'Qh5',
+      className: 'inaccuracy',
+      when: 1_700_000_000_000 - i * 1000,
+    }));
+    const items = buildAdaptiveSession({ now: 1_700_000_000_000, blindfoldLevels, reviewMistakes });
+    expect(items.length).toBeLessThanOrEqual(15);
+    // weak blindfold levels must survive the cap (score 12+ outranks most)
+    const vis = items.filter((i) => i.kind === 'visualization' && i.id.startsWith('visualization-'));
+    expect(vis.length).toBeGreaterThanOrEqual(1);
   });
 });

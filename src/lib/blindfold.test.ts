@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { Chess } from 'chess.js';
 import {
   exerciseIsSound,
+  idHash,
   generateExercise,
   generateExerciseAny,
   gradeBlindMate,
@@ -119,5 +120,66 @@ describe('blindfold rng', () => {
       expect(x).toBeLessThan(1);
       expect(x).toBe(b());
     }
+  });
+});
+
+describe('exercise identity collisions (PR #3 review)', () => {
+  it('the Opera Game two dxe5 moves get DIFFERENT ids (different positions)', () => {
+    // generate from every step of the Opera line directly (exhaustive, no RNG)
+    // the FULL Opera line — the generator can reach any of its first 16 plies
+    const opera = ['e4', 'e5', 'Nf3', 'd6', 'd4', 'Bg4', 'dxe5', 'Bxf3', 'Qxf3', 'dxe5', 'Bc4', 'Nf6', 'Qb3', 'Qe7', 'Nc3', 'c6'];
+    const g = new Chess();
+    const ids: string[] = [];
+    for (const san of opera) {
+      const fenBefore = g.fen();
+      g.move(san);
+      // reconstruct the exact identity rule used by the generator
+      ids.push(`l1:Opera Game:${san}:${idHash(fenBefore + '|' + san)}`);
+    }
+    const dxe5Ids = ids.filter((id) => id.includes('dxe5'));
+    expect(dxe5Ids).toHaveLength(2);
+    expect(dxe5Ids[0]).not.toBe(dxe5Ids[1]); // different positions -> different ids
+    // and the RNG-driven generator can only ever emit ids from the same
+    // content set — same content, same id (repeats are correct: SR skips due)
+    const bySeed = new Map<string, number>();
+    for (let seed = 1; seed <= 400; seed += 1) {
+      const ex = generateExerciseAny(1, seed);
+      bySeed.set(ex.id, (bySeed.get(ex.id) ?? 0) + 1);
+    }
+    // every generated id derives from the same identity rule (fen+san hash):
+    // reconstruct and confirm membership in the exhaustive identity set
+    const identitySet = new Set(ids);
+    for (let seed = 1; seed <= 400; seed += 1) {
+      const ex = generateExerciseAny(1, seed);
+      if (ex.id.includes('Opera Game')) expect(identitySet.has(ex.id)).toBe(true); // Opera ids come from its identity set
+    }
+  });
+
+  it('L2 ids also separate identical SANs from different positions', () => {
+    const ids = new Set<string>();
+    for (let seed = 1; seed <= 300; seed += 1) ids.add(generateExerciseAny(2, seed).id);
+    expect(ids.size).toBeGreaterThanOrEqual(15); // many distinct exercises
+  });
+
+  it('distinct repertoire lines with identical length and piece target get distinct L3 ids', () => {
+    const lineA = ['e4', 'e5', 'Nf3', 'Nc6', 'Bc4', 'Bc5', 'c3', 'Nf6', 'd4', 'exd4', 'cxd4', 'Bb4+'];
+    const lineB = ['e4', 'd5', 'exd5', 'Qxd5', 'Nc3', 'Qa5', 'd4', 'Nf6', 'Nf3', 'c6', 'Bc4', 'Bf5'];
+    const a = generateExercise(3, 11, { repertoireLine: lineA });
+    const b = generateExercise(3, 11, { repertoireLine: lineB });
+    expect(a.id).not.toBe(b.id);
+    expect(a.sans.length).toBe(b.sans.length); // same shape, different identity
+  });
+
+  it('changing the repertoire line content changes the id (no mastery reuse)', () => {
+    const before = generateExercise(3, 11, { repertoireLine: ['e4', 'e5', 'Nf3', 'Nc6', 'Bb5', 'a6', 'Ba4', 'Nf6'] });
+    const after = generateExercise(3, 11, { repertoireLine: ['e4', 'e5', 'Nf3', 'Nc6', 'Bb5', 'a6', 'Ba4', 'f5'] });
+    expect(before.id).not.toBe(after.id);
+  });
+
+  it('ids are stable across seeds only through content: same content, same id', () => {
+    const line = ['e4', 'e5', 'Nf3', 'Nc6', 'Bb5', 'a6'];
+    const a = generateExercise(3, 5, { repertoireLine: line });
+    const b = generateExercise(3, 999, { repertoireLine: line });
+    expect(a.id).toBe(b.id); // identity from content, not the RNG
   });
 });

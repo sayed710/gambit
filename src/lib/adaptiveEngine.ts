@@ -146,17 +146,16 @@ export function buildAdaptiveSession(src: AdaptiveSource = {}): AdaptiveItem[] {
     }
   }
 
-  items.sort((a, b) => b.score - a.score || b.createdAt - a.createdAt);
-  const capped = items.slice(0, 15);
-
-  // ——— visualization (blindfold): real progress, weakest level first
+  // ——— visualization (blindfold): real progress, weakest level first.
+  // MUST be scored before the unified sort/cap below — this competes with
+  // every other recommendation on equal terms.
   for (const [lvl, st] of Object.entries(src.blindfoldLevels ?? {})) {
-    if (st.attempted === 0) continue;
+    if (st.attempted === 0) continue; // no fabricated weakness for the untrained
     const rate = st.solved / st.attempted;
     if (rate >= 0.95) continue;
     const label = `Level ${lvl.replace('l', '')}`;
     items.push({
-      id: `visualization-l${lvl}`,
+      id: `visualization-${lvl}`,
       kind: 'visualization',
       reason: `Recommended because your blindfold ${label} success rate is ${Math.round(rate * 100)}% over ${st.attempted} exercise${st.attempted === 1 ? '' : 's'}.`,
       score: clampScore(12 + (1 - rate) * 25 + recencyBoost(st.lastPracticed, now)),
@@ -164,6 +163,9 @@ export function buildAdaptiveSession(src: AdaptiveSource = {}): AdaptiveItem[] {
       createdAt: st.lastPracticed ?? now,
     });
   }
+
+  items.sort((a, b) => b.score - a.score || b.createdAt - a.createdAt);
+  const capped = items.slice(0, 15);
 
   // thin queue -> light fillers round the session out
   if (capped.length < 5 && !capped.some((i) => i.kind === 'puzzle')) {

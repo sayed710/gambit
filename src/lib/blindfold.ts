@@ -37,6 +37,16 @@ export interface BfBlindMate {
 }
 export type BlindfoldExercise = BfSanToSquare | BfSanOrigin | BfTrackPieces | BfBlindMate;
 
+/** FNV-1a 32-bit over a string, hex — stable collision-resistant identity. */
+export function idHash(text: string): string {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < text.length; i += 1) {
+    h ^= text.charCodeAt(i);
+    h = (h + ((h << 1) >>> 0) + ((h << 4) >>> 0) + ((h << 7) >>> 0) + ((h << 8) >>> 0) + ((h << 24) >>> 0)) >>> 0;
+  }
+  return h.toString(16).padStart(8, '0');
+}
+
 /** deterministic PRNG (mulberry32) — same seed, same exercise */
 export function rng(seed: number): () => number {
   let a = seed >>> 0;
@@ -137,7 +147,9 @@ function generateExerciseImpl(level: BlindfoldLevel, seed: number, opts: Blindfo
     const steps = replaySteps(line.name === 'Fool’s mate' ? line.sans : line.sans);
     // early/mid moves only (first 16 plies): recognizable, not endgame scrambles
     const step = steps[Math.floor(r() * Math.min(steps.length, 16))];
-    const id = `l${level}:${line.name}:${step.san}`;
+    // identity = full source position + move — two identical SANs from
+    // different positions (the Opera Game's two dxe5) stay distinct
+    const id = `l${level}:${line.name}:${step.san}:${idHash(step.fenBefore + '|' + step.san)}`;
     return level === 1
       ? { kind: 'san-to-square', id, fen: step.fenBefore, san: step.san }
       : { kind: 'san-origin', id, fen: step.fenBefore, san: step.san };
@@ -168,9 +180,11 @@ function generateExerciseImpl(level: BlindfoldLevel, seed: number, opts: Blindfo
     }
     const candidates = [...byType.entries()].filter(([k, sqs]) => k[0] === 'w' && sqs.length <= 4 && (k[1] === 'p' || k[1] === 'n' || k[1] === 'b' || k[1] === 'r'));
     const [key] = pick(candidates.length > 0 ? candidates : [...byType.entries()]);
+    // identity = exact move sequence + queried piece/side — two different
+    // repertoire lines of equal length asking for the same piece stay distinct
     return {
       kind: 'track-pieces',
-      id: `l3:${sourceId}:${sans.length}:${key}`,
+      id: `l3:${sourceId}:${key}:${idHash(sans.join(' ') + '|' + key)}`,
       sans,
       askColor: key[0] as Color,
       askPiece: key.slice(1) as PieceSymbol,
@@ -179,7 +193,7 @@ function generateExerciseImpl(level: BlindfoldLevel, seed: number, opts: Blindfo
 
   // level 4
   const m = pick(MATE_IN_1);
-  return { kind: 'blind-mate', id: `l4:${m.name}`, fen: m.fen };
+  return { kind: 'blind-mate', id: `l4:${m.name}:${idHash(m.fen)}`, fen: m.fen };
 }
 
 /** All squares holding a color+piece after replaying sans (level-3 answer). */

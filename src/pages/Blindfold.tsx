@@ -83,6 +83,9 @@ export default function Blindfold() {
   const [selection, setSelection] = useState<Square | null>(null);
   const [typedAnswer, setTypedAnswer] = useState('');
   const [stats, setStats] = useState(() => loadTraining().blindfold);
+  /** L4 fair-study: the position is SHOWN for inspection first; grading
+   *  begins only after the user hides it. Studying is never a hint. */
+  const [studyOpen, setStudyOpen] = useState(false);
 
   const repertoireLine = useMemo(() => repertoireMainline(), [session?.ex.id]);
 
@@ -101,6 +104,7 @@ export default function Blindfold() {
           setRevealed(false);
           setSelection(null);
           setTypedAnswer('');
+          setStudyOpen(ex.kind === 'blind-mate');
           return;
         }
       }
@@ -111,6 +115,7 @@ export default function Blindfold() {
       setRevealed(false);
       setSelection(null);
       setTypedAnswer('');
+      setStudyOpen(ex.kind === 'blind-mate');
     },
     [repertoireLine],
   );
@@ -146,6 +151,7 @@ export default function Blindfold() {
   const onSquareClick = useCallback(
     (square: Square) => {
       if (!session || revealed) return;
+      if (session.ex.kind === 'blind-mate' && studyOpen) return; // study phase: no grading yet
       const ex = session.ex;
       if (ex.kind === 'san-to-square') {
         const res = gradeSanToSquare(ex, square);
@@ -172,12 +178,13 @@ export default function Blindfold() {
         setSelection(null);
       }
     },
-    [session, revealed, selection, record],
+    [session, revealed, studyOpen, selection, record],
   );
 
   /** type-in answering (L3) */
   const submitTyped = useCallback(() => {
     if (!session || session.ex.kind !== 'track-pieces' || revealed) return;
+    if (session.announced < session.ex.sans.length) return; // premature submission refused
     const ex = session.ex;
     const given = typedAnswer
       .split(/[,\s]+/)
@@ -221,6 +228,8 @@ export default function Blindfold() {
   const info = LEVEL_INFO[level];
   const ex = session?.ex;
   const isInputClick = ex?.kind === 'san-to-square' || ex?.kind === 'san-origin' || ex?.kind === 'blind-mate';
+  /** L3 gate: grading only ever sees the COMPLETE announced sequence. */
+  const allAnnounced = ex?.kind === 'track-pieces' ? (session?.announced ?? 0) >= ex.sans.length : true;
 
   /** the board position to render: hidden for click levels; for L3 the FINAL
    *  position only after grading (a reveal surface, never an input cheat) */
@@ -234,6 +243,9 @@ export default function Blindfold() {
     }
     return new Chess().fen();
   }, [ex, revealed]);
+
+  /** L4: pieces visible during the study phase, hidden once grading starts. */
+  const l4Visibility: 'full' | 'none' = studyOpen ? 'full' : 'none';
 
   const lastMoveForBoard = useMemo(() => {
     if (!ex || !revealed) return null;
@@ -286,7 +298,8 @@ export default function Blindfold() {
               boardId={`blindfold-${level}`}
               fen={boardFen}
               orientation="white"
-              pieceVisibility={revealed ? 'full' : info.visibility}
+              pieceVisibility={ex?.kind === 'blind-mate' && !revealed ? l4Visibility : revealed ? 'full' : info.visibility}
+              selectable={isInputClick && !(ex?.kind === 'blind-mate' && studyOpen)}
               lastMove={lastMoveForBoard}
               movableColor={null}
               onSquareClick={isInputClick ? (sq) => onSquareClick(sq) : undefined}
@@ -320,53 +333,96 @@ export default function Blindfold() {
               <div style={{ fontFamily: 'var(--serif)', fontSize: '1.6rem', fontWeight: 700 }}>{ex.san}</div>
             </div>
           )}
-          {ex?.kind === 'san-origin' && (
-            <div className="mt-2">
-              <div className="section-label">Move</div>
-              <div style={{ fontFamily: 'var(--serif)', fontSize: '1.6rem', fontWeight: 700 }}>{ex.san}</div>
-            </div>
-          )}
+          {ex?.kind === 'san-origin' && <OriginContext fen={ex.fen} san={ex.san} />}
           {ex?.kind === 'track-pieces' && (
             <div className="mt-2">
-              <div className="section-label">Line played</div>
+              <div className="section-label">
+                Line played — move {session?.announced ?? 0} of {ex.sans.length}
+              </div>
+              <progress
+                value={session?.announced ?? 0}
+                max={ex.sans.length}
+                aria-label={`Sequence progress: move ${session?.announced ?? 0} of ${ex.sans.length}`}
+                style={{ width: '100%', accentColor: 'var(--sea)' }}
+              />
               <ol className="small" style={{ margin: '0.2rem 0 0.6rem', paddingLeft: '1.2rem' }}>
-                {ex.sans.slice(0, session?.announced ?? ex.sans.length).map((san, i) => (
+                {ex.sans.slice(0, session?.announced ?? 0).map((san, i) => (
                   <li key={i}>{i % 2 === 0 ? `${i / 2 + 1}.` : ''} {san}</li>
                 ))}
               </ol>
-              {session && (session as { announced: number }).announced < ex.sans.length && (
+              <div className="row" style={{ gap: '0.4rem', flexWrap: 'wrap' }}>
+                {session && session.announced < ex.sans.length && (
+                  <button
+                    className="btn btn-ghost btn-sm"
+                    onClick={() => {
+                      setSession({ ...session, announced: session.announced + 1 });
+                      announce(`Move ${session.announced + 1}: ${ex.sans[session.announced]}`);
+                    }}
+                  >
+                    Play next move
+                  </button>
+                )}
                 <button
                   className="btn btn-ghost btn-sm"
                   onClick={() => {
-                    setSession({ ...session, announced: (session as { announced: number }).announced + 1 });
-                    announce(`Move ${(session.announced + 1)}: ${ex.sans[session.announced]}`);
+                    if (!session) return;
+                    setSession({ ...session, announced: 1 }); // restart the announcement from move 1
+                    announce(`Restarting — move 1: ${ex.sans[0]}`);
                   }}
                 >
-                  Play next move
+                  Restart line
                 </button>
-              )}
+              </div>
               <label className="small mt-2 row" style={{ gap: '0.4rem' }}>
                 Every square with a white {ex.askPiece}:
                 <input
                   className="input"
                   value={typedAnswer}
                   onChange={(e) => setTypedAnswer(e.target.value)}
-                  onKeyDown={(e) => e.key === 'Enter' && submitTyped()}
+                  onKeyDown={(e) => e.key === 'Enter' && allAnnounced && submitTyped()}
                   placeholder="e2, d2, a2 …"
                   aria-label="Type the squares, comma separated"
+                  disabled={!allAnnounced}
                 />
               </label>
-              <button className="btn btn-primary btn-sm mt-1" onClick={submitTyped} disabled={revealed}>
+              <button
+                className="btn btn-primary btn-sm mt-1"
+                onClick={submitTyped}
+                disabled={revealed || !allAnnounced}
+                title={!allAnnounced ? 'Announce every move of the line first — grading grades the FULL announced position.' : undefined}
+              >
                 Check answer
               </button>
+              {!allAnnounced && (
+                <p className="small muted" style={{ margin: '0.3rem 0 0' }}>
+                  The answer input opens only after the whole line is announced — grading always grades the complete position.
+                </p>
+              )}
             </div>
           )}
           {ex?.kind === 'blind-mate' && (
             <div className="mt-2">
               <div className="section-label">Find mate</div>
-              <p className="small" style={{ margin: 0 }}>
-                {selection ? `From ${selection} — now click the destination.` : 'Click the FROM square, then the destination. Any true mate counts.'}
-              </p>
+              {studyOpen ? (
+                <>
+                  <p className="small" style={{ margin: 0 }}>
+                    Study phase: the position is on the board. Memorize it — when you hide it, the pieces disappear and you must find mate from memory. Studying is not a hint.
+                  </p>
+                  <button
+                    className="btn btn-primary btn-sm mt-1"
+                    onClick={() => {
+                      setStudyOpen(false);
+                      setSelection(null);
+                    }}
+                  >
+                    Hide the board and start
+                  </button>
+                </>
+              ) : (
+                <p className="small" style={{ margin: 0 }}>
+                  {selection ? `From ${selection} — now click the destination.` : 'Board hidden. Click the FROM square, then the destination. Any true mate counts.'}
+                </p>
+              )}
             </div>
           )}
 
@@ -385,6 +441,34 @@ export default function Blindfold() {
           </p>
         </aside>
       </div>
+    </div>
+  );
+}
+
+/** L2 fair context: the position's last move (and side to move) so an
+ *  ambiguous SAN can be resolved mentally without seeing the board. */
+function OriginContext({ fen, san }: { fen: string; san: string }) {
+  const context = useMemo(() => {
+    try {
+      const g = new Chess(fen);
+      const hist = g.history({ verbose: true });
+      const last = hist[hist.length - 1];
+      const side = g.turn() === 'w' ? 'White' : 'Black';
+      return {
+        lastText: last ? `Previous move: ${Math.ceil(hist.length / 2)}${hist.length % 2 === 1 ? '.' : '...'} ${last.san}` : 'Starting position — no moves played yet.',
+        askText: `${side} to play move ${Math.ceil(hist.length / 2) + 1}:`,
+      };
+    } catch {
+      return { lastText: '', askText: '' };
+    }
+  }, [fen]);
+  return (
+    <div className="mt-2">
+      <div className="section-label">Move</div>
+      <div style={{ fontFamily: 'var(--serif)', fontSize: '1.6rem', fontWeight: 700 }}>{san}</div>
+      <p className="small muted" style={{ margin: '0.3rem 0 0' }}>
+        {context.lastText} · {context.askText}
+      </p>
     </div>
   );
 }
