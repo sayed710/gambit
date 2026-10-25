@@ -49,12 +49,16 @@ export function ProfileProvider({ children }: { children: ReactNode }) {
 
   const recordGame = useCallback((record: GameRecord) => {
     setProfile((p) => {
-      const rating = record.ratingAfter;
+      // rating integrity: unrated games (personas, pass & play) persist with
+      // full data but never touch rating/peakRating/ratingHistory. Legacy
+      // records without the field are treated as rated (backward compatible).
+      const isRated = record.rated !== false;
+      const rating = isRated ? record.ratingAfter : p.rating;
       return {
         ...p,
         rating,
         peakRating: Math.max(p.peakRating, rating),
-        ratingHistory: [...p.ratingHistory.slice(-99), rating],
+        ratingHistory: isRated ? [...p.ratingHistory.slice(-99), rating] : p.ratingHistory,
         games: [record, ...p.games].slice(0, 50),
       };
     });

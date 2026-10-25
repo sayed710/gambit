@@ -78,6 +78,8 @@ export interface PersonaCandidate {
   mate: number | null;
   depth: number;
   pvSan: string[];
+  /** UCI lowerbound/upperbound score — not a precise cp, never compared */
+  bounded?: boolean;
 }
 
 export type ClassicLevel = 1 | 2 | 3 | 4;
@@ -205,7 +207,15 @@ export interface SelectionResult {
   /** honest provenance for the UI: which path produced the move */
   via: 'persona' | 'classic-weighted' | 'engine-best' | 'fallback';
   /** why a persona choice did not happen (for tests and honest UI) */
-  reason?: 'no-persona' | 'too-few-candidates' | 'forced-mate' | 'mixed-mate-cp' | 'depth-inconsistent' | 'all-above-ceiling' | 'illegal-candidates';
+  reason?:
+    | 'no-persona'
+    | 'too-few-candidates'
+    | 'forced-mate'
+    | 'mixed-mate-cp'
+    | 'depth-inconsistent'
+    | 'all-above-ceiling'
+    | 'illegal-candidates'
+    | 'bestmove-unlisted';
 }
 
 /** Validate candidates: legality, dedupe by root uci, completeness. */
@@ -247,7 +257,32 @@ export function resolveEngineChoice(input: SelectionInput): SelectionResult {
 
   // ——— persona path ———
   const valid = validCandidates(fen, candidates);
-  const best = valid.find((c) => c.uci === bestmoveUci) ?? valid[0] ?? null;
+
+  // The engine's OWN bestmove is authoritative. If it is legal but is NOT
+  // among the (valid, comparable) candidates, we return it directly — never
+  // silently substitute the first candidate, never attach another line's
+  // score/SAN/depth/PV to it.
+  const bestmoveIsLegal = (() => {
+    if (!bestmoveUci) return false;
+    try {
+      new Chess(fen).move({ from: bestmoveUci.slice(0, 2), to: bestmoveUci.slice(2, 4), promotion: bestmoveUci.slice(4, 5) || undefined });
+      return true;
+    } catch {
+      return false;
+    }
+  })();
+  const listed = valid.find((c) => c.uci === bestmoveUci) ?? null;
+  if (bestmoveIsLegal && !listed) {
+    // real engine move, no verified scoring metadata belongs to it here —
+    // return the move with null candidate (no fabricated values)
+    return { uci: bestmoveUci, candidate: null, via: 'engine-best', reason: 'bestmove-unlisted' };
+  }
+  if (!bestmoveIsLegal && !listed) {
+    // engine produced nothing usable — caller keeps its own bestmove or
+    // falls back to a legal move; we must not pick anything
+    return { uci: null, candidate: null, via: 'fallback', reason: 'bestmove-unlisted' };
+  }
+  const best = listed;
   if (valid.length < 2 || !best) {
     return { uci: bestmoveUci ?? valid[0]?.uci ?? null, candidate: best, via: 'fallback', reason: 'too-few-candidates' };
   }
@@ -262,8 +297,17 @@ export function resolveEngineChoice(input: SelectionInput): SelectionResult {
     return { uci: best.uci, candidate: best, via: 'engine-best', reason: 'mixed-mate-cp' };
   }
 
-  // depth consistency: only compare candidates evaluated at the best line's depth
-  const comparable = valid.filter((c) => c.depth === best.depth);
+  // bounded scores (lowerbound/upperbound) are not precise centipawns —
+  // excluded from stylistic comparison entirely
+  if (valid.some((c) => c.bounded)) {
+    const unbounded = valid.filter((c) => !c.bounded);
+    if (unbounded.length < 2) {
+      return { uci: best.uci, candidate: best, via: 'engine-best', reason: 'depth-inconsistent' };
+    }
+  }
+  // depth consistency: only compare candidates evaluated at the best line's
+  // depth AND carrying precise (non-bounded) scores
+  const comparable = valid.filter((c) => c.depth === best.depth && !c.bounded);
   if (comparable.length < 2) {
     return { uci: best.uci, candidate: best, via: 'engine-best', reason: 'depth-inconsistent' };
   }

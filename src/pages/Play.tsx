@@ -334,7 +334,8 @@ function GameScreen({
     // rating integrity: persona games are UNRATED — they appear in history
     // with full data but never move the Play rating
     const personaActive = config.mode === 'ai' && !!config.persona && config.persona !== 'stockfish';
-    const rated = config.mode !== 'ai' || !personaActive;
+    // pass & play has no opponent rating to contest — explicitly unrated
+    const rated = config.mode === 'ai' && !personaActive;
     let delta = 0;
     if (config.mode === 'ai' && rated) {
       const expected = 1 / (1 + 10 ** ((opponentRating - profile.rating) / 400));
@@ -507,12 +508,19 @@ function GameScreen({
   const topColor: Color = orientation === 'white' ? 'b' : 'w';
   const bottomColor: Color = orientation === 'white' ? 'w' : 'b';
   const youName = settings.name || 'You';
+  const personaActive = config.mode === 'ai' && !!config.persona && config.persona !== 'stockfish';
   const nameFor = (c: Color) => {
     if (config.mode === 'pass') return c === 'w' ? 'White' : 'Black';
-    return c === playerColor ? youName : `Engine · ${['Gentle', 'Casual', 'Club', 'Sharp'][config.aiLevel - 1]}`;
+    return c === playerColor
+      ? youName
+      : personaActive
+        ? `Engine · ${PERSONAS[config.persona!].name}`
+        : `Engine · ${['Gentle', 'Casual', 'Club', 'Sharp'][config.aiLevel - 1]}`;
   };
   const ratingFor = (c: Color) => {
     if (config.mode === 'pass') return null;
+    // persona opponents have no calibrated Elo — the player bar shows Unrated
+    if (c !== playerColor && personaActive) return null;
     return c === playerColor ? profile.rating : LEVEL_RATINGS[config.aiLevel];
   };
 

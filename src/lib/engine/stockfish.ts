@@ -176,6 +176,8 @@ interface InfoLine {
   depth: number;
   multipv: number;
   pv: string[];
+  /** true when the score was a UCI lowerbound/upperbound — not comparable */
+  bounded: boolean;
 }
 
 function parseInfo(line: string): InfoLine | null {
@@ -185,12 +187,16 @@ function parseInfo(line: string): InfoLine | null {
   const mateMatch = line.match(/score mate (-?\d+)/);
   const mpvMatch = line.match(/multipv (\d+)/);
   const pv = line.split(' pv ')[1]?.trim().split(/\s+/) ?? [];
+  // UCI bounded scores: 'score cp X lowerbound/upperbound' are NOT precise
+  // evaluations — they must never be compared as centipawns
+  const bounded = line.includes(' lowerbound') || line.includes(' upperbound');
   return {
     cp: cpMatch ? parseInt(cpMatch[1], 10) : null,
     mate: mateMatch ? parseInt(mateMatch[1], 10) : null,
     depth: depthMatch ? parseInt(depthMatch[1], 10) : 0,
     multipv: mpvMatch ? parseInt(mpvMatch[1], 10) : 1,
     pv,
+    bounded,
   };
 }
 

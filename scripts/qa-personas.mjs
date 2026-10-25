@@ -191,6 +191,24 @@ async function run() {
   log('offline fallback: legacy engine answers AND the UI says persona style is NOT applied', legacyReply && honestNote, `replied=${legacyReply} note=${honestNote}`);
   await ctxC.close();
 
+  /* ---------- unrated ratingHistory integrity ---------- */
+  const history = await page.evaluate(() => JSON.parse(localStorage.getItem('gambit.profile') ?? '{}').ratingHistory ?? []);
+  const ratingNow = await page.evaluate(() => JSON.parse(localStorage.getItem('gambit.profile') ?? '{}').rating);
+  log('ratingHistory: unchanged by the persona game (only the 1200 seed)', history.length === 1 && history[0] === 1200 && ratingNow === 1200, JSON.stringify({ history, ratingNow }));
+
+  /* ---------- player bars + labels: no persona Elo, Unrated shown ---------- */
+  const barOk = await page.evaluate(() => {
+    const t = document.body.textContent ?? '';
+    return t.includes('Unrated') && !t.includes('~1200');
+  });
+  log('labels: Unrated chip shown, no persona Elo estimate', barOk);
+
+  /* ---------- profile history identifies the persona opponent ---------- */
+  await page.goto(`${BASE}/#/profile`);
+  await page.waitForTimeout(500);
+  const historyName = await page.evaluate(() => document.body.textContent.includes('Engine · Blizzard'));
+  log('profile history: identifies Engine · Blizzard', historyName);
+
   /* ---------- stale persona across restart ---------- */
   await page.goto(`${BASE}/#/training`);
   await page.evaluate(() => {

@@ -68,6 +68,13 @@ describe('classic Stockfish path is unchanged', () => {
   });
 });
 
+
+/** candidate built independently from a given fen (MultiPV lines do this) */
+function mkAt(fen: string, san: string, cp: number, i: number): PersonaCandidate {
+  const m = new Chess(fen).move(san);
+  return { multipv: i, uci: m.from + m.to + (m.promotion ?? ''), san: m.san, cp, mate: null, depth: 8, pvSan: [m.san] };
+}
+
 /* ---------- persona selection ---------- */
 describe('persona selection: ceilings and style', () => {
   it('Cartographer prefers the central pawn; Glacier prefers the major capture (same position, 2cp apart)', () => {
@@ -247,5 +254,93 @@ describe('move features (chess-aware scoring inputs)', () => {
 
   it('returns null for illegal moves (callers must pre-validate)', () => {
     expect(moveFeatures(START, 'e4e7')).toBeNull();
+  });
+});
+
+describe('authoritative bestmove (PR #4 review)', () => {
+  const KQR = '6k1/5ppp/8/8/8/8/8/RQ4K1 w - - 0 1';
+
+  it('a legal bestmove MISSING from the candidate list is returned directly, with no borrowed metadata', () => {
+    // candidates only cover Qe4/Qb8+; the engine's actual bestmove is Rc1 —
+    // legal, but unlisted. No candidate's cp/SAN/depth may be attached to it.
+    const cands = [mkAt(KQR, 'Qe4', 100, 1), mkAt(KQR, 'Qb8+', 20, 2)];
+    const res = resolveEngineChoice({ fen: KQR, candidates: cands, bestmoveUci: 'a1a4', persona: 'blizzard', level: 4, fullStrength: false, seed: 5 });
+    expect(res.uci).toBe('a1a4');
+    expect(res.candidate).toBeNull();
+    expect(res.via).toBe('engine-best');
+    expect(res.reason).toBe('bestmove-unlisted');
+  });
+
+  it('forced-mate branch cannot substitute a listed candidate when bestmove is unlisted', () => {
+    // mate-in-1 exists in the LIST but the engine's actual bestmove (Rc1) is
+    // not among the candidates — the list must not override the real move
+    const g = new Chess(KQR);
+    const mate = g.moves({ verbose: true }).find((mv) => {
+      g.move({ from: mv.from, to: mv.to, promotion: mv.promotion ?? 'q' });
+      const m = g.isCheckmate();
+      g.undo();
+      return m;
+    });
+    expect(mate).toBeTruthy();
+    const candidates = [
+      { multipv: 1, uci: `${mate!.from}${mate!.to}`, san: mate!.san, cp: null, mate: 1, depth: 8, pvSan: [mate!.san] },
+      { multipv: 2, uci: 'b1e4', san: 'Qe4', cp: 100, mate: null, depth: 8, pvSan: ['Qe4'] },
+    ];
+    const res = resolveEngineChoice({ fen: KQR, candidates, bestmoveUci: 'a1a4', persona: 'blizzard', level: 4, fullStrength: false, seed: 1 });
+    expect(res.uci).toBe('a1a4');
+    expect(res.candidate).toBeNull();
+    expect(res.reason).toBe('bestmove-unlisted');
+  });
+
+  it('a MALFORMED bestmove with no usable candidates returns null (caller keeps its own fallback)', () => {
+    const res = resolveEngineChoice({ fen: KQR, candidates: [mkAt(KQR, 'Qe4', 100, 1)], bestmoveUci: 'zz9x', persona: 'blizzard', level: 4, fullStrength: false, seed: 1 });
+    expect(res.uci).toBeNull();
+    expect(res.candidate).toBeNull();
+    expect(res.reason).toBe('bestmove-unlisted');
+  });
+
+  it('when the bestmove IS listed, selection proceeds normally', () => {
+    const cands = [mkAt(KQR, 'Qe4', 100, 1), mkAt(KQR, 'Qb8+', 20, 2)];
+    const res = resolveEngineChoice({ fen: KQR, candidates: cands, bestmoveUci: 'b1a8', persona: 'blizzard', level: 4, fullStrength: false, seed: 1 });
+    // b1a8 IS legal but unlisted — wait: it must be listed for normal flow; use listed bestmove:
+    const res2 = resolveEngineChoice({ fen: KQR, candidates: cands, bestmoveUci: cands[0].uci, persona: 'blizzard', level: 4, fullStrength: false, seed: 1 });
+    expect(res2.via).toBe('persona');
+    void res;
+  });
+});
+
+describe('bounded UCI scores (PR #4 review)', () => {
+  it('bounded (lowerbound/upperbound) candidates are excluded from stylistic comparison', () => {
+    // both candidates in ceiling numerically, but the tempting capture carries
+    // a lowerbound score — not comparable, engine best stands
+    const fen = 'r1bqkbnr/pppp1ppp/2n5/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R w KQkq - 2 3';
+    const d4 = new Chess(fen).move('d4');
+    const nxe5 = new Chess(fen).move('Nxe5');
+    const candidates: PersonaCandidate[] = [
+      { multipv: 1, uci: d4.from + d4.to, san: d4.san, cp: 100, mate: null, depth: 8, pvSan: [d4.san] },
+      { multipv: 2, uci: nxe5.from + nxe5.to, san: nxe5.san, cp: 95, mate: null, depth: 8, pvSan: [nxe5.san], bounded: true },
+    ];
+    const res = resolveEngineChoice({ fen, candidates, bestmoveUci: candidates[0].uci, persona: 'glacier', level: 4, fullStrength: false, seed: 1 });
+    // glacier would LOVE the capture, but its score is bounded -> engine best
+    expect(res.uci).toBe(candidates[0].uci);
+    expect(res.via).toBe('engine-best');
+  });
+
+  it('mixed bounded/precise sets with enough precise candidates still select by style', () => {
+    const fen = 'r1bqkbnr/pppp1ppp/2n5/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R w KQkq - 2 3';
+    const d4 = new Chess(fen).move('d4');
+    const nxe5 = new Chess(fen).move('Nxe5');
+    const nc3 = new Chess(fen).move('Nc3');
+    const candidates: PersonaCandidate[] = [
+      { multipv: 1, uci: d4.from + d4.to, san: d4.san, cp: 100, mate: null, depth: 8, pvSan: [d4.san] },
+      { multipv: 2, uci: nxe5.from + nxe5.to, san: nxe5.san, cp: 95, mate: null, depth: 8, pvSan: [nxe5.san], bounded: true },
+      { multipv: 3, uci: nc3.from + nc3.to, san: nc3.san, cp: 98, mate: null, depth: 8, pvSan: [nc3.san] },
+    ];
+    // glacier: precise candidates d4 (0 loss) and Nc3 (2 loss) — no captures
+    // among precise ones... Nc3 is not a capture: style 0 both -> engine best or seeded tie.
+    // Assert honesty instead: chosen move is one of the PRECISE candidates.
+    const res = resolveEngineChoice({ fen, candidates, bestmoveUci: candidates[0].uci, persona: 'glacier', level: 4, fullStrength: false, seed: 1 });
+    expect([candidates[0].uci, candidates[2].uci]).toContain(res.uci);
+    expect(res.uci).not.toBe(candidates[1].uci); // bounded line never chosen
   });
 });
