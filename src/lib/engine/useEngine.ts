@@ -82,7 +82,9 @@ export function useEngine() {
       } catch {
         // Stockfish unavailable — fall through to the bundled engine
       }
-      return legacyRequest<SearchResult | null>({ type: 'search', fen, level, recentFens });
+      const legacy = await legacyRequest<SearchResult | null>({ type: 'search', fen, level, recentFens });
+      if (legacy) return { ...legacy, engine: 'legacy' as const }; // honesty: no persona styling applies
+      return legacy;
     },
     [legacyRequest],
   );
