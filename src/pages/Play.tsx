@@ -12,6 +12,7 @@ import { useGame } from '../hooks/useGame';
 import { useClickToMove } from '../hooks/useClickToMove';
 import type { GameOverInfo } from '../hooks/useGame';
 import { LEVEL_RATINGS } from '../lib/engine/engine';
+import { PERSONAS, isPersonaId, type EnginePersonaId } from '../lib/engine/personas';
 import type { Level } from '../lib/engine/engine';
 import { DEFAULT_TIME_CONTROL, TIME_CONTROLS, timeControlById, NO_CLOCK } from '../data/timeControls';
 import { Chess } from 'chess.js';
@@ -34,8 +35,10 @@ function SetupScreen({ onStart, last }: { onStart: (c: GameConfig) => void; last
   const [tcId, setTcId] = useState(last.timeControl.id);
   const [color, setColor] = useState<'w' | 'b' | 'random'>(last.playerColor);
   const [level, setLevel] = useState<Level>(last.aiLevel);
+  const [persona, setPersona] = useState<EnginePersonaId>(last.persona ?? 'stockfish');
 
   const timeControl = timeControlById(tcId);
+  const personaActive = mode === 'ai' && persona !== 'stockfish';
 
   const tempoGroups = [
     { name: 'Bullet', items: TIME_CONTROLS.filter(t => t.category === 'Bullet'), icon: '⚡' },
@@ -55,7 +58,7 @@ function SetupScreen({ onStart, last }: { onStart: (c: GameConfig) => void; last
         className="quickplay-grid"
         onSubmit={(e) => {
           e.preventDefault();
-          onStart({ mode, timeControl, playerColor: mode === 'pass' ? 'w' : color, aiLevel: level });
+          onStart({ mode, timeControl, playerColor: mode === 'pass' ? 'w' : color, aiLevel: level, persona: personaActive ? persona : undefined });
         }}
       >
         <div className="mode-rail">
@@ -122,11 +125,35 @@ function SetupScreen({ onStart, last }: { onStart: (c: GameConfig) => void; last
                       </span>
                       <span className="t">{['Gentle', 'Casual', 'Club', 'Sharp'][l - 1]}</span>
                       <span className="d mono" style={{ marginLeft: 'auto' }}>
-                        ~{LEVEL_RATINGS[l]}
+                        {personaActive ? '' : `~${LEVEL_RATINGS[l]}`}
                       </span>
                     </button>
                   ))}
                 </div>
+                <div className="section-label" style={{ marginTop: '0.6rem' }}>Opponent style</div>
+                <div className="col" style={{ gap: '0.45rem' }}>
+                  {(['stockfish', 'cartographer', 'blizzard', 'glacier'] as EnginePersonaId[]).map((id) => {
+                    const def = PERSONAS[id];
+                    return (
+                      <button
+                        type="button"
+                        key={id}
+                        className={`mode-card${persona === id ? ' on' : ''}`}
+                        style={{ padding: '0.6rem 0.9rem', flexDirection: 'column', alignItems: 'flex-start', gap: '0.15rem' }}
+                        onClick={() => setPersona(id)}
+                        aria-pressed={persona === id}
+                      >
+                        <span className="t">{def.name}</span>
+                        <span className="d" style={{ whiteSpace: 'normal' }}>{def.description}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+                {personaActive && (
+                  <p className="small muted" style={{ margin: '0.4rem 0 0' }} role="note">
+                    Persona games are <strong>Unrated</strong> — your Play rating never changes. Strength still follows the selected engine level.
+                  </p>
+                )}
               </>
             ) : (
               <>
@@ -272,6 +299,7 @@ function GameScreen({
     turn,
     over,
     thinking,
+    engineUsed,
     pendingPromotion,
     captured,
     checkInfo,
@@ -303,8 +331,12 @@ function GameScreen({
     const score = info.winnerColor === null ? 0.5 : info.winnerColor === playerColor ? 1 : 0;
     const result: 'win' | 'loss' | 'draw' = score === 1 ? 'win' : score === 0.5 ? 'draw' : 'loss';
     const opponentRating = config.mode === 'ai' ? LEVEL_RATINGS[config.aiLevel] : 1200;
+    // rating integrity: persona games are UNRATED — they appear in history
+    // with full data but never move the Play rating
+    const personaActive = config.mode === 'ai' && !!config.persona && config.persona !== 'stockfish';
+    const rated = config.mode !== 'ai' || !personaActive;
     let delta = 0;
-    if (config.mode === 'ai') {
+    if (config.mode === 'ai' && rated) {
       const expected = 1 / (1 + 10 ** ((opponentRating - profile.rating) / 400));
       delta = Math.round(24 * (score - expected));
     }
@@ -314,7 +346,7 @@ function GameScreen({
       mode: config.mode,
       timeControl: config.timeControl,
       playerColor,
-      opponentName: config.mode === 'ai' ? `Engine · ${['Gentle', 'Casual', 'Club', 'Sharp'][config.aiLevel - 1]}` : 'Pass & play',
+      opponentName: config.mode === 'ai' ? `Engine · ${personaActive ? PERSONAS[config.persona!].name : ['Gentle', 'Casual', 'Club', 'Sharp'][config.aiLevel - 1]}` : 'Pass & play',
       opponentRating,
       result,
       reason: info.reason,
@@ -326,6 +358,8 @@ function GameScreen({
       moveTimings: game.getMoveTimings(),
       ratingBefore: profile.rating,
       ratingAfter: profile.rating + delta,
+      persona: personaActive ? config.persona : undefined,
+      rated,
     };
     recordGame(record);
     setRecordId(record.id);
@@ -590,10 +624,18 @@ function GameScreen({
             <div className="section-label">
               Game
               <span className="small muted">
-                {config.mode === 'ai' ? 'vs Engine' : 'Pass & play'} ·{' '}
-                {unlimited ? 'No clock' : `${config.timeControl.minutes}+${config.timeControl.increment}`}
+                {config.mode === 'ai'
+                  ? `vs ${config.persona && config.persona !== 'stockfish' ? PERSONAS[config.persona].name : 'Engine'}`
+                  : 'Pass & play'}{' '}
+                · {unlimited ? 'No clock' : `${config.timeControl.minutes}+${config.timeControl.increment}`}
+                {config.mode === 'ai' && config.persona && config.persona !== 'stockfish' && ' · Unrated'}
               </span>
             </div>
+            {config.mode === 'ai' && config.persona && config.persona !== 'stockfish' && engineUsed === 'legacy' && (
+              <p className="small" role="note" style={{ margin: 0, color: 'var(--bad)' }}>
+                Stockfish is unavailable — the built-in fallback engine is answering, so this opponent is not playing its personality style.
+              </p>
+            )}
             <MoveList plies={plies} resultLabel={over ? `${verdict} (${why})` : null} />
             <div className="row wrap" style={{ gap: '0.45rem' }}>
               <button className="btn btn-ghost btn-sm" onClick={undo} disabled={!canUndo} title="Take back your last move">
@@ -705,7 +747,11 @@ const LAST_CONFIG_KEY = 'lastConfig';
 export default function Play() {
   const location = useLocation();
   const navigate = useNavigate();
-  const [config, setConfig] = useState<GameConfig | null>(() => loadJSON<GameConfig | null>(LAST_CONFIG_KEY, null));
+  const [config, setConfig] = useState<GameConfig | null>(() => {
+    const stored = loadJSON<GameConfig | null>(LAST_CONFIG_KEY, null);
+    if (stored?.persona && !isPersonaId(stored.persona)) delete stored.persona; // corrupt/unknown — classic
+    return stored;
+  });
   const [resume, setResume] = useState<SavedGame | null>(null);
   const [gameKey, setGameKey] = useState(0);
   const saved = loadJSON<(SavedGame & { savedAt: number }) | null>(ACTIVE_GAME_KEY, null);

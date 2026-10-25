@@ -9,6 +9,7 @@
    ============================================================ */
 
 import { Chess } from 'chess.js';
+import { isPersonaId } from '../engine/personas';
 import { buildIntegrity } from './exportBackup';
 import {
   ALL_SECTIONS,
@@ -149,6 +150,8 @@ function validateGameRecord(game: unknown, i: number): void {
     const tc = game.timeControl as Record<string, unknown>;
     if (!isPlainObject(tc) || !isNum(tc.minutes) || !isNum(tc.increment)) fail('profile', `game ${game.id}: bad time control`);
   }
+  if (game.persona !== undefined && !isPersonaId(game.persona)) fail('profile', `game ${game.id}: unknown persona`);
+  if (game.rated !== undefined && typeof game.rated !== 'boolean') fail('profile', `game ${game.id}: rated is not a boolean`);
 }
 
 const validateProfile: SectionValidator = (v) => {
@@ -296,10 +299,15 @@ const validateActiveGame: SectionValidator = (v) => {
   } catch {
     fail('activeGame', 'unreadable PGN');
   }
+  const cfg = v.config;
+  if (cfg !== undefined && isPlainObject(cfg) && cfg.persona !== undefined && !isPersonaId(cfg.persona)) {
+    fail('activeGame', 'unknown persona in config');
+  }
 };
 
 const validateLastConfig: SectionValidator = (v) => {
   if (!isPlainObject(v)) fail('lastConfig', 'not an object');
+  if (v.persona !== undefined && !isPersonaId(v.persona)) fail('lastConfig', 'unknown persona');
 };
 
 const SECTION_VALIDATORS: Partial<Record<string, SectionValidator>> = {

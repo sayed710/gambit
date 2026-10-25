@@ -1,5 +1,6 @@
 import { Chess } from 'chess.js';
 import type { Level } from './engine';
+import { resolveEngineChoice, personaSeed, type EnginePersonaId, type PersonaCandidate } from './personas';
 
 /**
  * Stockfish 18 (lite, single-threaded WASM) running as a raw UCI worker.
@@ -12,6 +13,8 @@ export interface SFLine {
   cp: number | null;
   mate: number | null;
   depth: number;
+  /** root move in UCI, e.g. "e2e4" or "e7e8q" — from the engine's actual PV */
+  uci: string | null;
   san: string | null;
   pvSan: string[];
 }
@@ -209,6 +212,9 @@ export interface SFOptions {
   multipv?: number;
   /** full-strength search: skill 20, no low-level sampling */
   fullStrength?: boolean;
+  /** personality selection over MultiPV candidates; omitted/'stockfish'
+   *  keeps the classic behavior exactly */
+  persona?: EnginePersonaId;
 }
 
 /** Run one Stockfish search. Resolves with the chosen move + final score. */
@@ -221,7 +227,10 @@ export async function sfSearch(fen: string, opts: SFOptions = {}): Promise<SFSea
         const cfg = SF_LEVELS[level];
         const depth = opts.depth ?? cfg.depth;
         const movetime = opts.movetime ?? cfg.movetime;
-        const multipv = opts.multipv ?? cfg.multipv;
+        // persona selection needs candidates at every level; classic callers
+        // keep their exact configured MultiPV. Depth/movetime never change.
+        const multipv =
+          opts.multipv ?? (opts.persona && opts.persona !== 'stockfish' ? Math.max(cfg.multipv, 3) : cfg.multipv);
         const fullStrength = opts.fullStrength ?? false;
         const useMulti = multipv > 1;
 
@@ -238,10 +247,41 @@ export async function sfSearch(fen: string, opts: SFOptions = {}): Promise<SFSea
           if (line.startsWith('bestmove')) {
             if (!sentGo) return;
             bestmoveUci = line.split(/\s+/)[1] ?? null;
-            // pick from MultiPV candidates on low levels
+            const personaActive = !!opts.persona && opts.persona !== 'stockfish';
+            // pick from MultiPV candidates on low levels (classic), or via the
+            // personality selector when a persona is active
             let chosenUci = bestmoveUci;
             let chosen = best.get(1) ?? null;
-            if (useMulti && best.size > 1 && !fullStrength) {
+            if (personaActive && useMulti && best.size > 1) {
+              const candidateList: PersonaCandidate[] = [...best.entries()]
+                .sort((a, b) => a[0] - b[0])
+                .map(([mpv, info]) => {
+                  const rootUci = info.pv[0] ?? '';
+                  return {
+                    multipv: mpv,
+                    uci: rootUci,
+                    san: pvToSan(fen, info.pv.slice(0, 1))[0] ?? null as string | null,
+                    cp: info.cp,
+                    mate: info.mate,
+                    depth: info.depth,
+                    pvSan: pvToSan(fen, info.pv, 10),
+                  };
+                });
+              const choice = resolveEngineChoice({
+                fen,
+                candidates: candidateList,
+                bestmoveUci,
+                persona: opts.persona!,
+                level,
+                fullStrength,
+                seed: personaSeed(fen),
+              });
+              if (choice.uci) {
+                chosenUci = choice.uci;
+                chosen = best.get(choice.candidate?.multipv ?? 1) ?? chosen;
+              }
+              // choice.uci === null: keep the engine's own bestmove (honest fallback)
+            } else if (useMulti && best.size > 1 && !fullStrength) {
               const entries = [...best.entries()].sort((a, b) => a[0] - b[0]).map(([, v]) => v);
               const pick = pickWeighted(entries, cfg.weights);
               if (pick && pick.pv[0]) {
@@ -257,6 +297,7 @@ export async function sfSearch(fen: string, opts: SFOptions = {}): Promise<SFSea
                 cp: info.cp,
                 mate: info.mate,
                 depth: info.depth,
+                uci: info.pv[0] ?? null,
                 san: pvToSan(fen, info.pv.slice(0, 1))[0] ?? null,
                 pvSan: pvToSan(fen, info.pv, 10),
               }));
