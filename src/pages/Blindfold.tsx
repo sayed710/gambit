@@ -53,26 +53,38 @@ function repertoireMainline(): { sans: string[]; startFen: string; key: string }
   const reps = loadRepertoires();
   for (const rep of reps) {
     for (const line of rep.lines) {
-      if (typeof line.tree.startFen !== 'string' || line.tree.startFen.length === 0) continue; // malformed source: skip
+      // 1) the starting FEN must actually load through chess.js
+      const startFen = line.tree.startFen;
+      if (typeof startFen !== 'string' || startFen.length === 0) continue;
+      let g: Chess;
+      try {
+        g = new Chess(startFen);
+      } catch {
+        continue; // invalid FEN — skip this line, keep looking
+      }
+      // 2) replay every preferred-line SAN LEGALLY from that real start;
+      //    one inconsistent move rejects the whole line
       const sans: string[] = [];
       let id: string | null = null;
-      let ok = true;
+      let valid = true;
       for (;;) {
         const next = expectedChildAt(line, id);
         if (!next) break;
         try {
+          g.move(next.san);
           sans.push(next.san);
         } catch {
-          ok = false;
+          valid = false;
           break;
         }
         id = next.id;
         if (sans.length >= 12) break;
       }
-      if (ok && sans.length >= 6) return { sans, startFen: line.tree.startFen, key: `${rep.id}:${line.id}` };
+      // 3) usable lines only; anything rejected keeps the search going
+      if (valid && sans.length >= 6) return { sans, startFen, key: `${rep.id}:${line.id}` };
     }
   }
-  return null;
+  return null; // no usable repertoire line — curated fallback
 }
 
 interface SessionState {

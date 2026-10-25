@@ -287,48 +287,55 @@ async function run() {
     log('SR: the two Opera dxe5 positions hold SEPARATE records', true, `(${dxe5Keys.length} encountered this session — identity covered by unit tests)`);
   }
 
-  /* ---------- custom-FEN repertoire L3 (option A) ---------- */
+  /* ---------- custom-FEN repertoire L3: REAL tree, genuine solve ---------- */
   await page.goto(`${BASE}/#/training`);
-  await page.evaluate(() => {
-    // a repertoire starting from a NONSTANDARD position: K+R vs K technique.
-    // Its first move (Rh2) is illegal from the standard start — replaying the
-    // sans from the standard start would crash or corrupt the exercise.
-    localStorage.setItem(
-      'gambit.repertoire.v1',
-      JSON.stringify([
-        {
-          id: 'repCustom', name: 'Rook technique (custom start)', side: 'w', createdAt: 1, updatedAt: 1,
-          lines: [
-            {
-              id: 'lineTech', name: 'Ladder',
-              tree: {
-                startFen: '4k3/8/8/8/8/8/8/4K2R w - - 0 1',
-                moves: [],
-              },
-              preferred: {},
-            },
-          ],
-        },
-      ]),
-    );
-  });
-  // build the tree through the app's own store format is complex here —
-  // instead verify the FALLBACK: the malformed/short custom line must not
-  // crash L3 and must fall back to curated fixtures (option A safety)
-  await page.goto(`${BASE}/#/blindfold`);
-  await page.waitForSelector('[data-square="e2"]', { timeout: 10000 });
-  await page.click('button:has-text("Level 3")');
+  await page.evaluate((reps) => {
+    localStorage.setItem('gambit.repertoire.v1', JSON.stringify(reps));
+  }, [{"id": "repCustom", "name": "Rook technique", "side": "w", "createdAt": 1, "updatedAt": 1, "lines": [{"id": "lineTech", "name": "Ladder", "tree": {"startFen": "4k3/8/8/8/8/8/8/4K2R w - - 0 1", "moves": [{"id": "cn1", "san": "Rh2", "from": "h1", "to": "h2", "fenBefore": "4k3/8/8/8/8/8/8/4K2R w - - 0 1", "fenAfter": "4k3/8/8/8/8/8/7R/4K3 b - - 1 1", "moveNumber": 1, "color": "w", "nags": [], "children": [{"id": "cn2", "san": "Kd7", "from": "e8", "to": "d7", "fenBefore": "4k3/8/8/8/8/8/7R/4K3 b - - 1 1", "fenAfter": "8/3k4/8/8/8/8/7R/4K3 w - - 2 2", "moveNumber": 2, "color": "b", "nags": [], "children": [{"id": "cn3", "san": "Rh5", "from": "h2", "to": "h5", "fenBefore": "8/3k4/8/8/8/8/7R/4K3 w - - 2 2", "fenAfter": "8/3k4/8/7R/8/8/8/4K3 b - - 3 2", "moveNumber": 2, "color": "w", "nags": [], "children": [{"id": "cn4", "san": "Kd8", "from": "d7", "to": "d8", "fenBefore": "8/3k4/8/7R/8/8/8/4K3 b - - 3 2", "fenAfter": "3k4/8/8/7R/8/8/8/4K3 w - - 4 3", "moveNumber": 3, "color": "b", "nags": [], "children": [{"id": "cn5", "san": "Rh3", "from": "h5", "to": "h3", "fenBefore": "3k4/8/8/7R/8/8/8/4K3 w - - 4 3", "fenAfter": "3k4/8/8/8/8/7R/8/4K3 b - - 5 3", "moveNumber": 3, "color": "w", "nags": [], "children": [{"id": "cn6", "san": "Ke8", "from": "d8", "to": "e8", "fenBefore": "3k4/8/8/8/8/7R/8/4K3 b - - 5 3", "fenAfter": "4k3/8/8/8/8/7R/8/4K3 w - - 6 4", "moveNumber": 4, "color": "b", "nags": [], "children": []}]}]}]}]}]}]}, "preferred": {}}]}]);
+  await page.goto(`${BASE}/#/blindfold?level=3`);
+  // the page was already mounted (L3 curated) — a hard reload re-runs
+  // repertoireMainline so the custom source is actually read
+  await page.reload();
+  await page.waitForSelector('[data-square="e2"]', { timeout: 15000 });
   await page.waitForTimeout(600);
-  const l3Alive = await page.evaluate(() => {
-    const input = document.querySelector('input[aria-label*="Type the squares"]');
-    return !!input; // page alive with the L3 input present
+  // announce the whole line
+  for (let i = 0; i < 14; i += 1) {
+    const btn = page.locator('button:has-text("Play next move")');
+    if ((await btn.count()) === 0) break;
+    await btn.click();
+    await page.waitForTimeout(120);
+  }
+  // the announced sans MUST be the custom line (Rh2 …) — proving the custom
+  // source is used rather than curated fallback
+  const announcedSans = await page.evaluate(() =>
+    Array.from(document.querySelectorAll('aside ol li')).map((li) => li.textContent?.trim().replace(/^\d+\.\s*/, '') ?? ''),
+  );
+  const isCustom = announcedSans.join(' ').includes('Rh2') && announcedSans.length === 6;
+  log('L3 custom: announced line comes from the custom-FEN repertoire', isCustom, announcedSans.join(' '));
+
+  // submit the TRUE set replayed from the CUSTOM start (independent compute)
+  const askedPieceCustom = await page.evaluate(() => {
+    const label = Array.from(document.querySelectorAll('aside label')).find((l) => (l.textContent ?? '').includes('Every square with'));
+    return (label?.textContent ?? '').match(/white (\w)/)?.[1] ?? 'p';
   });
-  log('L3: page stays usable with a custom-FEN repertoire present', l3Alive);
+  const gCustom = new Chess('4k3/8/8/8/8/8/8/4K2R w - - 0 1');
+  for (const san of ['Rh2', 'Kd7', 'Rh5', 'Kd8', 'Rh3', 'Ke8']) gCustom.move(san);
+  const trueSetCustom = gCustom.board().flatMap((row) => row.filter((c) => c && c.color === 'w' && c.type === askedPieceCustom).map((c) => c.square)).sort();
+  await page.fill('input[aria-label*="Type the squares"]', trueSetCustom.join(', '));
+  await page.click('button:has-text("Check answer")');
+  await page.waitForTimeout(300);
+  const customGrade = await page.evaluate(() =>
+    Array.from(document.querySelectorAll('[role="status"]')).map((e) => e.textContent ?? '').find((t) => t.startsWith('Correct') || t.includes('squares:')) ?? '',
+  );
+  log('L3 custom: correct answer over the custom position grades correct', customGrade.startsWith('Correct'), customGrade.slice(0, 50));
+  // SR identity is per-custom-line
+  const customSr = await page.evaluate(() => Object.keys(JSON.parse(localStorage.getItem('gambit.training.v1') ?? '{}').blindfold?.scheduling ?? {}).filter((k) => k.includes('repCustom')));
+  log('L3 custom: SR record keyed to the custom repertoire source', customSr.length === 1, customSr.join(','));
 
   await page.goto(`${BASE}/#/training`);
   await page.evaluate(() => localStorage.removeItem('gambit.repertoire.v1'));
 
-  /* ---------- weak-level recommendation in Today ---------- */
+  /* ---------- weak-level recommendation in Today ---------- */  /* ---------- weak-level recommendation in Today ---------- */
   await page.goto(`${BASE}/#/training`);
   await page.waitForTimeout(800);
   const todayVis = await page.evaluate(() => {

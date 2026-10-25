@@ -258,3 +258,45 @@ describe('custom-FEN repertoires (PR #3 final review, option A)', () => {
     expect(exerciseIsSound(ex)).toBe(true);
   });
 });
+
+describe('repertoireMainline validation (final targeted fix)', () => {
+  // the page-level validator is exercised through the generator contract:
+  // only VALIDATED lines reach repertoire:<key> ids; anything inconsistent
+  // either falls back to curated or, inside the generator, replays safely.
+
+  it('an INVALID start FEN never produces a repertoire exercise (skipped)', () => {
+    // mirror of the page validator: chess.js must reject the FEN outright
+    expect(() => new Chess('not-a-fen')).toThrow();
+    // generator safety net: a broken source falls back to curated, still sound
+    const ex = generateExercise(3, 9, { repertoireLine: { sans: ['e4', 'e5', 'Nf3', 'Nc6', 'Bb5', 'a6'], startFen: 'broken-fen', key: 'broken:l' } });
+    expect(ex.id.startsWith('l3:')).toBe(true);
+    expect(exerciseIsSound(ex)).toBe(true);
+  });
+
+  it('an ILLEGAL SAN inside a six-plus-move line is rejected by the replay contract', () => {
+    // a corrupted stored path: white moves twice in a row (wrong-side move) —
+    // exactly the inconsistency the walk-and-replay validator rejects
+    const g = new Chess();
+    g.move('e4');
+    g.move('e5');
+    g.move('Nf3');
+    expect(() => g.move('Bb5')).toThrow(); // white piece while black to move
+    // generator safety net for such a corrupted line:
+    const ex = generateExercise(3, 9, {
+      repertoireLine: { sans: ['e4', 'e5', 'Nf3', 'Bb5', 'Nc3', 'Nf6'], startFen: new Chess().fen(), key: 'corrupt:l' },
+    });
+    expect(ex.id.startsWith('l3:')).toBe(true);
+    expect(ex.id.startsWith('l3:repertoire:')).toBe(false); // fell back to curated
+    expect(exerciseIsSound(ex)).toBe(true);
+  });
+
+  it('a VALID nonstandard-FEN repertoire still generates, sounds, and grades', () => {
+    const custom = { sans: ['Rh2', 'Kd8', 'Rg2', 'Ke8', 'Rg7', 'Kd8'], startFen: '4k3/8/8/8/8/8/8/4K2R w - - 0 1', key: 'custom:l' };
+    const ex = generateExercise(3, 21, { repertoireLine: custom });
+    expect(ex.id).toContain('l3:repertoire:custom:l');
+    expect(ex.startFen).toBe(custom.startFen);
+    expect(exerciseIsSound(ex)).toBe(true);
+    const expected = squaresOfPieces(ex.sans, ex.askColor, ex.askPiece, ex.startFen);
+    expect(gradeTrackPieces(ex, expected).correct).toBe(true);
+  });
+});

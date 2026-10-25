@@ -182,8 +182,21 @@ function generateExerciseImpl(level: BlindfoldLevel, seed: number, opts: Blindfo
       startFen = new Chess().fen(); // curated lines all start standard
       sourceId = line.name;
     }
-    const g = new Chess(startFen);
-    for (const san of sans) g.move(san); // throws on rot — callers guard
+    // stored repertoire rot (bad FEN or illegal path) — fall back to curated
+    // fixtures rather than crash. A curated replay cannot throw (fixtures are
+    // test-verified), so g is definitely assigned afterward.
+    let g: Chess;
+    try {
+      g = new Chess(startFen);
+      for (const san of sans) g.move(san);
+    } catch {
+      const line = pick(GAME_LINES.filter((l) => l.sans.length >= 8));
+      sans = line.sans.slice(0, Math.min(12, line.sans.length));
+      startFen = new Chess().fen();
+      sourceId = line.name;
+      g = new Chess(startFen);
+      for (const san of sans) g.move(san);
+    }
     // ask for a piece type that exists in the final position
     const byType = new Map<`${Color}${PieceSymbol}`, Square[]>();
     for (const row of g.board()) {
