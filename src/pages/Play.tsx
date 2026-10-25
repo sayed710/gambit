@@ -184,11 +184,20 @@ function SetupScreen({ onStart, last }: { onStart: (c: GameConfig) => void; last
             <div className="section-label">Summary</div>
             <p className="small" style={{ margin: 0, lineHeight: 1.7 }}>
               <strong>{mode === 'ai' ? 'You' : 'White'}</strong> vs{' '}
-              <strong>{mode === 'ai' ? `Stockfish ${['Gentle', 'Casual', 'Club', 'Sharp'][level - 1]}` : 'Black'}</strong>
+              <strong>
+                {mode === 'ai'
+                  ? personaActive
+                    ? PERSONAS[persona].name
+                    : `Stockfish ${['Gentle', 'Casual', 'Club', 'Sharp'][level - 1]}`
+                  : 'Black'}
+              </strong>
               <br />
               <span className="muted">
                 {timeControlById(tcId).minutes > 0 ? `${timeControlById(tcId).minutes}+${timeControlById(tcId).increment}` : 'Untimed'}
                 {' · '}{mode === 'pass' ? 'pass & play' : color === 'random' ? 'random side' : color === 'w' ? 'you play White' : 'you play Black'}
+                {' · '}
+                {mode === 'pass' ? 'Unrated' : personaActive ? 'Unrated' : 'Rated'}
+                {personaActive ? ` · level ${level}` : ''}
               </span>
             </p>
           </div>

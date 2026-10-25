@@ -1,6 +1,14 @@
 import { Chess } from 'chess.js';
 import type { Level } from './engine';
-import { resolveEngineChoice, personaSeed, type EnginePersonaId, type PersonaCandidate } from './personas';
+import {
+  resolveEngineChoice,
+  personaSeed,
+  CLASSIC_WEIGHTS,
+  type EnginePersonaId,
+  type PersonaCandidate,
+  type SelectionResult,
+  type ClassicLevel,
+} from './personas';
 
 /**
  * Stockfish 18 (lite, single-threaded WASM) running as a raw UCI worker.
@@ -170,6 +178,78 @@ function pickWeighted<T>(items: T[], weights: number[]): T {
   return items[items.length - 1];
 }
 
+
+/**
+ * PURE: map (final info lines + engine bestmove + personality selection)
+ * to the SFSearchResult. Integration contract:
+ * - a chosen candidate attaches ONLY its own cp/mate/depth/PV;
+ * - an unlisted legal bestmove (candidate null) keeps its move + SAN with
+ *   null/unknown score metadata — never MultiPV #1's numbers;
+ * - no legal selected UCI and no legal bestmove => null (safe failure;
+ *   callers fall back to the bundled engine).
+ */
+export function composeSearchResult(
+  fen: string,
+  infos: InfoLine[],
+  bestmoveUci: string | null,
+  choice: SelectionResult | null,
+  ctx: { useMulti: boolean; fullStrength: boolean; level: ClassicLevel },
+): SFSearchResult | null {
+  const lines: SFLine[] = infos.map((info) => ({
+    multipv: info.multipv,
+    cp: info.cp,
+    mate: info.mate,
+    depth: info.depth,
+    uci: info.pv[0] ?? null,
+    san: pvToSan(fen, info.pv.slice(0, 1))[0] ?? null,
+    pvSan: pvToSan(fen, info.pv, 10),
+  }));
+
+  let chosenUci: string | null = bestmoveUci;
+  let chosen: InfoLine | null = infos.find((i) => i.pv[0] === bestmoveUci) ?? null;
+  let unknownMeta = false;
+
+  if (choice) {
+    if (choice.uci) {
+      chosenUci = choice.uci;
+      if (choice.candidate) {
+        const info = infos.find((i) => i.pv[0] === choice.candidate!.uci) ?? null;
+        if (info) chosen = info;
+        else unknownMeta = true; // candidate verified but its info vanished
+      } else {
+        unknownMeta = true; // unlisted legal bestmove: NO verified metadata
+      }
+    } else {
+      // selector found nothing usable; keep the engine bestmove, but if even
+      // that has no legal SAN the caller must fail over to the legacy engine
+      const san = bestmoveUci ? uciToSan(fen, bestmoveUci) : null;
+      if (!san) return null;
+      unknownMeta = true;
+      chosenUci = bestmoveUci;
+    }
+  } else if (ctx.useMulti && infos.length > 1 && !ctx.fullStrength) {
+    const pick = pickWeighted(infos, CLASSIC_WEIGHTS[ctx.level]);
+    if (pick && pick.pv[0]) {
+      chosenUci = pick.pv[0];
+      chosen = pick;
+    }
+  }
+
+  const san = chosenUci ? uciToSan(fen, chosenUci) : null;
+  if (!chosenUci || !san) return null; // safe failure — never propagate a malformed move
+
+  return {
+    bestmove: chosenUci,
+    // unlisted/unknown metadata stays null/0 — MultiPV #1 numbers never leak
+    cp: unknownMeta ? null : (chosen?.cp ?? null),
+    mate: unknownMeta ? null : (chosen?.mate ?? null),
+    depth: unknownMeta ? 0 : (chosen?.depth ?? 0),
+    san,
+    pvSan: unknownMeta ? [] : chosen ? pvToSan(fen, chosen.pv) : [],
+    lines,
+  };
+}
+
 interface InfoLine {
   cp: number | null;
   mate: number | null;
@@ -241,7 +321,7 @@ export async function sfSearch(fen: string, opts: SFOptions = {}): Promise<SFSea
         const useMulti = multipv > 1;
 
         let sentGo = false;
-        const done = (result: SFSearchResult) => {
+        const done = (result: SFSearchResult | null) => {
           listeners.delete(onLine);
           resolve(result);
         };
@@ -256,24 +336,21 @@ export async function sfSearch(fen: string, opts: SFOptions = {}): Promise<SFSea
             const personaActive = !!opts.persona && opts.persona !== 'stockfish';
             // pick from MultiPV candidates on low levels (classic), or via the
             // personality selector when a persona is active
-            let chosenUci = bestmoveUci;
-            let chosen = best.get(1) ?? null;
+            let choice: SelectionResult | null = null;
             if (personaActive && useMulti && best.size > 1) {
               const candidateList: PersonaCandidate[] = [...best.entries()]
                 .sort((a, b) => a[0] - b[0])
-                .map(([mpv, info]) => {
-                  const rootUci = info.pv[0] ?? '';
-                  return {
-                    multipv: mpv,
-                    uci: rootUci,
-                    san: pvToSan(fen, info.pv.slice(0, 1))[0] ?? null as string | null,
-                    cp: info.cp,
-                    mate: info.mate,
-                    depth: info.depth,
-                    pvSan: pvToSan(fen, info.pv, 10),
-                  };
-                });
-              const choice = resolveEngineChoice({
+                .map(([mpv, info]) => ({
+                  multipv: mpv,
+                  uci: info.pv[0] ?? '',
+                  san: pvToSan(fen, info.pv.slice(0, 1))[0] ?? (null as string | null),
+                  cp: info.cp,
+                  mate: info.mate,
+                  depth: info.depth,
+                  pvSan: pvToSan(fen, info.pv, 10),
+                  bounded: info.bounded,
+                }));
+              choice = resolveEngineChoice({
                 fen,
                 candidates: candidateList,
                 bestmoveUci,
@@ -282,40 +359,14 @@ export async function sfSearch(fen: string, opts: SFOptions = {}): Promise<SFSea
                 fullStrength,
                 seed: personaSeed(fen),
               });
-              if (choice.uci) {
-                chosenUci = choice.uci;
-                chosen = best.get(choice.candidate?.multipv ?? 1) ?? chosen;
-              }
-              // choice.uci === null: keep the engine's own bestmove (honest fallback)
-            } else if (useMulti && best.size > 1 && !fullStrength) {
-              const entries = [...best.entries()].sort((a, b) => a[0] - b[0]).map(([, v]) => v);
-              const pick = pickWeighted(entries, cfg.weights);
-              if (pick && pick.pv[0]) {
-                chosenUci = pick.pv[0];
-                chosen = pick;
-              }
             }
-            const san = chosenUci ? uciToSan(fen, chosenUci) : null;
-            const lines: SFLine[] = [...best.entries()]
-              .sort((a, b) => a[0] - b[0])
-              .map(([mpv, info]) => ({
-                multipv: mpv,
-                cp: info.cp,
-                mate: info.mate,
-                depth: info.depth,
-                uci: info.pv[0] ?? null,
-                san: pvToSan(fen, info.pv.slice(0, 1))[0] ?? null,
-                pvSan: pvToSan(fen, info.pv, 10),
-              }));
-            done({
-              bestmove: chosenUci ?? bestmoveUci,
-              cp: chosen?.cp ?? null,
-              mate: chosen?.mate ?? null,
-              depth: chosen?.depth ?? 0,
-              san,
-              pvSan: chosen ? pvToSan(fen, chosen.pv) : [],
-              lines,
-            });
+            done(
+              composeSearchResult(fen, [...best.entries()].sort((a, b) => a[0] - b[0]).map(([, v]) => v), bestmoveUci, choice, {
+                useMulti,
+                fullStrength,
+                level,
+              }),
+            );
             return;
           }
           if (!sentGo) return;

@@ -215,7 +215,8 @@ export interface SelectionResult {
     | 'depth-inconsistent'
     | 'all-above-ceiling'
     | 'illegal-candidates'
-    | 'bestmove-unlisted';
+    | 'bestmove-unlisted'
+    | 'bounded-best';
 }
 
 /** Validate candidates: legality, dedupe by root uci, completeness. */
@@ -292,6 +293,13 @@ export function resolveEngineChoice(input: SelectionInput): SelectionResult {
   if (candidates.some((c) => c.mate !== null)) {
     return { uci: best.uci, candidate: best, via: 'engine-best', reason: 'forced-mate' };
   }
+  // A BOUNDED authoritative best score (UCI lowerbound/upperbound) is not a
+  // precise centipawn reference — its number must never drive the ceilings.
+  // Incomplete/absent reference evaluations are equally unusable.
+  if (best.bounded || best.cp === null) {
+    return { uci: best.uci, candidate: best, via: 'engine-best', reason: 'bounded-best' };
+  }
+
   // mixed mate/cp or missing cp: not comparable — fallback
   if (valid.some((c) => c.cp === null)) {
     return { uci: best.uci, candidate: best, via: 'engine-best', reason: 'mixed-mate-cp' };

@@ -210,8 +210,8 @@ function LibraryRow({
             </span>
           </span>
           <span className="small muted mono">
-            {new Date(game.date).toLocaleDateString()} · {delta >= 0 ? '+' : ''}
-            {delta} · {game.moves.length} plies
+            {new Date(game.date).toLocaleDateString()} ·{' '}
+            {game.rated === false ? 'Unrated' : `${delta >= 0 ? '+' : ''}${delta}`} · {game.moves.length} plies
           </span>
         </div>
         <div className="small muted">

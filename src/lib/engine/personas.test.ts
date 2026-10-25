@@ -344,3 +344,38 @@ describe('bounded UCI scores (PR #4 review)', () => {
     expect(res.uci).not.toBe(candidates[1].uci); // bounded line never chosen
   });
 });
+
+describe('bounded authoritative best score (PR #4 final)', () => {
+  it('bounded MultiPV #1 blocks stylistic reordering even with two unbounded same-depth alternatives', () => {
+    // the reference (best) score is a lowerbound — its number must not drive
+    // the ceilings; the legal engine move returns untouched
+    const fen = 'r1bqkbnr/pppp1ppp/2n5/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R w KQkq - 2 3';
+    const d4 = new Chess(fen).move('d4');
+    const nxe5 = new Chess(fen).move('Nxe5');
+    const nc3 = new Chess(fen).move('Nc3');
+    const candidates: PersonaCandidate[] = [
+      { multipv: 1, uci: d4.from + d4.to, san: d4.san, cp: 100, mate: null, depth: 8, pvSan: [d4.san], bounded: true },
+      { multipv: 2, uci: nxe5.from + nxe5.to, san: nxe5.san, cp: 40, mate: null, depth: 8, pvSan: [nxe5.san] },
+      { multipv: 3, uci: nc3.from + nc3.to, san: nc3.san, cp: 98, mate: null, depth: 8, pvSan: [nc3.san] },
+    ];
+    for (const persona of ['blizzard', 'glacier', 'cartographer'] as const) {
+      const res = resolveEngineChoice({ fen, candidates, bestmoveUci: candidates[0].uci, persona, level: 4, fullStrength: false, seed: 9 });
+      expect(res.uci).toBe(candidates[0].uci); // engine move, no reorder
+      expect(res.reason).toBe('bounded-best');
+      expect(res.via).toBe('engine-best');
+    }
+  });
+
+  it('an absent reference evaluation (best.cp null, no mate) is also unusable', () => {
+    const fen = 'r1bqkbnr/pppp1ppp/2n5/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R w KQkq - 2 3';
+    const d4 = new Chess(fen).move('d4');
+    const nxe5 = new Chess(fen).move('Nxe5');
+    const candidates: PersonaCandidate[] = [
+      { multipv: 1, uci: d4.from + d4.to, san: d4.san, cp: null, mate: null, depth: 8, pvSan: [d4.san] },
+      { multipv: 2, uci: nxe5.from + nxe5.to, san: nxe5.san, cp: 40, mate: null, depth: 8, pvSan: [nxe5.san] },
+    ];
+    const res = resolveEngineChoice({ fen, candidates, bestmoveUci: candidates[0].uci, persona: 'glacier', level: 4, fullStrength: false, seed: 1 });
+    expect(res.uci).toBe(candidates[0].uci);
+    expect(res.reason).toBe('bounded-best');
+  });
+});

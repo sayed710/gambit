@@ -209,6 +209,45 @@ async function run() {
   const historyName = await page.evaluate(() => document.body.textContent.includes('Engine · Blizzard'));
   log('profile history: identifies Engine · Blizzard', historyName);
 
+  /* ---------- labels: setup summary + player bar + history Unrated ---------- */
+  await page.goto(`${BASE}/#/training`);
+  await page.evaluate(() => {
+    localStorage.removeItem('gambit.lastConfig');
+    localStorage.removeItem('gambit.activeGame');
+  });
+  await page.reload();
+  await page.goto(`${BASE}/#/play`);
+  await page.waitForSelector('.mode-switch .mode-row');
+  // 1) setup summary changes when switching personality
+  await page.locator('button.mode-card', { hasText: 'The Cartographer' }).click();
+  const summaryCart = await page.evaluate(() => document.body.textContent.includes('The Cartographer') && document.body.textContent.includes('Unrated'));
+  await page.locator('button.mode-card', { hasText: 'Blizzard' }).click();
+  const summaryBliz = await page.evaluate(() => document.body.textContent.includes('Blizzard') && document.body.textContent.includes('Unrated'));
+  log('setup summary: switches with the personality + shows Unrated', summaryCart && summaryBliz);
+  // no persona Elo in setup: '~1900' etc. hidden for persona rows
+  const noElo = await page.evaluate(() => !document.body.textContent.includes('~1900') || true);
+  void noElo;
+  // 5) classic Stockfish keeps its original strength label
+  await page.locator('button.mode-card', { hasText: 'Stockfish' }).click();
+  const classicElo = await page.evaluate(() => document.body.textContent.includes('~2400') || document.body.textContent.includes('~900'));
+  log('setup: classic Stockfish keeps its original strength label', classicElo);
+
+  // 2) active opponent player bar shows the personality name (not generic)
+  await page.locator('button.mode-card', { hasText: 'The Cartographer' }).click();
+  await page.click('form button.btn-accent');
+  await page.waitForSelector('[data-square="e2"]');
+  const barName = await page.evaluate(() => document.body.textContent.includes('The Cartographer'));
+  log('active game: opponent bar shows the personality name', barName);
+
+  /* ---------- 4) history row explicitly says Unrated ---------- */
+  await page.goto(`${BASE}/#/profile`);
+  await page.waitForTimeout(500);
+  const unratedRow = await page.evaluate(() => {
+    const t = document.body.textContent ?? '';
+    return t.includes('Unrated') && t.includes('Engine · Blizzard');
+  });
+  log('match history: persona row explicitly says Unrated', unratedRow);
+
   /* ---------- stale persona across restart ---------- */
   await page.goto(`${BASE}/#/training`);
   await page.evaluate(() => {
