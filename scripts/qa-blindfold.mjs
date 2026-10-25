@@ -54,17 +54,21 @@ function todaySeed() {
 /* Mirrors the page's generator for move levels: fresh store -> attempt i
    is served with seed = day*97 + i*13 + 1 (attempt 0 skips nothing). */
 function moveExerciseFor(level, attempt) {
+  // MUST mirror the generator's PRNG consumption exactly:
+  // pick(line) -> minStep roll -> pick(step)
   const r = rng(todaySeed() * 97 + attempt * 13 + 1);
   const pick = (arr) => arr[Math.floor(r() * arr.length)];
   const line = pick(GAME_LINES);
+  const minStep = r() < 0.4 ? 2 : 0;
   const g = new Chess();
   const steps = line.sans.map((san) => {
     const fenBefore = g.fen();
     const m = g.move(san);
-    return { fenBefore, san: m.san, to: m.to, from: m.from };
+    return { fenBefore, san: m.san, to: m.to, from: m.from, prior: null };
   });
-  const step = steps[Math.floor(r() * Math.min(steps.length, 16))];
-  return { line, step, id: `l${level}:${line.name}:${step.san}:${idHash(`${step.fenBefore}|${step.san}`)}` };
+  const idx = minStep + Math.floor(r() * Math.min(steps.length - minStep, 16));
+  const step = { ...steps[idx], prior: steps.slice(0, idx).map((x) => x.san) };
+  return { line, step, id: `l${level}:${line.name}:${step.san}:${idHash(`${step.fenBefore}|${step.san}`) }` };
 }
 
 function mateExerciseFor() {
@@ -167,8 +171,29 @@ async function run() {
   /* ---------- L2: origin + context ---------- */
   await page.click('button:has-text("Level 2")');
   await page.waitForTimeout(500);
-  const ctxText = await page.evaluate(() => Array.from(document.querySelectorAll('aside p')).map((e) => e.textContent ?? '').find((t) => t.includes('Previous move') || t.includes('Starting position')) ?? '');
-  log('L2: position context shown (previous move / side to move)', ctxText.length > 0, ctxText.slice(0, 60));
+  const ctxText = await page.evaluate(() => Array.from(document.querySelectorAll('aside p')).map((e) => e.textContent ?? '').find((t) => t.includes('Moves so far') || t.includes('Starting position')) ?? '');
+  log('L2: REAL move-history context rendered (never FEN-invented)', ctxText.length > 0, ctxText.slice(0, 80));
+  // the context must be internally consistent: 'Moves so far: 1.e4 ...' —
+  // verify the listed prefix replays legally in Node chess.js
+  if (ctxText.includes('Moves so far')) {
+    // capture EVERY san token (numbered white moves AND black replies)
+    const sans = ctxText
+      .split('Moves so far:')[1]
+      ?.split('·')[0]
+      .trim()
+      .match(/(?:\d+\.)?\s*([a-hKQRBO][a-h1-8x+=#O\-]*)/g)
+      ?.map((x) => x.replace(/^\d+\.\s*/, '').trim());
+    if (sans && sans.length > 0) {
+      const gCtx = new Chess();
+      let legal = true;
+      try {
+        for (const m of sans) gCtx.move(m);
+      } catch {
+        legal = false;
+      }
+      log('L2: rendered history replays legally (genuine prefix)', legal, `${sans.length} moves`);
+    }
+  }
   const l2 = moveExerciseFor(2, 0);
   const announcedL2 = await readAnnouncedSan();
   log('L2: announced SAN matches the mirrored generator', announcedL2 === l2.step.san, `${announcedL2} vs ${l2.step.san}`);
@@ -261,6 +286,47 @@ async function run() {
   } else {
     log('SR: the two Opera dxe5 positions hold SEPARATE records', true, `(${dxe5Keys.length} encountered this session — identity covered by unit tests)`);
   }
+
+  /* ---------- custom-FEN repertoire L3 (option A) ---------- */
+  await page.goto(`${BASE}/#/training`);
+  await page.evaluate(() => {
+    // a repertoire starting from a NONSTANDARD position: K+R vs K technique.
+    // Its first move (Rh2) is illegal from the standard start — replaying the
+    // sans from the standard start would crash or corrupt the exercise.
+    localStorage.setItem(
+      'gambit.repertoire.v1',
+      JSON.stringify([
+        {
+          id: 'repCustom', name: 'Rook technique (custom start)', side: 'w', createdAt: 1, updatedAt: 1,
+          lines: [
+            {
+              id: 'lineTech', name: 'Ladder',
+              tree: {
+                startFen: '4k3/8/8/8/8/8/8/4K2R w - - 0 1',
+                moves: [],
+              },
+              preferred: {},
+            },
+          ],
+        },
+      ]),
+    );
+  });
+  // build the tree through the app's own store format is complex here —
+  // instead verify the FALLBACK: the malformed/short custom line must not
+  // crash L3 and must fall back to curated fixtures (option A safety)
+  await page.goto(`${BASE}/#/blindfold`);
+  await page.waitForSelector('[data-square="e2"]', { timeout: 10000 });
+  await page.click('button:has-text("Level 3")');
+  await page.waitForTimeout(600);
+  const l3Alive = await page.evaluate(() => {
+    const input = document.querySelector('input[aria-label*="Type the squares"]');
+    return !!input; // page alive with the L3 input present
+  });
+  log('L3: page stays usable with a custom-FEN repertoire present', l3Alive);
+
+  await page.goto(`${BASE}/#/training`);
+  await page.evaluate(() => localStorage.removeItem('gambit.repertoire.v1'));
 
   /* ---------- weak-level recommendation in Today ---------- */
   await page.goto(`${BASE}/#/training`);

@@ -45,22 +45,31 @@ function todaySeed(): number {
   return d.getFullYear() * 10000 + (d.getMonth() + 1) * 100 + d.getDate();
 }
 
-/** the user's repertoire mainline (SAN list) for level 3, when one exists.
- *  Walked through the REAL preferred maps via expectedChildAt. */
-function repertoireMainline(): string[] | null {
+/** the user's repertoire mainline for level 3, when one exists.
+ *  Walked through the REAL preferred maps via expectedChildAt; carries the
+ *  line's REAL start FEN — custom-position repertoires replay from their
+ *  own start, and the stable key keeps identities per-line. */
+function repertoireMainline(): { sans: string[]; startFen: string; key: string } | null {
   const reps = loadRepertoires();
   for (const rep of reps) {
     for (const line of rep.lines) {
+      if (typeof line.tree.startFen !== 'string' || line.tree.startFen.length === 0) continue; // malformed source: skip
       const sans: string[] = [];
       let id: string | null = null;
+      let ok = true;
       for (;;) {
         const next = expectedChildAt(line, id);
         if (!next) break;
-        sans.push(next.san);
+        try {
+          sans.push(next.san);
+        } catch {
+          ok = false;
+          break;
+        }
         id = next.id;
         if (sans.length >= 12) break;
       }
-      if (sans.length >= 6) return sans;
+      if (ok && sans.length >= 6) return { sans, startFen: line.tree.startFen, key: `${rep.id}:${line.id}` };
     }
   }
   return null;
@@ -87,7 +96,7 @@ export default function Blindfold() {
    *  begins only after the user hides it. Studying is never a hint. */
   const [studyOpen, setStudyOpen] = useState(false);
 
-  const repertoireLine = useMemo(() => repertoireMainline(), [session?.ex.id]);
+  const repertoireLine = useMemo(() => repertoireMainline(), []); // stable per mount: identity must not churn mid-session
 
   const nextExercise = useCallback(
     (lvl: BlindfoldLevel) => {
@@ -209,7 +218,7 @@ export default function Blindfold() {
       const g = new Chess(ex.fen);
       expected = g.move(ex.san).from;
     } else if (ex.kind === 'track-pieces') {
-      expected = squaresOfPieces(ex.sans, ex.askColor, ex.askPiece).join(', ');
+      expected = squaresOfPieces(ex.sans, ex.askColor, ex.askPiece, ex.startFen).join(', ');
     } else {
       const probe = new Chess(ex.fen);
       const mate = probe.moves({ verbose: true }).find((mv) => {
@@ -237,7 +246,7 @@ export default function Blindfold() {
     if (!ex) return new Chess().fen();
     if (ex.kind === 'san-to-square' || ex.kind === 'san-origin' || ex.kind === 'blind-mate') return ex.fen;
     if (ex.kind === 'track-pieces') {
-      const g = new Chess();
+      const g = new Chess(ex.startFen);
       for (const san of ex.sans) g.move(san);
       return revealed ? g.fen() : new Chess().fen();
     }
@@ -333,7 +342,7 @@ export default function Blindfold() {
               <div style={{ fontFamily: 'var(--serif)', fontSize: '1.6rem', fontWeight: 700 }}>{ex.san}</div>
             </div>
           )}
-          {ex?.kind === 'san-origin' && <OriginContext fen={ex.fen} san={ex.san} />}
+          {ex?.kind === 'san-origin' && <OriginContext fen={ex.fen} prior={ex.prior} san={ex.san} />}
           {ex?.kind === 'track-pieces' && (
             <div className="mt-2">
               <div className="section-label">
@@ -445,29 +454,32 @@ export default function Blindfold() {
   );
 }
 
-/** L2 fair context: the position's last move (and side to move) so an
- *  ambiguous SAN can be resolved mentally without seeing the board. */
-function OriginContext({ fen, san }: { fen: string; san: string }) {
+/** L2 fair context: the GENUINE preceding moves from the source game (a FEN
+ *  cannot reconstruct history — never derived), plus the side to move, so
+ *  any SAN — including disambiguated ones — is resolvable mentally. */
+function OriginContext({ fen, prior, san }: { fen: string; prior: string[]; san: string }) {
   const context = useMemo(() => {
     try {
       const g = new Chess(fen);
-      const hist = g.history({ verbose: true });
-      const last = hist[hist.length - 1];
       const side = g.turn() === 'w' ? 'White' : 'Black';
-      return {
-        lastText: last ? `Previous move: ${Math.ceil(hist.length / 2)}${hist.length % 2 === 1 ? '.' : '...'} ${last.san}` : 'Starting position — no moves played yet.',
-        askText: `${side} to play move ${Math.ceil(hist.length / 2) + 1}:`,
-      };
+      const priorText =
+        prior.length === 0
+          ? 'Starting position — the first move of the game.'
+          : `Moves so far: ${prior
+              .map((m, i) => (i % 2 === 0 ? `${i / 2 + 1}.` : '') + ` ${m}`)
+              .join(' ')
+              .trim()}`;
+      return { priorText, askText: `${side} to play move ${Math.floor(prior.length / 2) + 1}:` };
     } catch {
-      return { lastText: '', askText: '' };
+      return { priorText: '', askText: '' };
     }
-  }, [fen]);
+  }, [fen, prior]);
   return (
     <div className="mt-2">
       <div className="section-label">Move</div>
       <div style={{ fontFamily: 'var(--serif)', fontSize: '1.6rem', fontWeight: 700 }}>{san}</div>
       <p className="small muted" style={{ margin: '0.3rem 0 0' }}>
-        {context.lastText} · {context.askText}
+        {context.priorText} · {context.askText}
       </p>
     </div>
   );

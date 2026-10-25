@@ -22,11 +22,16 @@ export interface BfSanOrigin {
   id: string;
   fen: string;
   san: string;
+  /** the VERIFIED moves played before this one, from the source game —
+   *  a FEN cannot reconstruct history, so context is carried, never derived */
+  prior: string[];
 }
 export interface BfTrackPieces {
   kind: 'track-pieces';
   id: string;
-  sans: string[]; // played from the start position
+  /** played from startFen — repertoires may begin at nonstandard positions */
+  startFen: string;
+  sans: string[];
   askColor: Color;
   askPiece: PieceSymbol;
 }
@@ -121,8 +126,10 @@ function replaySteps(sans: string[]): MoveStep[] {
 /* ---------------------------- generators ---------------------------- */
 
 export interface BlindfoldGenOptions {
-  /** the user's own repertoire mainline (SAN list) — used for level 3 when present */
-  repertoireLine?: string[] | null;
+  /** the user's own repertoire mainline — real start FEN + SAN list + a
+   *  stable source key (repertoireId:lineId) so identity never collides
+   *  across different lines of equal shape */
+  repertoireLine?: { sans: string[]; startFen: string; key: string } | null;
 }
 
 /** Non-overload form for generic callers (tests, sweeps). */
@@ -144,31 +151,39 @@ function generateExerciseImpl(level: BlindfoldLevel, seed: number, opts: Blindfo
 
   if (level === 1 || level === 2) {
     const line = pick(GAME_LINES);
-    const steps = replaySteps(line.name === 'Fool’s mate' ? line.sans : line.sans);
-    // early/mid moves only (first 16 plies): recognizable, not endgame scrambles
-    const step = steps[Math.floor(r() * Math.min(steps.length, 16))];
+    const steps = replaySteps(line.sans);
+    // midgame steps too: skip the first two plies sometimes so L2 context
+    // (real move history) is exercised, not only opening positions
+    const minStep = r() < 0.4 ? 2 : 0;
+    const step = steps[minStep + Math.floor(r() * Math.min(steps.length - minStep, 16))];
+    const prior = steps.slice(0, steps.indexOf(step)).map((x) => x.san);
     // identity = full source position + move — two identical SANs from
     // different positions (the Opera Game's two dxe5) stay distinct
     const id = `l${level}:${line.name}:${step.san}:${idHash(step.fenBefore + '|' + step.san)}`;
     return level === 1
       ? { kind: 'san-to-square', id, fen: step.fenBefore, san: step.san }
-      : { kind: 'san-origin', id, fen: step.fenBefore, san: step.san };
+      : { kind: 'san-origin', id, fen: step.fenBefore, san: step.san, prior };
   }
 
   if (level === 3) {
-    // prefer the user's own repertoire mainline: training their real opening
+    // prefer the user's own repertoire mainline: training their real opening.
+    // The line's REAL start FEN is carried — custom-FEN repertoires are legal
+    // and their moves replay from that position, never from the standard start.
     let sans: string[];
+    let startFen: string;
     let sourceId: string;
-    if (opts.repertoireLine && opts.repertoireLine.length >= 6) {
-      sans = opts.repertoireLine.slice(0, Math.min(12, opts.repertoireLine.length));
-      sourceId = 'repertoire';
+    if (opts.repertoireLine && opts.repertoireLine.sans.length >= 6) {
+      sans = opts.repertoireLine.sans.slice(0, Math.min(12, opts.repertoireLine.sans.length));
+      startFen = opts.repertoireLine.startFen;
+      sourceId = `repertoire:${opts.repertoireLine.key}`;
     } else {
       const line = pick(GAME_LINES.filter((l) => l.sans.length >= 8));
       sans = line.sans.slice(0, Math.min(12, line.sans.length));
+      startFen = new Chess().fen(); // curated lines all start standard
       sourceId = line.name;
     }
-    const g = new Chess();
-    for (const san of sans) g.move(san);
+    const g = new Chess(startFen);
+    for (const san of sans) g.move(san); // throws on rot — callers guard
     // ask for a piece type that exists in the final position
     const byType = new Map<`${Color}${PieceSymbol}`, Square[]>();
     for (const row of g.board()) {
@@ -180,11 +195,13 @@ function generateExerciseImpl(level: BlindfoldLevel, seed: number, opts: Blindfo
     }
     const candidates = [...byType.entries()].filter(([k, sqs]) => k[0] === 'w' && sqs.length <= 4 && (k[1] === 'p' || k[1] === 'n' || k[1] === 'b' || k[1] === 'r'));
     const [key] = pick(candidates.length > 0 ? candidates : [...byType.entries()]);
-    // identity = exact move sequence + queried piece/side — two different
-    // repertoire lines of equal length asking for the same piece stay distinct
+    // identity = start position + exact move sequence + queried piece/side —
+    // different repertoire lines (even of identical shape) and different start
+    // positions can never share a scheduling record
     return {
       kind: 'track-pieces',
-      id: `l3:${sourceId}:${key}:${idHash(sans.join(' ') + '|' + key)}`,
+      id: `l3:${sourceId}:${key}:${idHash(startFen + '|' + sans.join(' ') + '|' + key)}`,
+      startFen,
       sans,
       askColor: key[0] as Color,
       askPiece: key.slice(1) as PieceSymbol,
@@ -196,9 +213,11 @@ function generateExerciseImpl(level: BlindfoldLevel, seed: number, opts: Blindfo
   return { kind: 'blind-mate', id: `l4:${m.name}:${idHash(m.fen)}`, fen: m.fen };
 }
 
-/** All squares holding a color+piece after replaying sans (level-3 answer). */
-export function squaresOfPieces(sans: string[], color: Color, piece: PieceSymbol): Square[] {
-  const g = new Chess();
+/** All squares holding a color+piece after replaying sans from startFen
+ *  (level-3 answer). startFen defaults to the standard position for
+ *  legacy callers; exercises always carry their own. */
+export function squaresOfPieces(sans: string[], color: Color, piece: PieceSymbol, startFen?: string): Square[] {
+  const g = new Chess(startFen);
   for (const san of sans) g.move(san);
   const out: Square[] = [];
   for (const row of g.board()) for (const cell of row) if (cell && cell.color === color && cell.type === piece) out.push(cell.square);
@@ -226,7 +245,7 @@ export function gradeSanOrigin(ex: BfSanOrigin, answer: Square): GradeResult {
 }
 
 export function gradeTrackPieces(ex: BfTrackPieces, answer: Square[]): GradeResult {
-  const expected = squaresOfPieces(ex.sans, ex.askColor, ex.askPiece);
+  const expected = squaresOfPieces(ex.sans, ex.askColor, ex.askPiece, ex.startFen);
   const given = [...new Set(answer)].sort();
   return { correct: given.length === expected.length && given.every((s, i) => s === expected[i]), expected: expected.join(', ') };
 }
@@ -264,7 +283,7 @@ export function exerciseIsSound(ex: BlindfoldExercise): boolean {
       return true;
     }
     if (ex.kind === 'track-pieces') {
-      squaresOfPieces(ex.sans, ex.askColor, ex.askPiece);
+      squaresOfPieces(ex.sans, ex.askColor, ex.askPiece, ex.startFen);
       return true;
     }
     const probe = new Chess(ex.fen);

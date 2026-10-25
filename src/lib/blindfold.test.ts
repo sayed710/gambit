@@ -39,7 +39,9 @@ describe('blindfold generators', () => {
   });
 
   it('level 3 prefers the user repertoire line when provided', () => {
-    const ex = generateExercise(3, 7, { repertoireLine: ['e4', 'e5', 'Nf3', 'Nc6', 'Bb5', 'a6', 'Ba4', 'Nf6'] });
+    const ex = generateExercise(3, 7, {
+      repertoireLine: { sans: ['e4', 'e5', 'Nf3', 'Nc6', 'Bb5', 'a6', 'Ba4', 'Nf6'], startFen: new Chess().fen(), key: 'r1:l1' },
+    });
     expect(ex.id.startsWith('l3:repertoire:')).toBe(true);
     // and falls back to a curated line without one
     const fb = generateExercise(3, 7);
@@ -77,14 +79,15 @@ describe('blindfold graders', () => {
   it('L3: exact square-set equality (missing, extra, wrong all fail)', () => {
     const sans = ['e4', 'e5', 'Nf3', 'Nc6'];
     const expected = squaresOfPieces(sans, 'w', 'p'); // e4, d2, a2..f2,h2 minus e-pawn moved
-    const exact = gradeTrackPieces({ kind: 'track-pieces', id: 'x', sans, askColor: 'w', askPiece: 'p' }, expected);
+    const mk3 = { kind: 'track-pieces', id: 'x', sans, startFen: new Chess().fen(), askColor: 'w', askPiece: 'p' } as const;
+    const exact = gradeTrackPieces(mk3, expected);
     expect(exact.correct).toBe(true);
-    const missingOne = gradeTrackPieces({ kind: 'track-pieces', id: 'x', sans, askColor: 'w', askPiece: 'p' }, expected.slice(1));
+    const missingOne = gradeTrackPieces(mk3, expected.slice(1));
     expect(missingOne.correct).toBe(false);
-    const extraOne = gradeTrackPieces({ kind: 'track-pieces', id: 'x', sans, askColor: 'w', askPiece: 'p' }, [...expected, 'h5' as Square]);
+    const extraOne = gradeTrackPieces(mk3, [...expected, 'h5' as Square]);
     expect(extraOne.correct).toBe(false);
     // duplicates in the answer do not game the comparison
-    const dupes = gradeTrackPieces({ kind: 'track-pieces', id: 'x', sans, askColor: 'w', askPiece: 'p' }, [...expected, ...expected]);
+    const dupes = gradeTrackPieces(mk3, [...expected, ...expected]);
     expect(dupes.correct).toBe(true);
   });
 
@@ -127,7 +130,7 @@ describe('exercise identity collisions (PR #3 review)', () => {
   it('the Opera Game two dxe5 moves get DIFFERENT ids (different positions)', () => {
     // generate from every step of the Opera line directly (exhaustive, no RNG)
     // the FULL Opera line — the generator can reach any of its first 16 plies
-    const opera = ['e4', 'e5', 'Nf3', 'd6', 'd4', 'Bg4', 'dxe5', 'Bxf3', 'Qxf3', 'dxe5', 'Bc4', 'Nf6', 'Qb3', 'Qe7', 'Nc3', 'c6'];
+    const opera = ['e4', 'e5', 'Nf3', 'd6', 'd4', 'Bg4', 'dxe5', 'Bxf3', 'Qxf3', 'dxe5', 'Bc4', 'Nf6', 'Qb3', 'Qe7', 'Nc3', 'c6', 'Bg5', 'b5'];
     const g = new Chess();
     const ids: string[] = [];
     for (const san of opera) {
@@ -162,8 +165,9 @@ describe('exercise identity collisions (PR #3 review)', () => {
   });
 
   it('distinct repertoire lines with identical length and piece target get distinct L3 ids', () => {
-    const lineA = ['e4', 'e5', 'Nf3', 'Nc6', 'Bc4', 'Bc5', 'c3', 'Nf6', 'd4', 'exd4', 'cxd4', 'Bb4+'];
-    const lineB = ['e4', 'd5', 'exd5', 'Qxd5', 'Nc3', 'Qa5', 'd4', 'Nf6', 'Nf3', 'c6', 'Bc4', 'Bf5'];
+    const std = new Chess().fen();
+    const lineA = { sans: ['e4', 'e5', 'Nf3', 'Nc6', 'Bc4', 'Bc5', 'c3', 'Nf6', 'd4', 'exd4', 'cxd4', 'Bb4+'], startFen: std, key: 'repA:l1' };
+    const lineB = { sans: ['e4', 'd5', 'exd5', 'Qxd5', 'Nc3', 'Qa5', 'd4', 'Nf6', 'Nf3', 'c6', 'Bc4', 'Bf5'], startFen: std, key: 'repB:l1' };
     const a = generateExercise(3, 11, { repertoireLine: lineA });
     const b = generateExercise(3, 11, { repertoireLine: lineB });
     expect(a.id).not.toBe(b.id);
@@ -171,15 +175,86 @@ describe('exercise identity collisions (PR #3 review)', () => {
   });
 
   it('changing the repertoire line content changes the id (no mastery reuse)', () => {
-    const before = generateExercise(3, 11, { repertoireLine: ['e4', 'e5', 'Nf3', 'Nc6', 'Bb5', 'a6', 'Ba4', 'Nf6'] });
-    const after = generateExercise(3, 11, { repertoireLine: ['e4', 'e5', 'Nf3', 'Nc6', 'Bb5', 'a6', 'Ba4', 'f5'] });
+    const std = new Chess().fen();
+    const before = generateExercise(3, 11, { repertoireLine: { sans: ['e4', 'e5', 'Nf3', 'Nc6', 'Bb5', 'a6', 'Ba4', 'Nf6'], startFen: std, key: 'r:l' } });
+    const after = generateExercise(3, 11, { repertoireLine: { sans: ['e4', 'e5', 'Nf3', 'Nc6', 'Bb5', 'a6', 'Ba4', 'f5'], startFen: std, key: 'r:l' } });
     expect(before.id).not.toBe(after.id);
   });
 
   it('ids are stable across seeds only through content: same content, same id', () => {
-    const line = ['e4', 'e5', 'Nf3', 'Nc6', 'Bb5', 'a6'];
+    const line = { sans: ['e4', 'e5', 'Nf3', 'Nc6', 'Bb5', 'a6'], startFen: new Chess().fen(), key: 'r:l' };
     const a = generateExercise(3, 5, { repertoireLine: line });
     const b = generateExercise(3, 999, { repertoireLine: line });
     expect(a.id).toBe(b.id); // identity from content, not the RNG
+  });
+});
+
+describe('real move-history context (PR #3 final review)', () => {
+  it('L2 carries the genuine prior SANs — midgame exercises included', () => {
+    // sweep: many L2 exercises; whenever prior is non-empty it must be a
+    // legal prefix of the source line, and the exercise FEN must equal the
+    // replay of prior (no FEN-derived invention)
+    let midgameSeen = 0;
+    for (let seed = 1; seed <= 120; seed += 1) {
+      const ex = generateExercise(2, seed);
+      const g = new Chess();
+      for (const san of ex.prior) g.move(san); // prefix must be legal
+      expect(g.fen()).toBe(ex.fen); // context replays EXACTLY to the position
+      if (ex.prior.length >= 4) midgameSeen += 1;
+    }
+    expect(midgameSeen).toBeGreaterThan(10); // midgame positions really occur
+  });
+
+  it('L2 prior supports black-to-move and capture SANs with a real prefix', () => {
+    let blackCapture = 0;
+    for (let seed = 1; seed <= 300; seed += 1) {
+      const ex = generateExercise(2, seed);
+      const g = new Chess(ex.fen);
+      if (g.turn() === 'b' && ex.san.includes('x')) {
+        blackCapture += 1;
+        expect(ex.prior.length).toBeGreaterThan(0); // genuine prefix carried
+        // disambiguation context: the prior must contain enough moves that
+        // the side-to-move computation is exact (odd prior = black to move)
+        expect(ex.prior.length % 2).toBe(1);
+      }
+    }
+    expect(blackCapture).toBeGreaterThan(0); // black-to-move captures really occur
+  });
+});
+
+describe('custom-FEN repertoires (PR #3 final review, option A)', () => {
+  const CUSTOM_START = '4k3/8/8/8/8/8/8/4K2R w - - 0 1'; // K+R vs K, rook start position
+  const customLine = { sans: ['Rh2', 'Kd8', 'Rg2', 'Ke8', 'Rg7', 'Kd8', 'Rd7+', 'Ke8'], startFen: CUSTOM_START, key: 'custom:technique' };
+
+  it('generates and grades an L3 exercise from a nonstandard start', () => {
+    const ex = generateExercise(3, 21, { repertoireLine: customLine });
+    expect(ex.startFen).toBe(CUSTOM_START);
+    // these moves are NOT legal from the standard start (e.g. Rh2 needs the h1 rook)
+    const std = new Chess();
+    const stdLegal = new Set(std.moves());
+    expect(stdLegal.has(customLine.sans[0])).toBe(false);
+    // the replay from the real start is sound
+    expect(exerciseIsSound(ex)).toBe(true);
+    // grading works: ask for a white piece and answer with its true squares
+    const expected = squaresOfPieces(ex.sans, ex.askColor, ex.askPiece, ex.startFen);
+    const res = gradeTrackPieces(ex, expected);
+    expect(res.correct).toBe(true);
+  });
+
+  it('custom-FEN identities never overlap standard-start exercises with similar shape', () => {
+    const stdLine = { sans: ['e4', 'e5', 'Nf3', 'Nc6', 'Bb5', 'a6', 'Ba4', 'Nf6'], startFen: new Chess().fen(), key: 'std:main' };
+    const a = generateExercise(3, 21, { repertoireLine: customLine });
+    const b = generateExercise(3, 21, { repertoireLine: stdLine });
+    expect(a.id).not.toBe(b.id);
+    // and the same custom line across seeds keeps ONE stable identity
+    expect(generateExercise(3, 999, { repertoireLine: customLine }).id).toBe(generateExercise(3, 21, { repertoireLine: customLine }).id);
+  });
+
+  it('a malformed repertoire source falls back to curated fixtures safely', () => {
+    const bad = { sans: ['e4'], startFen: 'not-a-fen', key: 'broken:line' }; // too short + invalid FEN
+    const ex = generateExercise(3, 5, { repertoireLine: bad });
+    expect(ex.id.startsWith('l3:')).toBe(true);
+    expect(ex.id.startsWith('l3:repertoire:')).toBe(false); // fell back to curated
+    expect(exerciseIsSound(ex)).toBe(true);
   });
 });
