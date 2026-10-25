@@ -34,9 +34,20 @@ const PALETTES_DARK: Record<string, { light: string; dark: string; border: strin
   return { ...p, dot: 'rgba(125, 160, 190, 0.5)' };
 }
 
+/** How much of the position the player may SEE.
+ *  - full: normal pieces
+ *  - ghost: every piece as the same neutral outline (position exists, identity hidden)
+ *  - none: coordinates only — true blindfold */
+export type PieceVisibility = 'full' | 'ghost' | 'none';
+
 export interface GameBoardProps {
   fen: string;
   orientation: 'white' | 'black';
+  /** default 'full' — set on blindfold pages only */
+  pieceVisibility?: PieceVisibility;
+  /** square-selection mode: click/keyboard answer input WITHOUT chess
+   *  movement. Enables focus+keys even with movableColor=null. */
+  selectable?: boolean;
   /** squares of the last move, highlighted */
   lastMove?: { from: Square; to: Square } | null;
   /** square of a king in check */
@@ -62,9 +73,43 @@ export interface GameBoardProps {
 
 const PROMO_PIECES: ('q' | 'n' | 'r' | 'b')[] = ['q', 'n', 'r', 'b'];
 
+/** 'none' visibility: a renderer that draws NOTHING for every piece type. */
+function emptyPieces(): Record<string, (props?: { square?: string }) => React.JSX.Element> {
+  const out: Record<string, (props?: { square?: string }) => React.JSX.Element> = {};
+  for (const key of ['wP', 'wN', 'wB', 'wR', 'wQ', 'wK', 'bP', 'bN', 'bB', 'bR', 'bQ', 'bK']) {
+    out[key] = () => <g />;
+  }
+  return out;
+}
+
+/** Ghost render: one neutral disc for every piece, both colors identical. */
+function ghostPieces(): Record<string, (props?: { square?: string }) => React.JSX.Element> {
+  const out: Record<string, (props?: { square?: string }) => React.JSX.Element> = {};
+  for (const key of ['wP', 'wN', 'wB', 'wR', 'wQ', 'wK', 'bP', 'bN', 'bB', 'bR', 'bQ', 'bK']) {
+    out[key] = (props) => (
+      <span
+        key={props?.square}
+        aria-hidden
+        style={{
+          display: 'block',
+          width: '72%',
+          height: '72%',
+          margin: '14% auto',
+          borderRadius: '50%',
+          background: 'color-mix(in srgb, var(--muted) 55%, transparent)',
+          border: '2px solid var(--border-strong)',
+        }}
+      />
+    );
+  }
+  return out;
+}
+
 export default function GameBoard({
   fen,
   orientation,
+  pieceVisibility = 'full',
+  selectable = false,
   lastMove,
   checkSquare,
   selected,
@@ -83,7 +128,10 @@ export default function GameBoard({
 }: GameBoardProps) {
   const { boardTheme, resolvedTheme, showLegalHints, showCoordinates, animationSpeed } = useSettings();
   const colors = useMemo(() => boardColors(boardTheme, resolvedTheme), [boardTheme, resolvedTheme]);
-  const interactive = movableColor !== null;
+  // movement and square-selection are DIFFERENT capabilities: blindfold
+  // answers need click/keyboard square input with no piece dragging.
+  const interactive = movableColor !== null || (selectable && !!onSquareClick);
+  const canMove = movableColor !== null;
 
   // --- keyboard play: arrow keys move a cursor, Enter selects/moves ---
   const [cursor, setCursor] = useState<Square | null>(null);
@@ -186,9 +234,9 @@ export default function GameBoard({
       const target = squareAt(base[0] + df, base[1] + dr);
       if (!target) return;
       setCursor(target);
-      setAnnounce(`${target}, ${pieceName(target)}`);
+      setAnnounce(selectable ? `${target}` : `${target}, ${pieceName(target)}`);
     },
-    [cursor, cursorFileRank, orientation, pieceName, squareAt],
+    [cursor, cursorFileRank, orientation, pieceName, selectable, squareAt],
   );
 
   const handleBoardKeyDown = useCallback(
@@ -216,7 +264,9 @@ export default function GameBoard({
           e.preventDefault();
           if (cursor) {
             onSquareClick?.(cursor, pieceTypeAt(fen, cursor));
-            setAnnounce(`${cursor}, ${pieceName(cursor)}`);
+            // identity must not leak through announcements in selectable
+            // (answer-input) mode — square name only
+            setAnnounce(selectable ? `${cursor}` : `${cursor}, ${pieceName(cursor)}`);
           } else {
             moveCursor(0, 0);
           }
@@ -228,7 +278,7 @@ export default function GameBoard({
           break;
       }
     },
-    [interactive, moveCursor, cursor, onSquareClick, pieceName, fen, onClearSelection],
+    [interactive, selectable, moveCursor, cursor, onSquareClick, pieceName, fen, onClearSelection],
   );
 
   const squareStyles = useMemo(() => {
@@ -274,9 +324,11 @@ export default function GameBoard({
         tabIndex={interactive ? 0 : -1}
         role="group"
         aria-label={
-          interactive
+          canMove
             ? 'Chessboard. Use arrow keys to explore squares, Enter to pick up or place a piece, Escape to clear.'
-            : 'Chessboard'
+            : selectable
+              ? 'Chessboard. Use arrow keys to explore squares, Enter to answer with the focused square, Escape to clear.'
+              : 'Chessboard'
         }
         onKeyDown={interactive ? handleBoardKeyDown : undefined}
       >
@@ -290,10 +342,16 @@ export default function GameBoard({
             id: boardId,
             position: fen,
             boardOrientation: orientation,
+            pieces:
+              pieceVisibility === 'full'
+                ? undefined
+                : pieceVisibility === 'ghost'
+                  ? ghostPieces()
+                  : emptyPieces(), // 'none': renderer returns nothing for every piece
             animationDurationInMs: ANIMATION_MS[animationSpeed],
             showNotation: showCoordinates,
-            allowDragging: movableColor !== null,
-            canDragPiece: ({ piece }) => movableColor !== null && (dragAnyColor || piece.pieceType[0] === movableColor),
+            allowDragging: canMove,
+            canDragPiece: ({ piece }) => canMove && (dragAnyColor || piece.pieceType[0] === movableColor),
             onPieceDrag: () => {
               dragActiveRef.current = true;
               // a real drag supersedes click-to-move; never leave stale selection
@@ -333,7 +391,7 @@ export default function GameBoard({
             },
             alphaNotationStyle: { paddingBottom: '0.3rem', paddingRight: '0.35rem' },
             numericNotationStyle: { paddingTop: '0.3rem', paddingLeft: '0.35rem' },
-            allowDrawingArrows: movableColor !== null,
+            allowDrawingArrows: canMove,
             arrows,
             clearArrowsOnPositionChange: true,
             dropSquareStyle: { boxShadow: 'inset 0 0 0 4px rgba(113, 159, 148, 0.6)' },          }}

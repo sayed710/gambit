@@ -263,6 +263,35 @@ describe('backup round-trip (replace)', () => {
     expect(rep.lines[0].preferred).toEqual({ __root__: 'rn-1' });
   });
 
+  it('round-trips blindfold progress and per-exercise SR scheduling', () => {
+    seedPopulated();
+    localStorage.setItem(
+      'gambit.training.v1',
+      JSON.stringify({
+        version: 1,
+        endgame: {},
+        repScheduling: {},
+        motifs: {},
+        motifGames: {},
+        blindfold: {
+          levels: { l1: { attempted: 12, solved: 9, lastPracticed: 1792000100000 }, l4: { attempted: 3, solved: 1, lastPracticed: 1792000200000 } },
+          scheduling: { 'bf:l1:Opera Game:Nf3': { due: 1792900100000, interval: 3, reps: 2, ease: 2.6, lapses: 0, lastResult: 'good' } },
+        },
+        adaptive: { queue: [], lastGenerated: null },
+      }),
+    );
+    const text = buildBackup().text;
+    localStorage.clear();
+    restoreReplace(parseBackupText(text));
+    const training = JSON.parse(localStorage.getItem('gambit.training.v1')!);
+    expect(training.blindfold.levels.l1).toEqual({ attempted: 12, solved: 9, lastPracticed: 1792000100000 });
+    expect(training.blindfold.scheduling['bf:l1:Opera Game:Nf3']).toMatchObject({ due: 1792900100000, lastResult: 'good' });
+    // malformed blindfold SR record rejected
+    const bad = JSON.parse(buildBackup().text);
+    bad.sections.training.blindfold.scheduling['bf:x'] = { noDue: true };
+    expect(() => parseBackupText(reseal(bad))).toThrowError(/malformed blindfold SR record/);
+  });
+
   it('preserves SR due dates, motif markers, and practice progress', () => {
     seedPopulated();
     const text = buildBackup().text;

@@ -30,6 +30,8 @@ export interface AdaptiveSource {
   endgame?: Record<string, { attempted: number; solved: number; bestAttempts: number | null; lastPracticed: number | null; mastery: number }>;
   /** SR records keyed like gambit.training.v1 */
   repScheduling?: Record<string, SrRecord>;
+  /** blindfold per-level progress: l1..l4 */
+  blindfoldLevels?: Record<string, { attempted: number; solved: number; lastPracticed: number | null }>;
   /** positions available for repertoire drills */
   repertoirePositions?: { repertoireId: string; lineId: string; nodeKey: string; san: string }[];
   /** reviewed mistakes (blunder/mistake/miss) with optional motif */
@@ -144,6 +146,24 @@ export function buildAdaptiveSession(src: AdaptiveSource = {}): AdaptiveItem[] {
     }
   }
 
+  // ——— visualization (blindfold): real progress, weakest level first.
+  // MUST be scored before the unified sort/cap below — this competes with
+  // every other recommendation on equal terms.
+  for (const [lvl, st] of Object.entries(src.blindfoldLevels ?? {})) {
+    if (st.attempted === 0) continue; // no fabricated weakness for the untrained
+    const rate = st.solved / st.attempted;
+    if (rate >= 0.95) continue;
+    const label = `Level ${lvl.replace('l', '')}`;
+    items.push({
+      id: `visualization-${lvl}`,
+      kind: 'visualization',
+      reason: `Recommended because your blindfold ${label} success rate is ${Math.round(rate * 100)}% over ${st.attempted} exercise${st.attempted === 1 ? '' : 's'}.`,
+      score: clampScore(12 + (1 - rate) * 25 + recencyBoost(st.lastPracticed, now)),
+      ref: { level: lvl },
+      createdAt: st.lastPracticed ?? now,
+    });
+  }
+
   items.sort((a, b) => b.score - a.score || b.createdAt - a.createdAt);
   const capped = items.slice(0, 15);
 
@@ -158,7 +178,7 @@ export function buildAdaptiveSession(src: AdaptiveSource = {}): AdaptiveItem[] {
       createdAt: now,
     });
   }
-  if (capped.length < 5) {
+  if (capped.length < 5 && !capped.some((i) => i.kind === 'visualization')) {
     capped.push({
       id: 'vis-daily',
       kind: 'visualization',

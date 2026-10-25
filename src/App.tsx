@@ -20,6 +20,7 @@ const RepertoireDetail = lazy(() => import('./pages/Repertoire').then((m) => ({ 
 const Analysis = lazy(() => import('./pages/Analysis'));
 const Profile = lazy(() => import('./pages/Profile'));
 const Review = lazy(() => import('./pages/Review'));
+const Blindfold = lazy(() => import('./pages/Blindfold'));
 
 export default function App() {
   return (
@@ -120,6 +121,14 @@ export default function App() {
           element={
             <Suspense fallback={<PageLoading label="Loading trainer…" />}>
               <Coordinates />
+            </Suspense>
+          }
+        />
+        <Route
+          path="/blindfold"
+          element={
+            <Suspense fallback={<PageLoading label="Loading blindfold training…" />}>
+              <Blindfold />
             </Suspense>
           }
         />

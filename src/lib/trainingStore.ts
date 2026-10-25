@@ -68,6 +68,13 @@ export interface TrainingState {
    *  one contribution per game, first completed review wins, re-analysis
    *  (cache cleared, refined classifications) never double-counts. */
   motifGames: Record<string, number>;
+  /** blindfold training: per-level aggregate + per-exercise SR records.
+   *  Additive since v2-of-field; older files simply lack it. */
+  blindfold: {
+    levels: Record<string, { attempted: number; solved: number; lastPracticed: number | null }>;
+    /** key = blindfoldSrKey(exercise) -> SR record */
+    scheduling: Record<string, SrRecord>;
+  };
   adaptive: { queue: AdaptiveItem[]; lastGenerated: number | null };
 }
 
@@ -82,12 +89,29 @@ export function emptyTrainingState(): TrainingState {
     repScheduling: {},
     motifs: {},
     motifGames: {},
+    blindfold: { levels: {}, scheduling: {} },
     adaptive: { queue: [], lastGenerated: null },
   };
 }
 
 const num = (v: unknown, fallback = 0): number => (typeof v === 'number' && Number.isFinite(v) ? v : fallback);
 const int = (v: unknown, fallback = 0): number => Math.max(0, Math.round(num(v, fallback)));
+
+/** Shared SR-record normalization (repertoire scheduling + blindfold). */
+function normalizeSrRecord(raw: unknown): SrRecord | null {
+  if (!raw || typeof raw !== 'object' || typeof (raw as SrRecord).due !== 'number') return null;
+  const rec = raw as SrRecord;
+  return {
+    due: rec.due,
+    interval: Math.max(0, num(rec.interval)),
+    reps: Math.max(0, int(rec.reps)),
+    ease: Math.max(1.3, Math.min(3.2, num(rec.ease, 2.5))),
+    lapses: Math.max(0, int(rec.lapses)),
+    lastResult: (['again', 'hard', 'good', 'easy'] as const).includes(rec.lastResult as SrGrade)
+      ? (rec.lastResult as SrGrade)
+      : null,
+  };
+}
 
 export function normalizeTrainingState(raw: unknown): TrainingState {
   const base = emptyTrainingState();
@@ -113,18 +137,8 @@ export function normalizeTrainingState(raw: unknown): TrainingState {
   const repScheduling: TrainingState['repScheduling'] = {};
   if (r.repScheduling && typeof r.repScheduling === 'object') {
     for (const [key, v] of Object.entries(r.repScheduling)) {
-      if (!v || typeof v !== 'object' || typeof (v as SrRecord).due !== 'number') continue;
-      const rec = v as SrRecord;
-      repScheduling[key] = {
-        due: rec.due,
-        interval: Math.max(0, num(rec.interval)),
-        reps: Math.max(0, int(rec.reps)),
-        ease: Math.max(1.3, Math.min(3.2, num(rec.ease, 2.5))),
-        lapses: Math.max(0, int(rec.lapses)),
-        lastResult: (['again', 'hard', 'good', 'easy'] as const).includes(rec.lastResult as SrGrade)
-          ? (rec.lastResult as SrGrade)
-          : null,
-      };
+      const sr = normalizeSrRecord(v);
+      if (sr) repScheduling[key] = sr;
     }
   }
 
@@ -162,6 +176,24 @@ export function normalizeTrainingState(raw: unknown): TrainingState {
     }
   }
 
+  const bfRaw = (r as { blindfold?: unknown }).blindfold;
+  const blindfold: TrainingState['blindfold'] = { levels: {}, scheduling: {} };
+  if (bfRaw && typeof bfRaw === 'object') {
+    const b = bfRaw as TrainingState['blindfold'];
+    for (const [lvl, st] of Object.entries(b.levels ?? {})) {
+      if (!st || typeof st !== 'object') continue;
+      blindfold.levels[lvl] = {
+        attempted: int((st as { attempted?: unknown }).attempted),
+        solved: int((st as { solved?: unknown }).solved),
+        lastPracticed: typeof (st as { lastPracticed?: unknown }).lastPracticed === 'number' ? (st as { lastPracticed: number }).lastPracticed : null,
+      };
+    }
+    for (const [key, rec] of Object.entries(b.scheduling ?? {})) {
+      const sr = normalizeSrRecord(rec);
+      if (sr) blindfold.scheduling[key] = sr;
+    }
+  }
+
   const queue = Array.isArray(r.adaptive?.queue)
     ? (r.adaptive!.queue as AdaptiveItem[]).filter(
         (q): q is AdaptiveItem => !!q && typeof q === 'object' && typeof q.id === 'string' && typeof q.kind === 'string',
@@ -174,6 +206,7 @@ export function normalizeTrainingState(raw: unknown): TrainingState {
     repScheduling,
     motifs,
     motifGames,
+    blindfold,
     adaptive: { queue, lastGenerated: typeof r.adaptive?.lastGenerated === 'number' ? r.adaptive!.lastGenerated : null },
   };
 }
