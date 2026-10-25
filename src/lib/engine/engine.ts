@@ -165,6 +165,9 @@ export interface SearchResult {
   depth: number;
   nodes: number;
   ms: number;
+  /** which engine produced the move — 'legacy' means the fallback engine
+   *  answered and NO persona styling was applied (honesty requirement) */
+  engine?: 'stockfish' | 'legacy';
 }
 
 /** Search a position for the best move at a given level. */

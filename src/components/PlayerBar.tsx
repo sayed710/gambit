@@ -52,7 +52,7 @@ export default function PlayerBar({
           )}
         </div>
         <div className="meta">
-          {typeof rating === 'number' && <span className="mono">{rating}</span>}
+          {typeof rating === 'number' ? <span className="mono">{rating}</span> : rating === null ? <span className="small muted">Unrated</span> : null}
           <span className="material mono">{materialDiff > 0 ? `+${materialDiff}` : ''}</span>
         </div>
         {captured.length > 0 && (

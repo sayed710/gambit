@@ -21,6 +21,8 @@ export interface GameConfig {
   timeControl: TimeControl;
   playerColor: Color | 'random';
   aiLevel: 1 | 2 | 3 | 4;
+  /** opponent personality; absent or 'stockfish' = classic engine behavior */
+  persona?: import('./engine/personas').EnginePersonaId;
   /** play from a custom position (Position Editor deep link) */
   initialFen?: string;
 }
@@ -54,6 +56,10 @@ export interface GameRecord {
   ratingBefore: number;
   ratingAfter: number;
   pinned?: boolean;
+  /** opponent personality; absent = classic Stockfish (legacy games) */
+  persona?: import('./engine/personas').EnginePersonaId;
+  /** false for persona games: they never move the Play rating */
+  rated?: boolean;
 }
 
 export type PuzzleTheme = 'mate1' | 'mate2' | 'fork' | 'skewer' | 'pin' | 'hanging' | 'discovered';

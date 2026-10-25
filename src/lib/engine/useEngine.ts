@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef } from 'react';
 import { Chess } from 'chess.js';
 import type { EvalResult, Level, SearchResult } from './engine';
 import { sfSearch } from './stockfish';
+import type { EnginePersonaId } from './personas';
 
 type Pending = { resolve: (v: unknown) => void; reject: (e: Error) => void };
 
@@ -60,9 +61,9 @@ export function useEngine() {
   }, []);
 
   const search = useCallback(
-    async (fen: string, level: Level, recentFens: string[] = []): Promise<SearchResult | null> => {
+    async (fen: string, level: Level, recentFens: string[] = [], persona?: EnginePersonaId): Promise<SearchResult | null> => {
       try {
-        const sf = await sfSearch(fen, { level });
+        const sf = await sfSearch(fen, { level, persona });
         if (sf?.bestmove) {
           return {
             from: sf.bestmove.slice(0, 2),
@@ -74,13 +75,16 @@ export function useEngine() {
             depth: sf.depth,
             nodes: 0,
             ms: 0,
+            engine: 'stockfish',
           };
         }
         if (sf) return null; // engine answered but had no move (game over)
       } catch {
         // Stockfish unavailable — fall through to the bundled engine
       }
-      return legacyRequest<SearchResult | null>({ type: 'search', fen, level, recentFens });
+      const legacy = await legacyRequest<SearchResult | null>({ type: 'search', fen, level, recentFens });
+      if (legacy) return { ...legacy, engine: 'legacy' as const }; // honesty: no persona styling applies
+      return legacy;
     },
     [legacyRequest],
   );

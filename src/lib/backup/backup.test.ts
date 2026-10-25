@@ -910,3 +910,46 @@ describe('recovery safety (PR #2 final review)', () => {
     expect(localStorage.getItem('foreign.app.key')).toBe('untouchable');
   });
 });
+
+describe('persona fields in backups (engine-personas wave)', () => {
+  it('persona games round-trip with persona + rated metadata intact', () => {
+    seedPopulated();
+    const profile = JSON.parse(localStorage.getItem('gambit.profile')!);
+    profile.games.push({
+      id: 'g-persona', date: 1792000060000, mode: 'ai',
+      timeControl: { id: '10+0', label: '10 min', category: 'Rapid', minutes: 10, increment: 0 },
+      playerColor: 'w', opponentName: 'Engine · Blizzard', opponentRating: 2400,
+      result: 'loss', reason: 'checkmate', moves: ['e4', 'e5'], pgn: '1. e4 e5',
+      ratingBefore: 1420, ratingAfter: 1420, // unrated: delta 0
+      persona: 'blizzard', rated: false,
+    });
+    localStorage.setItem('gambit.profile', JSON.stringify(profile));
+    const text = buildBackup().text;
+    localStorage.clear();
+    restoreReplace(parseBackupText(text));
+    const restored = JSON.parse(localStorage.getItem('gambit.profile')!);
+    const game = restored.games.find((g: { id: string }) => g.id === 'g-persona');
+    expect(game).toMatchObject({ persona: 'blizzard', rated: false, ratingAfter: 1420 });
+    // classic game keeps legacy shape (no persona field)
+    const classic = restored.games.find((g: { id: string }) => g.id === 'g-keep-1');
+    expect(classic.persona).toBeUndefined();
+    expect(classic.rated).toBeUndefined();
+  });
+
+  it('unknown persona values are rejected on import', () => {
+    seedPopulated();
+    const envelope = JSON.parse(buildBackup().text);
+    envelope.sections.profile.games[0].persona = 'dramaking';
+    try {
+      parseBackupText(reseal(envelope));
+      expect.unreachable('should have thrown');
+    } catch (e) {
+      expect(String((e as Error).message)).toMatch(/unknown persona/);
+    }
+  });
+
+  it('legacy games without persona fields import unchanged', () => {
+    seedPopulated();
+    expect(() => parseBackupText(buildBackup().text)).not.toThrow();
+  });
+});

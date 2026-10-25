@@ -30,7 +30,7 @@ export interface SavedGame {
 
 interface UseGameOptions {
   config: GameConfig;
-  engineSearch: (fen: string, level: 1 | 2 | 3 | 4, recentFens: string[]) => Promise<{ from: string; to: string; promotion?: string; san: string } | null>;
+  engineSearch: (fen: string, level: 1 | 2 | 3 | 4, recentFens: string[], persona?: import('../lib/engine/personas').EnginePersonaId) => Promise<{ from: string; to: string; promotion?: string; san: string; engine?: 'stockfish' | 'legacy' } | null>;
   onGameOver?: (info: GameOverInfo) => void;
   /** restore a previously saved game instead of starting fresh */
   resume?: SavedGame | null;
@@ -51,6 +51,9 @@ export function useGame({ config, engineSearch, onGameOver, resume, initialFen }
   const [turn, setTurn] = useState<Color>(() => new Chess(startFenRef.current ?? undefined).turn());
   const [pendingPromotion, setPendingPromotion] = useState<PendingPromotion | null>(null);
   const [thinking, setThinking] = useState(false);
+  /** which engine answered the last opponent move — the UI must never claim
+   *  persona styling when the fallback engine produced the move */
+  const [engineUsed, setEngineUsed] = useState<'stockfish' | 'legacy' | null>(null);
   const [over, setOver] = useState<GameOverInfo | null>(null);
   const [drawDeclined, setDrawDeclined] = useState(false);
 
@@ -347,11 +350,12 @@ export function useGame({ config, engineSearch, onGameOver, resume, initialFen }
       .history({ verbose: true })
       .slice(-8)
       .map((mv) => mv.after.split(' ').slice(0, 4).join(' '));
-    engineSearch(fenAtRequest, config.aiLevel, recentFens)
+    engineSearch(fenAtRequest, config.aiLevel, recentFens, config.persona)
       .then((result) => {
         // the position may have moved on (restart, undo) while the worker thought
         if (cancelled || overRef.current || gameRef.current.fen() !== fenAtRequest) return;
         setThinking(false);
+        setEngineUsed(result?.engine ?? null);
         if (!result) return;
         try {
           const m = gameRef.current.move({ from: result.from, to: result.to, promotion: result.promotion ?? 'q' });
@@ -371,7 +375,7 @@ export function useGame({ config, engineSearch, onGameOver, resume, initialFen }
     return () => {
       cancelled = true;
     };
-  }, [config.mode, config.aiLevel, turn, playerColor, over, pendingPromotion, engineSearch]);
+  }, [config.mode, config.aiLevel, config.persona, turn, playerColor, over, pendingPromotion, engineSearch]);
 
 
 
@@ -455,6 +459,7 @@ export function useGame({ config, engineSearch, onGameOver, resume, initialFen }
     turn,
     over,
     thinking,
+    engineUsed,
     pendingPromotion,
     drawDeclined,
     captured,

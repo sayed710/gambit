@@ -363,6 +363,8 @@ export default function Profile() {
                               {delta > 0 ? '+' : ''}
                               {delta}
                             </span>
+                          ) : g.rated === false ? (
+                            <span className="small muted">Unrated</span>
                           ) : (
                             <span className="muted">—</span>
                           )}
