@@ -70,6 +70,15 @@ export interface GameBoardProps {
 
 const PROMO_PIECES: ('q' | 'n' | 'r' | 'b')[] = ['q', 'n', 'r', 'b'];
 
+/** 'none' visibility: a renderer that draws NOTHING for every piece type. */
+function emptyPieces(): Record<string, (props?: { square?: string }) => React.JSX.Element> {
+  const out: Record<string, (props?: { square?: string }) => React.JSX.Element> = {};
+  for (const key of ['wP', 'wN', 'wB', 'wR', 'wQ', 'wK', 'bP', 'bN', 'bB', 'bR', 'bQ', 'bK']) {
+    out[key] = () => <g />;
+  }
+  return out;
+}
+
 /** Ghost render: one neutral disc for every piece, both colors identical. */
 function ghostPieces(): Record<string, (props?: { square?: string }) => React.JSX.Element> {
   const out: Record<string, (props?: { square?: string }) => React.JSX.Element> = {};
@@ -322,7 +331,12 @@ export default function GameBoard({
             id: boardId,
             position: fen,
             boardOrientation: orientation,
-            pieces: pieceVisibility === 'full' ? undefined : pieceVisibility === 'ghost' ? ghostPieces() : {}, // 'none': all squares empty visually
+            pieces:
+              pieceVisibility === 'full'
+                ? undefined
+                : pieceVisibility === 'ghost'
+                  ? ghostPieces()
+                  : emptyPieces(), // 'none': renderer returns nothing for every piece
             animationDurationInMs: ANIMATION_MS[animationSpeed],
             showNotation: showCoordinates,
             allowDragging: movableColor !== null,
