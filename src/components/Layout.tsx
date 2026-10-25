@@ -127,6 +127,7 @@ function SettingsModal({ onClose }: { onClose: () => void }) {
 
 
 import PwaStatus from './PwaStatus';
+import StorageBanner from './StorageBanner';
 export default function Layout() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -214,6 +215,7 @@ export default function Layout() {
         </div>
       </header>
 
+      <StorageBanner />
       <main className="shell">
         <Outlet />
       </main>

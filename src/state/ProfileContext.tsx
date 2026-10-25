@@ -1,7 +1,9 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
 import type { GameRecord } from '../lib/types';
-import { loadJSON, saveJSON } from '../lib/storage';
+import { loadJSON } from '../lib/storage';
+import { checkedSetJSON } from '../lib/persist';
+import { clearPersistStatus, reportPersistFailure } from '../lib/persistStatus';
 
 interface PuzzleStats {
   rating: number;
@@ -44,7 +46,11 @@ export function ProfileProvider({ children }: { children: ReactNode }) {
   const [profile, setProfile] = useState<ProfileData>(() => ({ ...DEFAULT_PROFILE, ...loadJSON('profile', {}) }));
 
   useEffect(() => {
-    saveJSON('profile', profile);
+    // CRITICAL write: verified (write + read-back). A browser rejection is
+    // never reported as saved — it is surfaced via persistStatus (banner).
+    const res = checkedSetJSON('profile', profile);
+    if (res.ok) clearPersistStatus('gambit.profile');
+    else reportPersistFailure(res.kind, 'gambit.profile', 'profile', res.detail);
   }, [profile]);
 
   const recordGame = useCallback((record: GameRecord) => {
@@ -59,7 +65,10 @@ export function ProfileProvider({ children }: { children: ReactNode }) {
         rating,
         peakRating: Math.max(p.peakRating, rating),
         ratingHistory: isRated ? [...p.ratingHistory.slice(-99), rating] : p.ratingHistory,
-        games: [record, ...p.games].slice(0, 50),
+        // NEVER truncate: the oldest game is user history, not garbage.
+        // Capacity problems surface through verified persistence failures
+        // (persistStatus) instead of silent deletion.
+        games: [record, ...p.games],
       };
     });
   }, []);

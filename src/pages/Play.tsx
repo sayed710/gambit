@@ -13,6 +13,8 @@ import { useClickToMove } from '../hooks/useClickToMove';
 import type { GameOverInfo } from '../hooks/useGame';
 import { LEVEL_RATINGS } from '../lib/engine/engine';
 import { PERSONAS, isPersonaId, type EnginePersonaId } from '../lib/engine/personas';
+import { usePersistFailures } from '../lib/persistStatus';
+import { buildEmergencyGameFile, emergencyFilename } from '../lib/persist';
 import type { Level } from '../lib/engine/engine';
 import { DEFAULT_TIME_CONTROL, TIME_CONTROLS, timeControlById, NO_CLOCK } from '../data/timeControls';
 import { Chess } from 'chess.js';
@@ -326,6 +328,22 @@ function GameScreen({
   } = game;
 
   const [recordId, setRecordId] = useState<string | null>(null);
+  const [unsavedGame, setUnsavedGame] = useState<GameRecord | null>(null);
+  const persistFailures = usePersistFailures();
+  const lastPersistFailed = persistFailures.some((f) => f.key === 'gambit.profile');
+
+  const downloadEmergency = useCallback(() => {
+    if (!unsavedGame) return;
+    const file = buildEmergencyGameFile(unsavedGame, 'Storage write failed after game completion');
+    const blob = new Blob([JSON.stringify(file, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = emergencyFilename();
+    a.click();
+    URL.revokeObjectURL(url);
+    toast('Emergency game file downloaded. Import it via Backup & Restore after freeing space. This is not a complete backup.');
+  }, [unsavedGame, toast]);
   const [orientation, setOrientation] = useState<'white' | 'black'>(playerColor === 'b' ? 'black' : 'white');
   const [zen, setZen] = useState(false);
   const boardFrameRef = useRef<HTMLDivElement>(null);
@@ -373,6 +391,11 @@ function GameScreen({
     };
     recordGame(record);
     setRecordId(record.id);
+    // Whether this game actually persisted is decided by the verified write
+    // in ProfileContext's effect — the emergency block renders REACTIVELY
+    // from persistStatus (a synchronous hasFailures() here would read stale
+    // state before the effect runs).
+    setUnsavedGame(record);
   };
 
   useEffect(() => {
@@ -652,6 +675,19 @@ function GameScreen({
               <p className="small" role="note" style={{ margin: 0, color: 'var(--bad)' }}>
                 Stockfish is unavailable — the built-in fallback engine is answering, so this opponent is not playing its personality style.
               </p>
+            )}
+            {over && lastPersistFailed && unsavedGame && (
+              <div role="alert" className="small" style={{ border: '1px solid var(--bad)', borderRadius: 8, padding: '0.5rem 0.7rem' }}>
+                <strong>This game could not be saved</strong> — browser storage refused the write. It exists only on this screen.
+                <div style={{ marginTop: '0.4rem' }}>
+                  <button type="button" className="btn btn-danger btn-sm" onClick={downloadEmergency}>
+                    Emergency export this game
+                  </button>
+                </div>
+                <p className="small muted" style={{ margin: '0.3rem 0 0' }}>
+                  The emergency file contains only this game — it is not a complete backup.
+                </p>
+              </div>
             )}
             <MoveList plies={plies} resultLabel={over ? `${verdict} (${why})` : null} />
             <div className="row wrap" style={{ gap: '0.45rem' }}>
