@@ -1375,3 +1375,14 @@ body:has(.home) .site-footer {
 .pwa-preparing { color: var(--muted); }
 .pwa-offline { color: var(--sea); border-color: color-mix(in srgb, var(--sea) 45%, transparent); }
 @media (max-width: 720px) { .pwa-status { display: none; } }
+
+/* Persist failure banner — Arctic alert, persistent until resolved */
+.persist-banner {
+  border: 1px solid var(--bad);
+  border-left-width: 4px;
+  background: color-mix(in srgb, var(--bad) 8%, var(--surface));
+  border-radius: 10px;
+  padding: 0.7rem 1rem;
+  margin: 0.6rem auto 0;
+  max-width: calc(100% - 2rem);
+}

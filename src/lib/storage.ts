@@ -10,11 +10,19 @@ export function loadJSON<T>(key: string, fallback: T): T {
   }
 }
 
-export function saveJSON(key: string, value: unknown): void {
+/**
+ * Legacy convenience write. AUDIT NOTE (PR-A): this does not verify the
+ * write — non-critical writers may keep using it, but anything a user
+ * would mourn losing must call checkedSetJSON (src/lib/persist.ts) and
+ * report failures via persistStatus instead of relying on this function.
+ * Returns the persistence result so callers CAN check it.
+ */
+export function saveJSON(key: string, value: unknown): { ok: boolean } {
   try {
     localStorage.setItem(PREFIX + key, JSON.stringify(value));
+    return { ok: true };
   } catch {
-    /* storage full or unavailable — non-fatal */
+    return { ok: false };
   }
 }
 

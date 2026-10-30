@@ -1,10 +1,11 @@
 import { useMemo, useRef, useState } from 'react';
 import { buildBackup } from '../lib/backup/exportBackup';
-import { BackupError, parseBackupText, previewBackup, type ParsedBackup } from '../lib/backup/validate';
+import { BackupError, parseBackupText, parseEmergencyGame, previewBackup, type ParsedBackup } from '../lib/backup/validate';
 import { applyRecoverySnapshot, discardRecoverySnapshot, loadRecoverySnapshot, restoreMerge, restoreReplace, verifySnapshotRestored, RecoveryPendingError, type RecoverySnapshot } from '../lib/backup/restore';
 import { loadJSON } from '../lib/storage';
 import type { BackupPreview } from '../lib/backup/validate';
 import { useToast } from './Toast';
+import { useProfile } from '../state/ProfileContext';
 
 /* ============================================================
    BackupRestore — one-click export, validated preview, replace /
@@ -39,6 +40,7 @@ function useDataInventory() {
 
 export default function BackupRestore() {
   const { toast } = useToast();
+  const { importGameRecord } = useProfile();
   const inventory = useDataInventory();
   const [includeReviews, setIncludeReviews] = useState(true);
   const [exportInfo, setExportInfo] = useState<string | null>(null);
@@ -50,6 +52,7 @@ export default function BackupRestore() {
   const [result, setResult] = useState<string | null>(null);
   const [interruptedRestore, setInterruptedRestore] = useState<RecoverySnapshot | null>(() => loadRecoverySnapshot());
   const [recoveryError, setRecoveryError] = useState<string | null>(null);
+  const [emergency, setEmergency] = useState<{ game: unknown; reason: string; exportedAt: string } | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
   function handleExport() {
@@ -75,8 +78,21 @@ export default function BackupRestore() {
     setParseError(null);
     setParsed(null);
     setPreview(null);
+    setEmergency(null);
     try {
       const text = await file.text();
+      // emergency-game files take the dedicated single-game route
+      let candidate: unknown;
+      try {
+        candidate = JSON.parse(text);
+      } catch {
+        throw new BackupError('NOT_JSON', 'not valid JSON');
+      }
+      if (candidate && typeof candidate === 'object' && (candidate as { kind?: string }).kind === 'emergency-game') {
+        const em = parseEmergencyGame(text);
+        setEmergency(em);
+        return;
+      }
       const p = parseBackupText(text);
       setParsed(p);
       setPreview(previewBackup(p));
@@ -84,6 +100,27 @@ export default function BackupRestore() {
       const msg = e instanceof BackupError ? `${e.code === 'UNSUPPORTED_VERSION' ? '' : 'Rejected — '}${e.message}` : `Could not read the file: ${(e as Error).message}`;
       setParseError(msg);
     }
+  }
+
+  function importEmergency() {
+    if (!emergency) return;
+    setPhase('done'); // the result banner only renders in the done phase
+    const res = importGameRecord(emergency.game as Parameters<typeof importGameRecord>[0]);
+    if (!res.ok) {
+      // KEEP the emergency file selected so the user can retry after freeing
+      // space; never claim recovery on failed persistence.
+      setResult(`Emergency import FAILED — the file is kept for retry. ${res.detail ?? ''}`);
+      return;
+    }
+    if (res.duplicate) {
+      setEmergency(null);
+      if (fileRef.current) fileRef.current.value = '';
+      setResult('Already in your history — nothing changed (verified).');
+      return;
+    }
+    setEmergency(null);
+    if (fileRef.current) fileRef.current.value = '';
+    setResult('Emergency game imported AND verified in durable storage. Recovered games are records-only: your rating was not recalculated.');
   }
 
   function confirmRestore() {
@@ -232,6 +269,17 @@ export default function BackupRestore() {
       {parseError && (
         <div className="status-banner mt-2" role="alert" style={{ borderColor: 'var(--bad)' }}>
           {parseError}
+        </div>
+      )}
+
+      {emergency && (
+        <div className="mt-2" role="alert">
+          <p className="small" style={{ marginBottom: '0.4rem' }}>
+            <strong>Emergency game file</strong> (from {new Date(emergency.exportedAt).toLocaleString()}, reason: {emergency.reason}). This contains ONE game — import adds it to your history with verified persistence. This is not a complete backup.
+          </p>
+          <button className="btn btn-primary btn-sm" onClick={importEmergency}>
+            Import emergency game
+          </button>
         </div>
       )}
 

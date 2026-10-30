@@ -108,7 +108,7 @@ const isId = (v: unknown): boolean => typeof v === 'string' && v.length > 0 && v
 const CLASSIFICATIONS = new Set(['brilliant', 'best', 'excellent', 'great', 'good', 'inaccuracy', 'mistake', 'miss', 'blunder', 'book']);
 const SR_RATINGS = new Set(['again', 'hard', 'good', 'easy']);
 
-function validateGameRecord(game: unknown, i: number): void {
+export function validateGameRecord(game: unknown, i = 0): void {
   if (!isPlainObject(game)) fail('profile', `game #${i} is not an object`);
   if (!isId(game.id)) fail('profile', `game #${i} has no valid id`);
   if (typeof game.result === 'string' && !['win', 'loss', 'draw'].includes(game.result)) {
@@ -322,6 +322,35 @@ const SECTION_VALIDATORS: Partial<Record<string, SectionValidator>> = {
   activeGame: validateActiveGame,
   lastConfig: validateLastConfig,
 };
+
+
+export interface ParsedEmergency {
+  game: unknown;
+  reason: string;
+  exportedAt: string;
+}
+
+/** Validate an emergency-game file (persist.ts kind:'emergency-game'). */
+export function parseEmergencyGame(text: string): ParsedEmergency {
+  if (utf8Bytes(text) > BACKUP_MAX_BYTES) throw new BackupError('TOO_LARGE', 'file exceeds the size limit');
+  let raw: unknown;
+  try {
+    raw = JSON.parse(text);
+  } catch {
+    throw new BackupError('NOT_JSON', 'not valid JSON');
+  }
+  if (!isPlainObject(raw) || raw.app !== 'gambit' || raw.kind !== 'emergency-game') {
+    throw new BackupError('BAD_ENVELOPE', 'this is not a Gambit emergency-game file');
+  }
+  if (raw.format !== 1) {
+    throw new BackupError('UNSUPPORTED_VERSION', `Unsupported emergency file format ${String(raw.format)} (expected 1)`);
+  }
+  if (typeof raw.reason !== 'string' || typeof raw.exportedAt !== 'string' || !('game' in raw)) {
+    throw new BackupError('BAD_ENVELOPE', 'emergency file is incomplete');
+  }
+  validateGameRecord(raw.game, 0);
+  return { game: raw.game, reason: raw.reason, exportedAt: raw.exportedAt };
+}
 
 /* ------------------------------ entry point ------------------------------ */
 

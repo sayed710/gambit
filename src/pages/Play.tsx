@@ -13,11 +13,14 @@ import { useClickToMove } from '../hooks/useClickToMove';
 import type { GameOverInfo } from '../hooks/useGame';
 import { LEVEL_RATINGS } from '../lib/engine/engine';
 import { PERSONAS, isPersonaId, type EnginePersonaId } from '../lib/engine/personas';
+import { usePersistFailures, reportPersistFailure, clearPersistStatus, addUnsavedGame, getFailures } from '../lib/persistStatus';
+import { checkedSetJSON, checkedRemove } from '../lib/persist';
+import { buildEmergencyGameFile, emergencyFilename } from '../lib/persist';
 import type { Level } from '../lib/engine/engine';
 import { DEFAULT_TIME_CONTROL, TIME_CONTROLS, timeControlById, NO_CLOCK } from '../data/timeControls';
 import { Chess } from 'chess.js';
 import type { Color, GameConfig, GameRecord } from '../lib/types';
-import { loadJSON, saveJSON, removeKey } from '../lib/storage';
+import { loadJSON, saveJSON } from '../lib/storage';
 import { playSound } from '../lib/sound';
 import type { SavedGame } from '../hooks/useGame';
 import { identifyOpening } from '../lib/openings';
@@ -326,6 +329,22 @@ function GameScreen({
   } = game;
 
   const [recordId, setRecordId] = useState<string | null>(null);
+  const [unsavedGame, setUnsavedGame] = useState<GameRecord | null>(null);
+  const persistFailures = usePersistFailures();
+  const lastPersistFailed = persistFailures.some((f) => f.key === 'gambit.profile');
+
+  const downloadEmergency = useCallback(() => {
+    if (!unsavedGame) return;
+    const file = buildEmergencyGameFile(unsavedGame, 'Storage write failed after game completion');
+    const blob = new Blob([JSON.stringify(file, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = emergencyFilename();
+    a.click();
+    URL.revokeObjectURL(url);
+    toast('Emergency game file downloaded. Import it via Backup & Restore after freeing space. This is not a complete backup.');
+  }, [unsavedGame, toast]);
   const [orientation, setOrientation] = useState<'white' | 'black'>(playerColor === 'b' ? 'black' : 'white');
   const [zen, setZen] = useState(false);
   const boardFrameRef = useRef<HTMLDivElement>(null);
@@ -373,6 +392,38 @@ function GameScreen({
     };
     recordGame(record);
     setRecordId(record.id);
+    // Whether this game actually persisted is decided by the verified write
+    // in ProfileContext's effect — the emergency block renders REACTIVELY
+    // from persistStatus (a synchronous hasFailures() here would read stale
+    // state before the effect runs).
+    setUnsavedGame(record);
+    // session store: the emergency route stays available from any page
+    addUnsavedGame({
+      id: record.id,
+      pgn: record.pgn,
+      moves: record.moves,
+      opponentName: record.opponentName,
+      result: record.result,
+      reason: record.reason,
+      date: record.date,
+      raw: record,
+    });
+    // The over-effect above removed the active snapshot with verifiedRemove.
+    // If that removal FAILS, the stale snapshot would present a finished
+    // game as resumable — re-mark it with the finished record id so the
+    // resume UI can tell the truth.
+    const removal = checkedRemove(ACTIVE_GAME_KEY);
+    if (!removal.ok) {
+      const mark = checkedSetJSON(ACTIVE_GAME_KEY, {
+        config,
+        playerColor,
+        pgn: game.pgn(),
+        clocks: null,
+        savedAt: Date.now(),
+        finishedId: record.id,
+      } satisfies SavedGame & { savedAt: number; finishedId: string });
+      if (!mark.ok) reportPersistFailure(mark.kind, 'gambit.' + ACTIVE_GAME_KEY, 'active-game', mark.detail);
+    }
   };
 
   useEffect(() => {
@@ -384,29 +435,36 @@ function GameScreen({
     if (config.mode === 'pass') setOrientation(turn === 'w' ? 'white' : 'black');
   }, [config.mode, turn]);
 
-  // Keep the active game recoverable: persisted after every move, cleared when it ends.
+  // Keep the active game recoverable: VERIFIED persistence after every move,
+  // cleared (verified) when it ends. A failed removal must not leave the
+  // finished game presented as resumable — the snapshot is re-marked with the
+  // finished record id so the resume UI can tell the truth.
   useEffect(() => {
-    if (over) {
-      removeKey(ACTIVE_GAME_KEY);
+    if (over || plies.length === 0) {
+      if (!savedRef.current) {
+        const res = checkedRemove(ACTIVE_GAME_KEY);
+        if (!res.ok) reportPersistFailure(res.kind, 'gambit.' + ACTIVE_GAME_KEY, 'active-game', res.detail);
+        else clearPersistStatus('gambit.' + ACTIVE_GAME_KEY);
+      }
       return;
     }
-    if (plies.length === 0) {
-      removeKey(ACTIVE_GAME_KEY);
-      return;
-    }
-    saveJSON(ACTIVE_GAME_KEY, {
+    const res = checkedSetJSON(ACTIVE_GAME_KEY, {
       config,
       playerColor,
       pgn: game.pgn(),
       clocks: unlimited ? null : { w: Math.round(clock.clocks.w), b: Math.round(clock.clocks.b) },
       savedAt: Date.now(),
     } satisfies SavedGame & { savedAt: number });
+    if (res.ok) clearPersistStatus('gambit.' + ACTIVE_GAME_KEY);
+    else reportPersistFailure(res.kind, 'gambit.' + ACTIVE_GAME_KEY, 'active-game', res.detail);
     // clock.clocks intentionally excluded from deps: persisting on move boundaries
     // is enough for an honest resume, and per-frame writes would churn storage.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [plies, over]);
 
-  // Warn before losing a live game to a reload/tab close.
+  // Warn before losing a LIVE game to a reload/tab close. Finished games are
+  // guarded app-level (see useUnsavedUnloadGuard): their unsaved records live
+  // in the shared session store and must keep warning after SPA navigation.
   useEffect(() => {
     if (over || plies.length < 2) return;
     const handler = (e: BeforeUnloadEvent) => {
@@ -653,6 +711,19 @@ function GameScreen({
                 Stockfish is unavailable — the built-in fallback engine is answering, so this opponent is not playing its personality style.
               </p>
             )}
+            {over && lastPersistFailed && unsavedGame && (
+              <div role="alert" className="small" style={{ border: '1px solid var(--bad)', borderRadius: 8, padding: '0.5rem 0.7rem' }}>
+                <strong>This game could not be saved</strong> — browser storage refused the write. It exists only on this screen.
+                <div style={{ marginTop: '0.4rem' }}>
+                  <button type="button" className="btn btn-danger btn-sm" onClick={downloadEmergency}>
+                    Emergency export this game
+                  </button>
+                </div>
+                <p className="small muted" style={{ margin: '0.3rem 0 0' }}>
+                  The emergency file contains only this game — it is not a complete backup.
+                </p>
+              </div>
+            )}
             <MoveList plies={plies} resultLabel={over ? `${verdict} (${why})` : null} />
             <div className="row wrap" style={{ gap: '0.45rem' }}>
               <button className="btn btn-ghost btn-sm" onClick={undo} disabled={!canUndo} title="Take back your last move">
@@ -765,6 +836,13 @@ export default function Play() {
   const location = useLocation();
   const navigate = useNavigate();
   const [config, setConfig] = useState<GameConfig | null>(() => {
+    // An existing active-game snapshot outranks the last-used setup: auto-
+    // starting from lastConfig would mount a fresh GameScreen whose zero-ply
+    // persistence effect REMOVES the snapshot — an implicit discard of a game
+    // the user never decided to abandon. lastConfig is a setup preference,
+    // never proof that a new game should start.
+    const snap = loadJSON<(SavedGame & { savedAt?: number }) | null>(ACTIVE_GAME_KEY, null);
+    if (snap && snap.config) return null;
     const stored = loadJSON<GameConfig | null>(LAST_CONFIG_KEY, null);
     if (stored?.persona && !isPersonaId(stored.persona)) delete stored.persona; // corrupt/unknown — classic
     return stored;
@@ -772,6 +850,39 @@ export default function Play() {
   const [resume, setResume] = useState<SavedGame | null>(null);
   const [gameKey, setGameKey] = useState(0);
   const saved = loadJSON<(SavedGame & { savedAt: number }) | null>(ACTIVE_GAME_KEY, null);
+  // A persisted failure entry for the active-game key (the status store
+  // survives reload when it could be written) means the LAST active-game
+  // write was never verified. The snapshot on disk may be older than the
+  // game that was being played — or, after a failed end-of-game removal,
+  // may show a game that already finished. Honest post-reload behavior:
+  // never present such a snapshot as safely resumable.
+  const activeFailure =
+    !config && saved && !(saved as { finishedId?: string }).finishedId
+      ? getFailures().find((f) => f.key === 'gambit.' + ACTIVE_GAME_KEY)
+      : undefined;
+  // Discard state: `resume` is already null when the panel shows and `config`
+  // is null, so a plain setResume(null) triggers no re-render — the panel
+  // (and its Resume action) would outlive a deleted snapshot. Explicit state
+  // unmounts it immediately after a VERIFIED removal; a failed removal keeps
+  // the panel and reports the truth instead.
+  const [snapshotRemoved, setSnapshotRemoved] = useState(false);
+  const [discardError, setDiscardError] = useState<string | null>(null);
+
+  const discardSnapshot = useCallback(() => {
+    const res = checkedRemove(ACTIVE_GAME_KEY);
+    if (!res.ok) {
+      reportPersistFailure(res.kind, 'gambit.' + ACTIVE_GAME_KEY, 'active-game', res.detail);
+      setDiscardError(
+        `Discard FAILED (${res.kind}) — the snapshot is still on disk; nothing was deleted. Resolve the storage problem and try again.`,
+      );
+      return;
+    }
+    setDiscardError(null);
+    setSnapshotRemoved(true);
+    // the snapshot was explicitly resolved by the user — its reliability
+    // evidence is now moot (this is a resolution, not a warning dismissal)
+    clearPersistStatus('gambit.' + ACTIVE_GAME_KEY);
+  }, []);
 
   const start = useCallback((c: GameConfig) => {
     saveJSON(LAST_CONFIG_KEY, c);
@@ -784,6 +895,14 @@ export default function Play() {
   const editFen = (location.state as { fen?: string } | null)?.fen;
   useEffect(() => {
     if (!editFen) return;
+    // Same implicit-discard guard as the config init: an existing snapshot is
+    // resolved first (recovery panel), the deep link is dropped rather than
+    // silently wiping a saved game.
+    const snap = loadJSON<(SavedGame & { savedAt?: number }) | null>(ACTIVE_GAME_KEY, null);
+    if (snap && snap.config) {
+      navigate('/play', { replace: true, state: null });
+      return;
+    }
     let turn: 'w' | 'b' = 'w';
     try {
       turn = new Chess(editFen).turn();
@@ -804,35 +923,67 @@ export default function Play() {
   if (!config) {
     return (
       <div className="page container">
-        {saved && saved.config && (
+        {saved && saved.config && !snapshotRemoved && (
           <div className="panel panel-pad row between wrap mb-2" style={{ borderColor: 'var(--accent)' }}>
             <div>
-              <strong>Game in progress</strong>
+              <strong>{(saved as { finishedId?: string }).finishedId ? 'Finished game snapshot' : 'Game in progress'}</strong>
               <div className="small muted">
                 {saved.config.mode === 'ai' ? `vs Engine · ${['Gentle', 'Casual', 'Club', 'Sharp'][saved.config.aiLevel - 1]}` : 'Pass & play'} ·{' '}
                 {saved.config.timeControl.minutes > 0 ? `${saved.config.timeControl.minutes}+${saved.config.timeControl.increment}` : 'no clock'} ·{' '}
                 {Math.ceil((saved.pgn.match(/\./g)?.length ?? 0))} moves played
               </div>
+              {(saved as { finishedId?: string }).finishedId && (
+                <div className="small" role="note" style={{ color: 'var(--bad)', marginTop: '0.25rem' }}>
+                  This game already ended and could not be removed from storage — it is NOT resumable. Its record:{' '}
+                  {(saved as { finishedId?: string }).finishedId && (loadJSON<{ games?: GameRecord[] }>('profile', {})).games?.some((g: { id: string }) => g.id === (saved as { finishedId?: string }).finishedId)
+                    ? 'is saved in your history (open it from Profile).'
+                    : 'could not be saved — it is lost; only Discard is available.'}
+                </div>
+              )}
+              {activeFailure && (
+                <div className="small" role="note" style={{ color: 'var(--bad)', marginTop: '0.25rem' }}>
+                  The last save of this game could not be verified ({activeFailure.kind}). The snapshot may be older than
+                  the game you were playing, so resuming may lose recent moves — or the whole game if storage failed at
+                  the end.
+                </div>
+              )}
+              {discardError && (
+                <div className="small" role="note" style={{ color: 'var(--bad)', marginTop: '0.25rem' }}>
+                  {discardError}
+                </div>
+              )}
             </div>
             <span className="row" style={{ gap: '0.45rem' }}>
-              <button
-                className="btn btn-primary btn-sm"
-                onClick={() => {
-                  saveJSON(LAST_CONFIG_KEY, saved.config);
-                  setResume(saved);
-                  setConfig(saved.config);
-                  setGameKey((k) => k + 1);
-                }}
-              >
-                Resume
-              </button>
-              <button
-                className="btn btn-ghost btn-sm"
-                onClick={() => {
-                  removeKey(ACTIVE_GAME_KEY);
-                  setResume(null);
-                }}
-              >
+              {!(saved as { finishedId?: string }).finishedId &&
+                (activeFailure ? (
+                  // Unverified snapshot: an ordinary Resume would present stale
+                  // (possibly finished) state as safe. The recovery action is
+                  // labeled with the concrete risk instead.
+                  <button
+                    className="btn btn-danger btn-sm"
+                    onClick={() => {
+                      saveJSON(LAST_CONFIG_KEY, saved.config);
+                      setResume(saved);
+                      setConfig(saved.config);
+                      setGameKey((k) => k + 1);
+                    }}
+                  >
+                    Recover anyway — may lose recent moves
+                  </button>
+                ) : (
+                  <button
+                    className="btn btn-primary btn-sm"
+                    onClick={() => {
+                      saveJSON(LAST_CONFIG_KEY, saved.config);
+                      setResume(saved);
+                      setConfig(saved.config);
+                      setGameKey((k) => k + 1);
+                    }}
+                  >
+                    Resume
+                  </button>
+                ))}
+              <button className="btn btn-ghost btn-sm" onClick={discardSnapshot}>
                 Discard
               </button>
             </span>
