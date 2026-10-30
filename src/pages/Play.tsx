@@ -330,9 +330,6 @@ function GameScreen({
 
   const [recordId, setRecordId] = useState<string | null>(null);
   const [unsavedGame, setUnsavedGame] = useState<GameRecord | null>(null);
-  // unload handlers read the ref, not state: the beforeunload listener is
-  // installed at effect-commit time and must not warn from a stale closure
-  const unsavedGameRef = useRef<GameRecord | null>(null);
   const persistFailures = usePersistFailures();
   const lastPersistFailed = persistFailures.some((f) => f.key === 'gambit.profile');
 
@@ -400,7 +397,6 @@ function GameScreen({
     // from persistStatus (a synchronous hasFailures() here would read stale
     // state before the effect runs).
     setUnsavedGame(record);
-    unsavedGameRef.current = record;
     // session store: the emergency route stays available from any page
     addUnsavedGame({
       id: record.id,
@@ -466,26 +462,14 @@ function GameScreen({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [plies, over]);
 
-  // Warn before losing a live game to a reload/tab close. A finished game
-  // that never reached durable storage is equally at risk: for that case the
-  // handler reads DURABLE storage at unload time (not React state), so it
-  // warns exactly while the record is genuinely absent and stays silent once
-  // any later profile write has carried it to disk.
+  // Warn before losing a LIVE game to a reload/tab close. Finished games are
+  // guarded app-level (see useUnsavedUnloadGuard): their unsaved records live
+  // in the shared session store and must keep warning after SPA navigation.
   useEffect(() => {
-    if (!over && plies.length < 2) return;
+    if (over || plies.length < 2) return;
     const handler = (e: BeforeUnloadEvent) => {
-      if (!over) {
-        e.preventDefault();
-        e.returnValue = '';
-        return;
-      }
-      const unsaved = unsavedGameRef.current;
-      if (!unsaved) return;
-      const durable = loadJSON<{ games?: { id: string }[] }>('profile', {});
-      if (!durable.games?.some((g) => g.id === unsaved.id)) {
-        e.preventDefault();
-        e.returnValue = '';
-      }
+      e.preventDefault();
+      e.returnValue = '';
     };
     window.addEventListener('beforeunload', handler);
     return () => window.removeEventListener('beforeunload', handler);
@@ -852,6 +836,13 @@ export default function Play() {
   const location = useLocation();
   const navigate = useNavigate();
   const [config, setConfig] = useState<GameConfig | null>(() => {
+    // An existing active-game snapshot outranks the last-used setup: auto-
+    // starting from lastConfig would mount a fresh GameScreen whose zero-ply
+    // persistence effect REMOVES the snapshot — an implicit discard of a game
+    // the user never decided to abandon. lastConfig is a setup preference,
+    // never proof that a new game should start.
+    const snap = loadJSON<(SavedGame & { savedAt?: number }) | null>(ACTIVE_GAME_KEY, null);
+    if (snap && snap.config) return null;
     const stored = loadJSON<GameConfig | null>(LAST_CONFIG_KEY, null);
     if (stored?.persona && !isPersonaId(stored.persona)) delete stored.persona; // corrupt/unknown — classic
     return stored;
@@ -881,6 +872,14 @@ export default function Play() {
   const editFen = (location.state as { fen?: string } | null)?.fen;
   useEffect(() => {
     if (!editFen) return;
+    // Same implicit-discard guard as the config init: an existing snapshot is
+    // resolved first (recovery panel), the deep link is dropped rather than
+    // silently wiping a saved game.
+    const snap = loadJSON<(SavedGame & { savedAt?: number }) | null>(ACTIVE_GAME_KEY, null);
+    if (snap && snap.config) {
+      navigate('/play', { replace: true, state: null });
+      return;
+    }
     let turn: 'w' | 'b' = 'w';
     try {
       turn = new Chess(editFen).turn();
@@ -927,19 +926,35 @@ export default function Play() {
               )}
             </div>
             <span className="row" style={{ gap: '0.45rem' }}>
-              {!(saved as { finishedId?: string }).finishedId && (
-                <button
-                  className="btn btn-primary btn-sm"
-                  onClick={() => {
-                    saveJSON(LAST_CONFIG_KEY, saved.config);
-                    setResume(saved);
-                    setConfig(saved.config);
-                    setGameKey((k) => k + 1);
-                  }}
-                >
-                  Resume
-                </button>
-              )}
+              {!(saved as { finishedId?: string }).finishedId &&
+                (activeFailure ? (
+                  // Unverified snapshot: an ordinary Resume would present stale
+                  // (possibly finished) state as safe. The recovery action is
+                  // labeled with the concrete risk instead.
+                  <button
+                    className="btn btn-danger btn-sm"
+                    onClick={() => {
+                      saveJSON(LAST_CONFIG_KEY, saved.config);
+                      setResume(saved);
+                      setConfig(saved.config);
+                      setGameKey((k) => k + 1);
+                    }}
+                  >
+                    Recover anyway — may lose recent moves
+                  </button>
+                ) : (
+                  <button
+                    className="btn btn-primary btn-sm"
+                    onClick={() => {
+                      saveJSON(LAST_CONFIG_KEY, saved.config);
+                      setResume(saved);
+                      setConfig(saved.config);
+                      setGameKey((k) => k + 1);
+                    }}
+                  >
+                    Resume
+                  </button>
+                ))}
               <button
                 className="btn btn-ghost btn-sm"
                 onClick={() => {

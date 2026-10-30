@@ -1,4 +1,4 @@
-import { useSyncExternalStore } from 'react';
+import { useEffect, useSyncExternalStore } from 'react';
 import type { PersistFailureKind } from './persist';
 
 /* ============================================================
@@ -152,6 +152,36 @@ export function removeUnsavedGame(id: string): void {
   unsavedCache = unsavedCache.filter((g) => g.id !== id);
   unsavedVersion += 1;
   for (const fn of unsavedListeners) fn();
+}
+
+/** Explicit informed user decision (the banner's Acknowledge): stop tracking
+ *  the unsaved games — the unload guard stops and reloading WILL lose them. */
+export function clearAllUnsavedGames(): void {
+  if (unsavedCache.length === 0) return;
+  unsavedCache = [];
+  unsavedVersion += 1;
+  for (const fn of unsavedListeners) fn();
+}
+
+/**
+ * App-level beforeunload guard: while any finished game remains unpersisted
+ * in the session store, a reload/tab close is vetoed from ANY page (the
+ * session store survives SPA navigation; the game screen does not).
+ * The guard stops when every record is verifiably persisted (pruned) or the
+ * user acknowledges the loss in the banner.
+ */
+export function useUnsavedUnloadGuard(): void {
+  const unsaved = useUnsavedGames();
+  const count = unsaved.length;
+  useEffect(() => {
+    if (count === 0) return;
+    const handler = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = '';
+    };
+    window.addEventListener('beforeunload', handler);
+    return () => window.removeEventListener('beforeunload', handler);
+  }, [count]);
 }
 
 export function useUnsavedGames(): GameRecordLite[] {

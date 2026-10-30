@@ -228,13 +228,16 @@ describe('game history durability (PR-A)', () => {
     const { result } = setup();
     const real = Storage.prototype.setItem;
     let fail = true;
+    // ONE record object, reused for the failed save and the recovery import —
+    // a real emergency file carries the exact record, dates included
+    const lostRecord = mkGame('lost', 1200);
     Storage.prototype.setItem = function (key: string, value: string) {
       if (key === 'gambit.profile' && fail) throw new DOMException('quota', 'QuotaExceededError');
       return real.call(this, key, value);
     };
     try {
       act(() => {
-        result.current.recordGame(mkGame('lost', 1200));
+        result.current.recordGame(lostRecord);
       });
       expect(getFailures().length).toBe(1);
       // NOTE: any later SUCCESSFUL profile write persists the whole in-memory
@@ -248,7 +251,7 @@ describe('game history durability (PR-A)', () => {
     // and clears the marker honestly
     let importResult: { ok: boolean; duplicate?: boolean; conflict?: boolean; detail?: string } | null = null;
     act(() => {
-      importResult = result.current.importGameRecord(mkGame('lost', 1250));
+      importResult = result.current.importGameRecord(lostRecord);
     });
     expect((importResult as { ok?: boolean } | null)?.ok).toBe(true);
     expect(getFailures().length).toBe(0);
@@ -342,6 +345,56 @@ describe('emergency import: idempotence + rating safety (PR #5 review)', () => {
     expect(result.current.profile.games.filter((g) => g.id === 'conflict')).toHaveLength(1);
   });
 
+  it('in-memory same-ID conflict: importing different content under that ID is refused — nothing overwritten, no false success', () => {
+    const { result } = setup();
+    for (let i = 0; i < 50; i += 1) {
+      act(() => {
+        result.current.recordGame(mkGame(`d-${i}`, 1200, false));
+      });
+    }
+    // one memory-only record that failed to persist (distinct content)
+    const real = Storage.prototype.setItem;
+    Storage.prototype.setItem = function (key: string, value: string) {
+      if (key === 'gambit.profile') throw new DOMException('quota', 'QuotaExceededError');
+      return real.call(this, key, value);
+    };
+    const memoryOnly: GameRecord = { ...mkGame('clash', 1200, false), result: 'loss', reason: 'resignation' };
+    try {
+      act(() => {
+        result.current.recordGame(memoryOnly);
+      });
+    } finally {
+      Storage.prototype.setItem = real;
+    }
+    expect(result.current.profile.games).toHaveLength(51);
+
+    // an emergency file with the SAME id but DIFFERENT content must be refused
+    const importedDifferent = mkGame('clash', 1200, false); // win/checkmate — not the memory loss record
+    let res: { ok: boolean; conflict?: boolean; detail?: string } | null = null;
+    act(() => {
+      res = result.current.importGameRecord(importedDifferent);
+    });
+    const r = res as { ok: boolean; conflict?: boolean } | null;
+    expect(r?.ok).toBe(false);
+    expect(r?.conflict).toBe(true);
+    // durable storage untouched: still 50 games, no 'clash' record
+    const durable = JSON.parse(localStorage.getItem('gambit.profile')!).games;
+    expect(durable).toHaveLength(50);
+    expect(durable.some((g: { id: string }) => g.id === 'clash')).toBe(false);
+    // the recoverable memory record was NOT discarded or overwritten
+    expect(result.current.profile.games.some((g) => g.id === 'clash' && g.result === 'loss')).toBe(true);
+
+    // importing the EXACT memory record content is a real recovery: verified durable write
+    let ok: { ok: boolean } | null = null;
+    act(() => {
+      ok = result.current.importGameRecord(memoryOnly);
+    });
+    expect((ok as { ok: boolean } | null)?.ok).toBe(true);
+    const after = JSON.parse(localStorage.getItem('gambit.profile')!).games;
+    expect(after).toHaveLength(51);
+    expect(after.find((g: { id: string }) => g.id === 'clash').result).toBe('loss');
+  });
+
   it('emergency file format/version is validated before import', () => {
     const file = buildEmergencyGameFile(mkGame('v', 1250), 'r');
     const badVersion = { ...file, kind: 'emergency-game', format: 99 };
@@ -360,7 +413,11 @@ describe('emergency import: idempotence + rating safety (PR #5 review)', () => {
     }
     expect(JSON.parse(localStorage.getItem('gambit.profile')!).games).toHaveLength(50);
 
-    // two games fail to persist: durable stays at 50, memory holds 52
+    // two games fail to persist: durable stays at 50, memory holds 52.
+    // ONE object per record (reused for the import below — real emergency
+    // files carry the exact record, dates included).
+    const lostA = mkGame('lost-a', 1200, false);
+    const lostB = mkGame('lost-b', 1200, false);
     const real = Storage.prototype.setItem;
     Storage.prototype.setItem = function (key: string, value: string) {
       if (key === 'gambit.profile') throw new DOMException('quota', 'QuotaExceededError');
@@ -368,10 +425,10 @@ describe('emergency import: idempotence + rating safety (PR #5 review)', () => {
     };
     try {
       act(() => {
-        result.current.recordGame(mkGame('lost-a', 1200, false));
+        result.current.recordGame(lostA);
       });
       act(() => {
-        result.current.recordGame(mkGame('lost-b', 1200, false));
+        result.current.recordGame(lostB);
       });
     } finally {
       Storage.prototype.setItem = real;
@@ -381,7 +438,7 @@ describe('emergency import: idempotence + rating safety (PR #5 review)', () => {
     // recover ONE: durable + both in-memory games + the import must all survive
     let first: { ok: boolean } | null = null;
     act(() => {
-      first = result.current.importGameRecord(mkGame('lost-a', 1200, false));
+      first = result.current.importGameRecord(lostA);
     });
     expect((first as { ok: boolean } | null)?.ok).toBe(true);
     const idsAfterFirst = JSON.parse(localStorage.getItem('gambit.profile')!).games.map((g: { id: string }) => g.id);

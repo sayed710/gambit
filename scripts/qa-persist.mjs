@@ -7,10 +7,15 @@
       from actual application behavior, the status key is NOT persisted,
       real reload keeps the durable data intact
    3. double failure (active-game removal AND finished-marker write): after a
-      real reload the stale snapshot is never presented as safely resumable
-   4. beforeunload: live game warns, finished-but-durable game does not warn,
-      finished-unpersisted game warns; SPA navigation keeps the emergency
-      route; a real reload proves the data was genuinely at risk
+      real reload the stale snapshot is flagged unverified and the ordinary
+      Resume is replaced by a labeled recovery action; a confirmed completed
+      game (finishedId) offers no resume action at all; with BOTH lastConfig
+      and activeGame present the recovery panel outranks auto-start and
+      normal resume / explicit discard both work
+   4. beforeunload: live game warns (game screen), finished-durable game does
+      not warn, finished-unpersisted game warns through the APP-LEVEL guard —
+      including from Profile after SPA navigation; a real reload from Profile
+      fires the dialog and forcing through genuinely loses the data
    Uncaught page errors fail the run. */
 import { chromium } from 'playwright';
 import { readFileSync } from 'node:fs';
@@ -337,29 +342,94 @@ async function run() {
   const spaBanner = await page.evaluate(() => !!document.querySelector('.persist-banner[role="alert"]'));
   log('double failure: failure banner survives SPA navigation to Profile', spaBanner);
   // real reload → the stale snapshot must be labeled unverified, never resumable-safe.
-  // lastConfig would auto-start a fresh game on boot and hide the resume panel,
-  // so it is removed first (its key is NOT faulted).
-  await page.evaluate(() => localStorage.removeItem('gambit.lastConfig'));
+  // BOTH lastConfig and activeGame remain in storage: the snapshot must
+  // outrank lastConfig (no auto-start) and present the recovery panel.
   await page.reload();
   await page.goto(`${BASE}/#/play`);
   await page.waitForTimeout(600);
   const resumePanel = await page.evaluate(() => {
     const t = document.body.textContent;
+    const buttons = [...document.querySelectorAll('button')].map((b) => b.textContent?.trim());
     return {
       panel: t.includes('Game in progress'),
       unverified: t.includes('could not be verified'),
-      resumeButton: [...document.querySelectorAll('button')].some((b) => b.textContent?.trim() === 'Resume'),
+      plainResume: buttons.includes('Resume'),
+      recoverLabeled: buttons.some((b) => b?.startsWith('Recover anyway')),
     };
   });
   log(
-    'double failure after real reload: stale snapshot flagged unverified, not presented as safe',
-    resumePanel.panel && resumePanel.unverified && resumePanel.resumeButton,
+    'double failure after real reload: snapshot flagged unverified, plain Resume replaced by a labeled recovery action',
+    resumePanel.panel && resumePanel.unverified && !resumePanel.plainResume && resumePanel.recoverLabeled,
     JSON.stringify(resumePanel),
   );
   // cleanup: discard the stale snapshot and lift faults via reload
   await page.click('button:has-text("Discard")');
   await page.reload();
   await page.waitForTimeout(500);
+
+  /* ---------- confirmed completed game (finishedId): never resumable ---------- */
+  // only the REMOVAL fails; the finished-marker write succeeds, so the
+  // snapshot is explicitly marked finished — after a real reload the panel
+  // must offer neither Resume nor Recover-anyway
+  await resetToModeSwitch(page);
+  await page.evaluate(faultRemoveItem(['gambit.activeGame']));
+  await startAndPlayOpening(page);
+  await resignGame(page);
+  await page.reload(); // lifts faults; finishedId snapshot survives
+  await page.waitForTimeout(600);
+  const finishedPanel = await page.evaluate(() => {
+    const t = document.body.textContent;
+    const buttons = [...document.querySelectorAll('button')].map((b) => b.textContent?.trim());
+    return {
+      finished: t.includes('Finished game snapshot'),
+      notResumable: t.includes('NOT resumable'),
+      anyResume: buttons.includes('Resume') || buttons.some((b) => b?.startsWith('Recover anyway')),
+    };
+  });
+  log(
+    'confirmed completed game after reload: NOT resumable, no resume action offered',
+    finishedPanel.finished && finishedPanel.notResumable && !finishedPanel.anyResume,
+    JSON.stringify(finishedPanel),
+  );
+  await page.click('button:has-text("Discard")');
+  await page.waitForTimeout(300);
+
+  /* ---------- lastConfig + activeGame together: resume and discard ---------- */
+  // a real reload with BOTH keys present and nothing deleted: the recovery
+  // panel must take precedence over auto-start, resume must restore the game
+  await resetToModeSwitch(page);
+  await startAndPlayOpening(page); // writes lastConfig AND the activeGame snapshot
+  await page.reload(); // no key deleted
+  await page.waitForTimeout(600);
+  const resumeFlow = await page.evaluate(() => {
+    const t = document.body.textContent;
+    const buttons = [...document.querySelectorAll('button')].map((b) => b.textContent?.trim());
+    return {
+      panel: t.includes('Game in progress'),
+      plainResume: buttons.includes('Resume'),
+      autoStarted: !!document.querySelector('[data-square="e2"]') && !t.includes('Game in progress'),
+    };
+  });
+  log(
+    'lastConfig+activeGame after reload: recovery panel, not auto-start; plain Resume for verified snapshot',
+    resumeFlow.panel && resumeFlow.plainResume && !resumeFlow.autoStarted,
+    JSON.stringify(resumeFlow),
+  );
+  // normal resume restores the played position
+  await page.click('button:has-text("Resume")');
+  await page.waitForTimeout(500);
+  const resumedPlies = await page.evaluate(() => document.querySelectorAll('.move-list td.mv').length);
+  log('normal resume: the snapshot restores the played moves', resumedPlies >= 2, `plies=${resumedPlies}`);
+  // explicit discard: reload → panel → Discard → configuration screen
+  await page.reload();
+  await page.waitForTimeout(600);
+  await page.click('button:has-text("Discard")');
+  await page.waitForTimeout(400);
+  const discarded = await page.evaluate(() => ({
+    modeSwitch: !!document.querySelector('.mode-switch .mode-row'),
+    snapshotGone: !localStorage.getItem('gambit.activeGame'),
+  }));
+  log('explicit discard: snapshot removed, configuration screen shown', discarded.modeSwitch && discarded.snapshotGone, JSON.stringify(discarded));
 
   /* ================= section 4: beforeunload guards ================= */
   // (a) live game: reload/close is vetoed
@@ -401,18 +471,12 @@ async function run() {
     };
   });
   log('SPA navigation: unsaved-game emergency export available from Profile', unsavedRoute.section && unsavedRoute.exportButton, JSON.stringify(unsavedRoute));
-  // (e) real reload: the browser veto fires while an unsaved game is on screen,
-  // and forcing through genuinely loses the unpersisted record — the warning
-  // is not cosmetic. The game-over screen state does not survive SPA
-  // navigation (the session store remains the recovery route), so a second
-  // unsaved game is created here for the live reload test.
-  await page.goto(`${BASE}/#/play`);
-  await resetToModeSwitch(page); // may reload — the fault must be installed after
-  await page.evaluate(faultSetItem(['gambit.profile']));
-  await startAndPlayOpening(page);
-  await resignGame(page);
-  await page.waitForTimeout(500); // passive-effect settle before the dispatch
-  const vetoUnsaved2 = await beforeUnloadVetoed(page);
+  // (e) app-level guard: we are on Profile now — the game screen is unmounted,
+  // but the session store is not. The veto must still be armed, a real reload
+  // from Profile must fire the beforeunload dialog, and forcing through must
+  // genuinely lose the unpersisted record (the warning is not cosmetic).
+  const vetoFromProfile = await beforeUnloadVetoed(page);
+  log('app-level guard: unsaved game still vetoes reload from Profile', vetoFromProfile === true, `vetoed=${vetoFromProfile}`);
   let dialogSeen = false;
   const dialogHandler = (d) => {
     dialogSeen = d.type() === 'beforeunload';
@@ -428,12 +492,12 @@ async function run() {
   await page.waitForTimeout(600);
   page.off('dialog', dialogHandler);
   log(
-    'beforeunload: a beforeunload dialog fires on real reload while data is unsaved',
-    dialogSeen && vetoUnsaved2 === true,
-    `dialog=${dialogSeen} vetoed=${vetoUnsaved2} reloadThrew=${reloadThrew}`,
+    'app-level guard: beforeunload dialog fires on a real reload from Profile',
+    dialogSeen,
+    `dialog=${dialogSeen} reloadThrew=${reloadThrew}`,
   );
-  // force through: the dialog is accepted this time; both unpersisted records
-  // (games c and e) must be honestly gone
+  // force through: the dialog is accepted this time; the unpersisted record
+  // must be honestly gone
   page.once('dialog', (d) => d.accept().catch(() => {}));
   await page.reload({ timeout: 8000 }).catch(() => {});
   await page.waitForTimeout(800);

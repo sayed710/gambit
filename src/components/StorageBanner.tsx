@@ -1,4 +1,4 @@
-import { clearPersistStatus, usePersistFailures, useUnsavedGames } from '../lib/persistStatus';
+import { clearAllUnsavedGames, clearPersistStatus, usePersistFailures, useUnsavedGames } from '../lib/persistStatus';
 import { buildEmergencyGameFile, emergencyFilename } from '../lib/persist';
 import { useToast } from './Toast';
 
@@ -61,6 +61,13 @@ export default function StorageBanner() {
               </button>
             </div>
           ))}
+          {/* explicit informed decision: stops the app-level unload guard —
+              after this the records are genuinely lost on reload */}
+          <div className="row mt-1" style={{ gap: '0.4rem' }}>
+            <button type="button" className="btn btn-ghost btn-sm" onClick={() => clearAllUnsavedGames()}>
+              Acknowledge (I understand these games will be lost on reload)
+            </button>
+          </div>
         </div>
       )}
       {unsavedOnly && (
@@ -95,7 +102,10 @@ export default function StorageBanner() {
             <button
               type="button"
               className="btn btn-ghost btn-sm"
-              onClick={() => failures.forEach((f) => clearPersistStatus(f.key))}
+              onClick={() => {
+                failures.forEach((f) => clearPersistStatus(f.key));
+                clearAllUnsavedGames(); // one informed decision covers both markers
+              }}
             >
               Acknowledge (I understand the data may be lost)
             </button>

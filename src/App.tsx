@@ -2,6 +2,7 @@ import { Suspense, lazy } from 'react';
 import { Route, Routes } from 'react-router-dom';
 import Layout from './components/Layout';
 import { KnightMark } from './components/Icons';
+import { useUnsavedUnloadGuard } from './lib/persistStatus';
 import Home from './pages/Home';
 import Play from './pages/Play';
 
@@ -23,6 +24,9 @@ const Review = lazy(() => import('./pages/Review'));
 const Blindfold = lazy(() => import('./pages/Blindfold'));
 
 export default function App() {
+  // App-level unload guard: finished games that never persisted keep warning
+  // across SPA navigation (the game screen unmounts; the session store does not).
+  useUnsavedUnloadGuard();
   return (
     <Routes>
       <Route element={<Layout />}>

@@ -109,9 +109,20 @@ export function ProfileProvider({ children }: { children: ReactNode }) {
           detail: `A DIFFERENT game with id ${record.id} already exists in storage — the imported record was rejected to protect your history.`,
         };
       }
-      // rating policy: recovered games are records-only — the next state
-      // keeps the CURRENT rating/peak/ratingHistory verbatim
+      // An in-memory copy with the same id but DIFFERENT content is a
+      // conflict too: silently skipping the import (the old `already` check)
+      // faked a recovery, and overwriting it would destroy a recoverable
+      // unsaved record. The imported record is compared against BOTH sides.
       const memoryGames = profileRef.current.games;
+      const memoryExisting = memoryGames.find((g) => g.id === record.id);
+      if (memoryExisting && JSON.stringify(memoryExisting) !== JSON.stringify(record)) {
+        return {
+          ok: false,
+          conflict: true,
+          detail: `An unsaved game with id ${record.id} exists in this session with DIFFERENT content — the imported record was rejected to protect it. Export the unsaved game first if you want to keep it.`,
+        };
+      }
+
 
       // RECONCILE durable + in-memory without dropping either side.
       // Conflict = same id with different content on both sides: refuse the
