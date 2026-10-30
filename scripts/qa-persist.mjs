@@ -11,7 +11,10 @@
       Resume is replaced by a labeled recovery action; a confirmed completed
       game (finishedId) offers no resume action at all; with BOTH lastConfig
       and activeGame present the recovery panel outranks auto-start and
-      normal resume / explicit discard both work
+      normal resume / explicit discard both work; a FAILED discard keeps the
+      panel with a truthful error; Acknowledge dismisses warnings and
+      unsaved-game tracking but PRESERVES active-game reliability evidence
+      across a real reload (snapshot stays unverified)
    4. beforeunload: live game warns (game screen), finished-durable game does
       not warn, finished-unpersisted game warns through the APP-LEVEL guard —
       including from Profile after SPA navigation; a real reload from Profile
@@ -430,6 +433,104 @@ async function run() {
     snapshotGone: !localStorage.getItem('gambit.activeGame'),
   }));
   log('explicit discard: snapshot removed, configuration screen shown', discarded.modeSwitch && discarded.snapshotGone, JSON.stringify(discarded));
+
+  /* ---------- Discard failure: verified removal, truthful error ---------- */
+  // removal is checked: when storage refuses, the panel MUST stay with a
+  // truthful error — never a silent false success
+  await resetToModeSwitch(page);
+  await startAndPlayOpening(page); // writes lastConfig AND a verified snapshot
+  await page.reload();
+  await page.waitForTimeout(600);
+  await page.evaluate(faultSetItem(['gambit.activeGame']));
+  await page.evaluate(faultRemoveItem(['gambit.activeGame']));
+  await page.click('button:has-text("Discard")');
+  await page.waitForTimeout(400);
+  const discardFail = await page.evaluate(() => {
+    const t = document.body.textContent;
+    const buttons = [...document.querySelectorAll('button')].map((b) => b.textContent?.trim());
+    return {
+      keyStillThere: !!localStorage.getItem('gambit.activeGame'),
+      panelStill: t.includes('Game in progress'),
+      error: t.includes('Discard FAILED'),
+      // after the failed removal the app reports a persist failure, so the
+      // snapshot is unverified: the offered action is the labeled recovery
+      actionOffered: buttons.includes('Resume') || buttons.some((b) => b?.startsWith('Recover anyway')),
+    };
+  });
+  log(
+    'discard failure: snapshot kept, panel preserved with truthful error, no false success',
+    discardFail.keyStillThere && discardFail.panelStill && discardFail.error && discardFail.actionOffered,
+    JSON.stringify(discardFail),
+  );
+  await page.reload(); // lift faults
+  await page.waitForTimeout(500);
+  await page.click('button:has-text("Discard")'); // cleanup: verified discard now
+  await page.waitForTimeout(300);
+
+  /* ---------- Acknowledge must not upgrade an unverified snapshot ---------- */
+  // The snapshot is written first (verified), THEN the triple fault: the
+  // profile write, the snapshot removal AND the finished-marker write all
+  // fail. Acknowledge dismisses the profile warning and the unsaved-game
+  // tracking, but the active-game RELIABILITY EVIDENCE must survive so the
+  // snapshot stays unverified across a real reload.
+  await resetToModeSwitch(page);
+  await startAndPlayOpening(page); // snapshot durably written first
+  await page.evaluate(faultSetItem(['gambit.profile', 'gambit.activeGame']));
+  await page.evaluate(faultRemoveItem(['gambit.activeGame']));
+  await resignGame(page);
+  await page.waitForTimeout(400);
+  const ackBefore = await page.evaluate(() => {
+    const buttons = [...document.querySelectorAll('button')].map((b) => b.textContent?.trim());
+    return {
+      ack: buttons.some((b) => b?.startsWith('Acknowledge')),
+      banner: !!document.querySelector('.persist-banner[role="alert"]'),
+    };
+  });
+  log('triple fault: Acknowledge offered (dismissible warning + unsaved game exist)', ackBefore.ack && ackBefore.banner, JSON.stringify(ackBefore));
+  // two Acknowledge buttons exist in this state (unsaved-section and
+  // failures-section); click the failures-section one by its exact copy
+  await page.click('button:has-text("Acknowledge (I understand the data may be lost)")');
+  await page.waitForTimeout(300);
+  const ackAfter = await page.evaluate(() => {
+    let status = {};
+    try {
+      status = JSON.parse(localStorage.getItem('gambit.persistStatus.v1') ?? '{}');
+    } catch {}
+    return {
+      banner: !!document.querySelector('.persist-banner[role="alert"]'),
+      activeGameEntry: !!status['gambit.activeGame'],
+      profileEntry: !!status['gambit.profile'],
+    };
+  });
+  log(
+    'Acknowledge: active-game reliability evidence survives, profile warning cleared',
+    ackAfter.banner && ackAfter.activeGameEntry && !ackAfter.profileEntry,
+    JSON.stringify(ackAfter),
+  );
+  // real reload: the snapshot remains unverified — no ordinary Resume.
+  // Diagnostics on failure: URL, snapshot presence, body snippet.
+  await page.reload();
+  await page.goto(`${BASE}/#/play`);
+  await page.waitForTimeout(600);
+  const unverifiedAfterAck = await page.evaluate(() => {
+    const t = document.body.textContent;
+    const buttons = [...document.querySelectorAll('button')].map((b) => b.textContent?.trim());
+    return {
+      url: location.href,
+      snapshotOnDisk: !!localStorage.getItem('gambit.activeGame'),
+      panel: t.includes('Game in progress'),
+      unverified: t.includes('could not be verified'),
+      plainResume: buttons.includes('Resume'),
+      recoverLabeled: buttons.some((b) => b?.startsWith('Recover anyway')),
+    };
+  });
+  log(
+    'Acknowledge + real reload: snapshot remains unverified, no ordinary Resume',
+    unverifiedAfterAck.panel && unverifiedAfterAck.unverified && !unverifiedAfterAck.plainResume && unverifiedAfterAck.recoverLabeled,
+    JSON.stringify(unverifiedAfterAck),
+  );
+  await page.click('button:has-text("Discard")'); // faults died with the reload
+  await page.waitForTimeout(300);
 
   /* ================= section 4: beforeunload guards ================= */
   // (a) live game: reload/close is vetoed

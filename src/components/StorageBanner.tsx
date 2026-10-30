@@ -40,6 +40,13 @@ export default function StorageBanner() {
 
   const domains = [...new Set(failures.map((f) => f.domain))].join(', ');
   const quota = failures.some((f) => f.kind === 'quota');
+  // Active-game failure entries are RELIABILITY EVIDENCE about a stored
+  // snapshot (stale or possibly finished), not warnings about unsaved data.
+  // Acknowledging a warning must not upgrade an unverified snapshot to
+  // trusted, so these entries survive Acknowledge until the snapshot is
+  // explicitly resolved (Discard) or replaced by a verified save.
+  const dismissibleFailures = failures.filter((f) => f.domain !== 'active-game');
+  const canAcknowledge = dismissibleFailures.length > 0 || unsaved.length > 0;
 
   return (
     <div className="persist-banner" role="alert">
@@ -98,18 +105,26 @@ export default function StorageBanner() {
             Reloading now loses unsaved data. This warning itself may fail to persist while storage is full — it is kept in memory for this session regardless.
             Unsaved records cannot be recovered automatically after a reload; use the Emergency export above while the game screen is open, or import an emergency file via Backup &amp; Restore.
           </p>
-          <div className="row mt-1" style={{ gap: '0.4rem' }}>
-            <button
-              type="button"
-              className="btn btn-ghost btn-sm"
-              onClick={() => {
-                failures.forEach((f) => clearPersistStatus(f.key));
-                clearAllUnsavedGames(); // one informed decision covers both markers
-              }}
-            >
-              Acknowledge (I understand the data may be lost)
-            </button>
-          </div>
+          {canAcknowledge && (
+            <div className="row mt-1" style={{ gap: '0.4rem' }}>
+              <button
+                type="button"
+                className="btn btn-ghost btn-sm"
+                onClick={() => {
+                  dismissibleFailures.forEach((f) => clearPersistStatus(f.key));
+                  clearAllUnsavedGames(); // one informed decision covers both markers
+                }}
+              >
+                Acknowledge (I understand the data may be lost)
+              </button>
+            </div>
+          )}
+          {!canAcknowledge && failures.length > 0 && (
+            <p className="small muted" style={{ margin: '0.3rem 0 0' }}>
+              This snapshot-reliability note cannot be acknowledged away — it clears when the snapshot is Discarded or
+              replaced by a verified save.
+            </p>
+          )}
           <p className="small muted" style={{ margin: '0.3rem 0 0' }}>
             {failures.length} failed write{failures.length === 1 ? '' : 's'} · keys: {failures.map((f) => f.key.replace('gambit.', '')).join(', ')}
             {' · '}advisory: browser-reported usage is an estimate, not a localStorage capacity measurement.

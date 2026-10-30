@@ -20,7 +20,7 @@ import type { Level } from '../lib/engine/engine';
 import { DEFAULT_TIME_CONTROL, TIME_CONTROLS, timeControlById, NO_CLOCK } from '../data/timeControls';
 import { Chess } from 'chess.js';
 import type { Color, GameConfig, GameRecord } from '../lib/types';
-import { loadJSON, saveJSON, removeKey } from '../lib/storage';
+import { loadJSON, saveJSON } from '../lib/storage';
 import { playSound } from '../lib/sound';
 import type { SavedGame } from '../hooks/useGame';
 import { identifyOpening } from '../lib/openings';
@@ -860,6 +860,29 @@ export default function Play() {
     !config && saved && !(saved as { finishedId?: string }).finishedId
       ? getFailures().find((f) => f.key === 'gambit.' + ACTIVE_GAME_KEY)
       : undefined;
+  // Discard state: `resume` is already null when the panel shows and `config`
+  // is null, so a plain setResume(null) triggers no re-render — the panel
+  // (and its Resume action) would outlive a deleted snapshot. Explicit state
+  // unmounts it immediately after a VERIFIED removal; a failed removal keeps
+  // the panel and reports the truth instead.
+  const [snapshotRemoved, setSnapshotRemoved] = useState(false);
+  const [discardError, setDiscardError] = useState<string | null>(null);
+
+  const discardSnapshot = useCallback(() => {
+    const res = checkedRemove(ACTIVE_GAME_KEY);
+    if (!res.ok) {
+      reportPersistFailure(res.kind, 'gambit.' + ACTIVE_GAME_KEY, 'active-game', res.detail);
+      setDiscardError(
+        `Discard FAILED (${res.kind}) — the snapshot is still on disk; nothing was deleted. Resolve the storage problem and try again.`,
+      );
+      return;
+    }
+    setDiscardError(null);
+    setSnapshotRemoved(true);
+    // the snapshot was explicitly resolved by the user — its reliability
+    // evidence is now moot (this is a resolution, not a warning dismissal)
+    clearPersistStatus('gambit.' + ACTIVE_GAME_KEY);
+  }, []);
 
   const start = useCallback((c: GameConfig) => {
     saveJSON(LAST_CONFIG_KEY, c);
@@ -900,7 +923,7 @@ export default function Play() {
   if (!config) {
     return (
       <div className="page container">
-        {saved && saved.config && (
+        {saved && saved.config && !snapshotRemoved && (
           <div className="panel panel-pad row between wrap mb-2" style={{ borderColor: 'var(--accent)' }}>
             <div>
               <strong>{(saved as { finishedId?: string }).finishedId ? 'Finished game snapshot' : 'Game in progress'}</strong>
@@ -922,6 +945,11 @@ export default function Play() {
                   The last save of this game could not be verified ({activeFailure.kind}). The snapshot may be older than
                   the game you were playing, so resuming may lose recent moves — or the whole game if storage failed at
                   the end.
+                </div>
+              )}
+              {discardError && (
+                <div className="small" role="note" style={{ color: 'var(--bad)', marginTop: '0.25rem' }}>
+                  {discardError}
                 </div>
               )}
             </div>
@@ -955,13 +983,7 @@ export default function Play() {
                     Resume
                   </button>
                 ))}
-              <button
-                className="btn btn-ghost btn-sm"
-                onClick={() => {
-                  removeKey(ACTIVE_GAME_KEY);
-                  setResume(null);
-                }}
-              >
+              <button className="btn btn-ghost btn-sm" onClick={discardSnapshot}>
                 Discard
               </button>
             </span>
