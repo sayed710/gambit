@@ -13,7 +13,7 @@ import { useClickToMove } from '../hooks/useClickToMove';
 import type { GameOverInfo } from '../hooks/useGame';
 import { LEVEL_RATINGS } from '../lib/engine/engine';
 import { PERSONAS, isPersonaId, type EnginePersonaId } from '../lib/engine/personas';
-import { usePersistFailures, reportPersistFailure, clearPersistStatus } from '../lib/persistStatus';
+import { usePersistFailures, reportPersistFailure, clearPersistStatus, addUnsavedGame, getFailures } from '../lib/persistStatus';
 import { checkedSetJSON, checkedRemove } from '../lib/persist';
 import { buildEmergencyGameFile, emergencyFilename } from '../lib/persist';
 import type { Level } from '../lib/engine/engine';
@@ -330,6 +330,9 @@ function GameScreen({
 
   const [recordId, setRecordId] = useState<string | null>(null);
   const [unsavedGame, setUnsavedGame] = useState<GameRecord | null>(null);
+  // unload handlers read the ref, not state: the beforeunload listener is
+  // installed at effect-commit time and must not warn from a stale closure
+  const unsavedGameRef = useRef<GameRecord | null>(null);
   const persistFailures = usePersistFailures();
   const lastPersistFailed = persistFailures.some((f) => f.key === 'gambit.profile');
 
@@ -397,6 +400,18 @@ function GameScreen({
     // from persistStatus (a synchronous hasFailures() here would read stale
     // state before the effect runs).
     setUnsavedGame(record);
+    unsavedGameRef.current = record;
+    // session store: the emergency route stays available from any page
+    addUnsavedGame({
+      id: record.id,
+      pgn: record.pgn,
+      moves: record.moves,
+      opponentName: record.opponentName,
+      result: record.result,
+      reason: record.reason,
+      date: record.date,
+      raw: record,
+    });
     // The over-effect above removed the active snapshot with verifiedRemove.
     // If that removal FAILS, the stale snapshot would present a finished
     // game as resumable — re-mark it with the finished record id so the
@@ -451,12 +466,26 @@ function GameScreen({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [plies, over]);
 
-  // Warn before losing a live game to a reload/tab close.
+  // Warn before losing a live game to a reload/tab close. A finished game
+  // that never reached durable storage is equally at risk: for that case the
+  // handler reads DURABLE storage at unload time (not React state), so it
+  // warns exactly while the record is genuinely absent and stays silent once
+  // any later profile write has carried it to disk.
   useEffect(() => {
-    if (over || plies.length < 2) return;
+    if (!over && plies.length < 2) return;
     const handler = (e: BeforeUnloadEvent) => {
-      e.preventDefault();
-      e.returnValue = '';
+      if (!over) {
+        e.preventDefault();
+        e.returnValue = '';
+        return;
+      }
+      const unsaved = unsavedGameRef.current;
+      if (!unsaved) return;
+      const durable = loadJSON<{ games?: { id: string }[] }>('profile', {});
+      if (!durable.games?.some((g) => g.id === unsaved.id)) {
+        e.preventDefault();
+        e.returnValue = '';
+      }
     };
     window.addEventListener('beforeunload', handler);
     return () => window.removeEventListener('beforeunload', handler);
@@ -830,6 +859,16 @@ export default function Play() {
   const [resume, setResume] = useState<SavedGame | null>(null);
   const [gameKey, setGameKey] = useState(0);
   const saved = loadJSON<(SavedGame & { savedAt: number }) | null>(ACTIVE_GAME_KEY, null);
+  // A persisted failure entry for the active-game key (the status store
+  // survives reload when it could be written) means the LAST active-game
+  // write was never verified. The snapshot on disk may be older than the
+  // game that was being played — or, after a failed end-of-game removal,
+  // may show a game that already finished. Honest post-reload behavior:
+  // never present such a snapshot as safely resumable.
+  const activeFailure =
+    !config && saved && !(saved as { finishedId?: string }).finishedId
+      ? getFailures().find((f) => f.key === 'gambit.' + ACTIVE_GAME_KEY)
+      : undefined;
 
   const start = useCallback((c: GameConfig) => {
     saveJSON(LAST_CONFIG_KEY, c);
@@ -877,6 +916,13 @@ export default function Play() {
                   {(saved as { finishedId?: string }).finishedId && (loadJSON<{ games?: GameRecord[] }>('profile', {})).games?.some((g: { id: string }) => g.id === (saved as { finishedId?: string }).finishedId)
                     ? 'is saved in your history (open it from Profile).'
                     : 'could not be saved — it is lost; only Discard is available.'}
+                </div>
+              )}
+              {activeFailure && (
+                <div className="small" role="note" style={{ color: 'var(--bad)', marginTop: '0.25rem' }}>
+                  The last save of this game could not be verified ({activeFailure.kind}). The snapshot may be older than
+                  the game you were playing, so resuming may lose recent moves — or the whole game if storage failed at
+                  the end.
                 </div>
               )}
             </div>

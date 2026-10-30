@@ -105,3 +105,70 @@ export function resetPersistStatusForTests(): void {
 }
 
 
+
+/* ============================================================
+   Unsaved finished games — a session store for completed games that
+   failed to persist. It survives SPA navigation (module scope), so
+   the emergency-export route is available from ANY page, not only
+   the game screen. Entries are removed when a verified profile write
+   demonstrably contains them, or after a verified emergency import.
+   ============================================================ */
+
+let unsavedCache: GameRecordLite[] = [];
+const unsavedListeners = new Set<() => void>();
+let unsavedVersion = 0;
+let unsavedSnapshot: GameRecordLite[] = [];
+
+export interface GameRecordLite {
+  id: string;
+  pgn: string;
+  moves: string[];
+  opponentName: string;
+  result: string;
+  reason: string;
+  date: number;
+  raw: unknown;
+}
+
+export function addUnsavedGame(record: GameRecordLite): void {
+  if (unsavedCache.some((g) => g.id === record.id)) return;
+  unsavedCache = [record, ...unsavedCache];
+  unsavedVersion += 1;
+  for (const fn of unsavedListeners) fn();
+}
+
+/** Remove entries whose id now exists in the durable profile (verified save). */
+export function pruneUnsavedGames(durableIds: string[]): void {
+  const ids = new Set(durableIds);
+  const kept = unsavedCache.filter((g) => !ids.has(g.id));
+  if (kept.length !== unsavedCache.length) {
+    unsavedCache = kept;
+    unsavedVersion += 1;
+    for (const fn of unsavedListeners) fn();
+  }
+}
+
+export function removeUnsavedGame(id: string): void {
+  unsavedCache = unsavedCache.filter((g) => g.id !== id);
+  unsavedVersion += 1;
+  for (const fn of unsavedListeners) fn();
+}
+
+export function useUnsavedGames(): GameRecordLite[] {
+  return useSyncExternalStore(
+    (onChange) => {
+      unsavedListeners.add(onChange);
+      return () => unsavedListeners.delete(onChange);
+    },
+    () => {
+      if (unsavedSnapshotVersion !== unsavedVersion) {
+        unsavedSnapshotVersion = unsavedVersion;
+        unsavedSnapshot = [...unsavedCache];
+      }
+      return unsavedSnapshot;
+    },
+    () => [] as GameRecordLite[],
+  );
+}
+
+let unsavedSnapshotVersion = -1;

@@ -350,4 +350,95 @@ describe('emergency import: idempotence + rating safety (PR #5 review)', () => {
     delete (noGame as { game?: unknown }).game;
     expect(() => parseEmergencyGame(JSON.stringify(noGame))).toThrow();
   });
+
+  it('recovery preserves ALL records: 50 durable + 2 unsaved in-memory games survive importing one (reconcile regression)', () => {
+    const { result } = setup();
+    for (let i = 0; i < 50; i += 1) {
+      act(() => {
+        result.current.recordGame(mkGame(`d-${i}`, 1200, false));
+      });
+    }
+    expect(JSON.parse(localStorage.getItem('gambit.profile')!).games).toHaveLength(50);
+
+    // two games fail to persist: durable stays at 50, memory holds 52
+    const real = Storage.prototype.setItem;
+    Storage.prototype.setItem = function (key: string, value: string) {
+      if (key === 'gambit.profile') throw new DOMException('quota', 'QuotaExceededError');
+      return real.call(this, key, value);
+    };
+    try {
+      act(() => {
+        result.current.recordGame(mkGame('lost-a', 1200, false));
+      });
+      act(() => {
+        result.current.recordGame(mkGame('lost-b', 1200, false));
+      });
+    } finally {
+      Storage.prototype.setItem = real;
+    }
+    expect(result.current.profile.games).toHaveLength(52);
+
+    // recover ONE: durable + both in-memory games + the import must all survive
+    let first: { ok: boolean } | null = null;
+    act(() => {
+      first = result.current.importGameRecord(mkGame('lost-a', 1200, false));
+    });
+    expect((first as { ok: boolean } | null)?.ok).toBe(true);
+    const idsAfterFirst = JSON.parse(localStorage.getItem('gambit.profile')!).games.map((g: { id: string }) => g.id);
+    expect(idsAfterFirst).toHaveLength(52);
+    expect(new Set(idsAfterFirst).size).toBe(52); // no duplicates, nothing dropped
+    expect(idsAfterFirst).toContain('lost-a');
+    expect(idsAfterFirst).toContain('lost-b'); // the OTHER unsaved game was not discarded
+
+    // a subsequent import: lost-b rode along in the first whole-blob write,
+    // so importing the EXACT record again is a verified no-op — and a freshly
+    // generated record with the same id but different content is REFUSED
+    // (conflict protection), never a silent duplicate
+    const durableLostB = JSON.parse(localStorage.getItem('gambit.profile')!).games.find((g: { id: string }) => g.id === 'lost-b');
+    let second: { ok: boolean; duplicate?: boolean } | null = null;
+    act(() => {
+      second = result.current.importGameRecord(durableLostB);
+    });
+    expect((second as { ok: boolean; duplicate?: boolean } | null)?.ok).toBe(true);
+    const idsAfterSecond = JSON.parse(localStorage.getItem('gambit.profile')!).games.map((g: { id: string }) => g.id);
+    expect(idsAfterSecond).toHaveLength(52);
+    expect(new Set(idsAfterSecond).size).toBe(52);
+
+    let regenerated: { ok: boolean; conflict?: boolean } | null = null;
+    act(() => {
+      regenerated = result.current.importGameRecord(mkGame('lost-b', 1200, false)); // new date → different content
+    });
+    expect((regenerated as { ok: boolean; conflict?: boolean } | null)?.conflict).toBe(true);
+    expect(JSON.parse(localStorage.getItem('gambit.profile')!).games).toHaveLength(52);
+
+    // a duplicate import of an EXISTING durable game is a verified no-op
+    const durableD5 = JSON.parse(localStorage.getItem('gambit.profile')!).games.find((g: { id: string }) => g.id === 'd-5');
+    let dup: { ok: boolean; duplicate?: boolean } | null = null;
+    act(() => {
+      dup = result.current.importGameRecord(durableD5);
+    });
+    expect((dup as { ok: boolean; duplicate?: boolean } | null)?.duplicate).toBe(true);
+    expect(JSON.parse(localStorage.getItem('gambit.profile')!).games).toHaveLength(52);
+
+    // a failed import under quota drops nothing: memory state is untouched
+    Storage.prototype.setItem = function (key: string, value: string) {
+      if (key === 'gambit.profile') throw new DOMException('quota', 'QuotaExceededError');
+      return real.call(this, key, value);
+    };
+    try {
+      let failed: { ok: boolean } | null = null;
+      act(() => {
+        failed = result.current.importGameRecord(mkGame('lost-c', 1200, false));
+      });
+      expect((failed as { ok: boolean } | null)?.ok).toBe(false);
+      // durable unchanged, memory unchanged, still no duplicates
+      expect(JSON.parse(localStorage.getItem('gambit.profile')!).games).toHaveLength(52);
+      expect(result.current.profile.games).toHaveLength(52);
+    } finally {
+      Storage.prototype.setItem = real;
+    }
+    // records-only policy intact: rating untouched by all of the above
+    expect(result.current.profile.rating).toBe(1200);
+    expect(result.current.profile.peakRating).toBe(1200);
+  });
 });

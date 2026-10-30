@@ -3,7 +3,7 @@ import type { ReactNode } from 'react';
 import type { GameRecord } from '../lib/types';
 import { loadJSON } from '../lib/storage';
 import { checkedSetJSON } from '../lib/persist';
-import { clearPersistStatus, reportPersistFailure } from '../lib/persistStatus';
+import { clearPersistStatus, pruneUnsavedGames, reportPersistFailure, removeUnsavedGame } from '../lib/persistStatus';
 
 interface PuzzleStats {
   rating: number;
@@ -56,7 +56,12 @@ export function ProfileProvider({ children }: { children: ReactNode }) {
     // that was lost. Markers clear only via explicit recovery
     // (importGameRecord) or the banner's Acknowledge button.
     const res = checkedSetJSON('profile', profile);
-    if (!res.ok) reportPersistFailure(res.kind, 'gambit.profile', 'profile', res.detail);
+    if (res.ok) {
+      // entries whose game is demonstrably durable now are no longer unsaved
+      pruneUnsavedGames(profile.games.map((g) => g.id));
+    } else {
+      reportPersistFailure(res.kind, 'gambit.profile', 'profile', res.detail);
+    }
   }, [profile]);
 
   const recordGame = useCallback((record: GameRecord) => {
@@ -106,10 +111,35 @@ export function ProfileProvider({ children }: { children: ReactNode }) {
       }
       // rating policy: recovered games are records-only — the next state
       // keeps the CURRENT rating/peak/ratingHistory verbatim
-      const baseGames = durableGames.length > 0 ? durableGames : profileRef.current.games;
+      const memoryGames = profileRef.current.games;
+
+      // RECONCILE durable + in-memory without dropping either side.
+      // Conflict = same id with different content on both sides: refuse the
+      // whole import (destructive replacement is never automatic).
+      const durableById = new Map(durableGames.map((g) => [g.id, g]));
+      const conflicts: string[] = [];
+      for (const g of memoryGames) {
+        const d = durableById.get(g.id);
+        if (d && JSON.stringify(d) !== JSON.stringify(g)) conflicts.push(g.id);
+      }
+      if (conflicts.length > 0) {
+        return {
+          ok: false,
+          conflict: true,
+          detail: `Divergent copies of game(s) ${conflicts.join(', ')} exist in storage and memory — export your in-memory state first; automatic replacement is refused.`,
+        };
+      }
+      // union by id: everything durable + every in-memory game not in durable
+      const memoryOnly = memoryGames.filter((g) => !durableById.has(g.id));
+      const mergedGames = [...durableGames, ...memoryOnly];
+
+      // the imported record joins the merge if it is not already present
+      const already = mergedGames.some((g) => g.id === record.id);
+      const finalGames = already ? mergedGames : [record, ...mergedGames];
+
       const next: ProfileData = {
         ...profileRef.current,
-        games: [record, ...baseGames.filter((g) => g.id !== record.id)],
+        games: finalGames,
       };
       // durable-first: verified write OUTSIDE any state updater
       const res = checkedSetJSON('profile', next);
@@ -118,6 +148,7 @@ export function ProfileProvider({ children }: { children: ReactNode }) {
         return { ok: false, detail: res.detail };
       }
       clearPersistStatus('gambit.profile'); // the missing record WAS recovered (verified)
+      removeUnsavedGame(record.id);
       setProfile(next);
       return { ok: true };
     },
