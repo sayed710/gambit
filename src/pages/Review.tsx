@@ -545,6 +545,16 @@ export default function Review() {
                   lastMove={lastMove}
                   checkSquare={checkSquare}
                   movableColor={null}
+                  squareBadge={
+                    currentReview && plyIndex > 0 && plies[plyIndex - 1]
+                      ? {
+                          square: plies[plyIndex - 1].to,
+                          text: CLASSIFICATION_GLYPH[currentReview.classification] || '•',
+                          color: CLASSIFICATION_META[currentReview.classification].color,
+                          title: `${CLASSIFICATION_META[currentReview.classification].label} — ${plies[plyIndex - 1].san}`,
+                        }
+                      : null
+                  }
                 />
               )}
             </div>

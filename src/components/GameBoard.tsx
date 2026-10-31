@@ -69,6 +69,19 @@ export interface GameBoardProps {
   turnAnnouncement?: string;
   arrows?: Arrow[];
   boardId: string;
+  /** quality badge pinned to a square (review): classification glyph on the
+   *  piece's destination square. aria-hidden — the move list carries it. */
+  squareBadge?: { square: Square; text: string; color: string; title: string } | null;
+}
+
+/** Percentage offset of a square's top-left corner on the board layer,
+ *  honoring orientation. */
+export function badgeOffset(square: Square, orientation: 'white' | 'black'): { left: string; top: string } {
+  const file = square.charCodeAt(0) - 97; // a=0
+  const rank = Number(square[1]); // 1..8
+  const col = orientation === 'white' ? file : 7 - file;
+  const row = orientation === 'white' ? 8 - rank : rank - 1;
+  return { left: `${col * 12.5}%`, top: `${row * 12.5}%` };
 }
 
 const PROMO_PIECES: ('q' | 'n' | 'r' | 'b')[] = ['q', 'n', 'r', 'b'];
@@ -125,6 +138,7 @@ export default function GameBoard({
   turnAnnouncement,
   arrows,
   boardId,
+  squareBadge,
 }: GameBoardProps) {
   const { boardTheme, resolvedTheme, showLegalHints, showCoordinates, animationSpeed } = useSettings();
   const colors = useMemo(() => boardColors(boardTheme, resolvedTheme), [boardTheme, resolvedTheme]);
@@ -396,6 +410,38 @@ export default function GameBoard({
             clearArrowsOnPositionChange: true,
             dropSquareStyle: { boxShadow: 'inset 0 0 0 4px rgba(113, 159, 148, 0.6)' },          }}
         />
+        {squareBadge && (
+          <div aria-hidden="true" style={{ position: 'absolute', inset: 0, pointerEvents: 'none', zIndex: 6, containerType: 'size' }}>
+            <div
+              data-square-badge={squareBadge.square}
+              aria-hidden="true"
+              style={{
+                position: 'absolute',
+                ...badgeOffset(squareBadge.square, orientation),
+                // fully inside its own 12.5%-wide square (corner + 2.6%,
+                // size 9%): right edge = 11.6% < 12.5%, so the h-file badge
+                // is never clipped and no neighbor square is overlapped
+                width: '9%',
+                height: '9%',
+                marginLeft: '2.6%',
+                marginTop: '0.9%',
+                borderRadius: '50%',
+                background: squareBadge.color,
+                color: 'var(--ink)',
+                border: '1.5px solid color-mix(in srgb, var(--ink) 60%, transparent)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                fontWeight: 700,
+                fontSize: '2.6cqw',
+                lineHeight: 1,
+                boxShadow: '0 1px 5px rgba(0, 0, 0, 0.5)',
+              }}
+            >
+              {squareBadge.text}
+            </div>
+          </div>
+        )}
         {pendingPromotion && (
           <div
             className="promo-overlay"
