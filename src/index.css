@@ -8,16 +8,12 @@
 
 /* ---------- fonts ---------- */
 /* Bilgeon Script (Hanzel Space) — the approved wordmark face.
-   LICENSE: PERSONAL USE ONLY. The font file is deliberately NOT committed
-   (see .gitignore + FONTS-LICENSE.md): it is served from public/fonts/ on
-   this machine only, so the owner can verify the approved typography
-   locally. Fresh clones and production builds from the repository fall
-   back to Fraunces via font-display: swap until a commercial license is
-   purchased (https://hanzelspace.com/product/bilgeon-script-font/) and
-   the file is committed legitimately. */
+   LICENSE: PERSONAL USE ONLY. The owner explicitly authorized its
+   deployment in Gambit (2026-10-31); a commercial license is still
+   REQUIRED before any commercial use — see FONTS-LICENSE.md. */
 @font-face {
   font-family: 'Bilgeon Script';
-  src: url('/fonts/bilgeon-script.ttf') format('truetype');
+  src: url('/fonts/bilgeon-script.ttf') format('truetype'); /* owner-authorized deployment — see FONTS-LICENSE.md */
   font-display: swap;
 }
 :root {
@@ -200,7 +196,10 @@ h1, h2, h3, h4 { font-family: var(--serif); font-weight: 600; line-height: 1.1; 
 .site-header .inner { display: flex; align-items: center; gap: 1.25rem; height: 4.25rem; color: var(--charcoal); }
 .brand { display: flex; align-items: center; text-decoration: none; color: var(--charcoal); }
 .brand-mark { display: inline-flex; align-items: flex-end; gap: 0.5rem; }
-.brand-queen { width: auto; height: 2.4rem; color: var(--charcoal); flex: none; transition: color 0.2s; }
+.brand-queen-img {
+  height: 2.55rem; width: auto; flex: none;
+  user-select: none; transition: opacity 0.2s;
+}
 .brand-word {
   font-family: var(--brand-font);
   font-size: 1.42rem;            /* deliberately SMALLER than the queen — approved balance */
@@ -895,7 +894,7 @@ textarea.input { font-family: var(--mono); font-size: 0.82rem; line-height: 1.5;
 .site-footer .inner { display: flex; align-items: center; justify-content: space-between; gap: 1rem; flex-wrap: wrap; font-size: 0.85rem; }
 .site-footer a { color: inherit; text-decoration: none; }
 .site-footer a:hover { color: var(--gold); }
-.site-footer .footer-brand .brand-queen { height: 1.5rem; color: rgba(248, 245, 239, 0.55); }
+.site-footer .footer-brand .brand-queen-img { height: 1.55rem; filter: invert(0.88) sepia(0.12) brightness(1.1); }
 .site-footer .footer-brand .brand-word { font-size: 1.05rem; color: rgba(248, 245, 239, 0.55); transform: translateY(-0.18rem); }
 
 /* toast */

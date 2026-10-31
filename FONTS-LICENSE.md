@@ -11,21 +11,19 @@
 
 ## Current status
 
-The font file is **deliberately not committed** to this repository
-(`.gitignore` excludes `public/fonts/bilgeon-script.ttf` / `.otf`). It
-exists only on the owner's machine (`public/fonts/`), so:
+**Owner-authorized deployment (2026-10-31):** the owner instructed that
+Bilgeon be used in the site and supplied the font file directly. The
+TTF/OTF are now committed to `public/fonts/` and ship with the app.
 
-- **Local verification** — the owner sees the approved Bilgeon wordmark.
-- **Fresh clones / production builds from the repository** — the browser
-  falls back to **Fraunces** (self-hosted, SIL OFL, no license issue) via
-  `font-display: swap`.
+⚠️ **The license remains PERSONAL USE ONLY.** Before ANY commercial use
+(monetization, paid product, client work), the commercial license must
+be purchased from Hanzel Space. This file documents that obligation.
 
-## Going legitimate
+## Going legitimate (for commercial use)
 
 1. Purchase the commercial license from Hanzel Space (link above).
-2. Remove the two `.gitignore` entries.
-3. Commit the font files (prefer converting TTF → WOFF2, ~70% smaller).
-4. Keep this file updated with the license purchase date/reference.
+2. Record the purchase date/reference here.
+3. Optionally convert TTF → WOFF2 (~70% smaller) for faster loads.
 
 ## Warning from the author
 

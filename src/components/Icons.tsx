@@ -34,43 +34,11 @@ export const KnightMark = ({ className }: { className?: string }) => (
   </svg>
 );
 
-/**
- * The approved Gambit brand mark: a full stylized chess QUEEN (crown of
- * five points with orbs, collared body, waisted column, stepped base) in
- * solid currentColor. Drawn as geometry — no raster crops.
- */
-export const QueenMark = ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
-  <svg viewBox="0 -1 48 65" className={className} style={style} fill="currentColor" aria-hidden focusable="false">
-    {/* crown orbs */}
-    <circle cx="7" cy="6.2" r="2.4" />
-    <circle cx="15.5" cy="3.8" r="2.6" />
-    <circle cx="24" cy="2.6" r="2.8" />
-    <circle cx="32.5" cy="3.8" r="2.6" />
-    <circle cx="41" cy="6.2" r="2.4" />
-    {/* crown: five points rising to the orbs */}
-    <path d="M5.4 9.4 L9.6 21 L14.4 7.6 L18.6 20 L21.6 6.4 L24 18.6 L26.4 6.4 L29.4 20 L33.6 7.6 L38.4 21 L42.6 9.4 L39.4 24 L8.6 24 Z" />
-    {/* crown band */}
-    <rect x="7.4" y="24.4" width="33.2" height="3.6" rx="1.4" />
-    {/* collared body tapering into the waist */}
-    <path d="M11.6 28.4 C12.4 33.6 15.4 37.6 18.6 41.2 C20.6 43.5 21.2 45.4 20.6 47.8 L27.4 47.8 C26.8 45.4 27.4 43.5 29.4 41.2 C32.6 37.6 35.6 33.6 36.4 28.4 Z" />
-    {/* collar disc */}
-    <ellipse cx="24" cy="49.4" rx="8.4" ry="2.3" />
-    {/* waisted column */}
-    <path d="M20.2 52.2 L27.8 52.2 L28.6 56.6 L19.4 56.6 Z" />
-    {/* stepped base */}
-    <path d="M16.4 57.4 C16.4 56.9 16.9 56.6 17.5 56.6 L30.5 56.6 C31.1 56.6 31.6 56.9 31.6 57.4 L32.6 59.4 L15.4 59.4 Z" />
-    <rect x="13.6" y="59.8" width="20.8" height="2.6" rx="1.2" />
-  </svg>
-);
-
-/**
- * Lockup: queen + "Gambit" wordmark in the brand face (Bilgeon locally,
- * Fraunces fallback). The wordmark is deliberately SMALLER than the queen
- * so its visual weight balances the icon (approved logo correction).
- */
 export const BrandMark = ({ className }: { className?: string }) => (
   <span className={`brand-mark${className ? ` ${className}` : ''}`}>
-    <QueenMark className="brand-queen" />
+    {/* the approved logo artwork: black queen silhouette extracted from the
+        owner-approved lockup (transparent PNG, charcoal #0F1720) */}
+    <img src="/brand/queen.png" alt="" className="brand-queen-img" draggable={false} />
     <span className="brand-word">Gambit</span>
   </span>
 );
