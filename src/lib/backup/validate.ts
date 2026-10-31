@@ -10,7 +10,7 @@
 
 import { Chess } from 'chess.js';
 import { isPersonaId } from '../engine/personas';
-import { sanTokensFromHeaderlessPgn } from '../chessUtils';
+import { pgnHeaderTags, sanTokensFromHeaderlessPgn } from '../chessUtils';
 import { buildIntegrity } from './exportBackup';
 import {
   ALL_SECTIONS,
@@ -118,8 +118,14 @@ const SR_RATINGS = new Set(['again', 'hard', 'good', 'easy']);
  * position). Throws on invalid FEN or malformed move text.
  */
 function loadPgnFromStart(pgn: string, startFen?: string): void {
+  // REAL header tags only (block-scoped parse) — a movetext comment
+  // containing FEN-shaped text is never a header
+  const headerFen = pgnHeaderTags(pgn).FEN;
+  if (startFen !== undefined && headerFen !== undefined && headerFen !== startFen) {
+    throw new Error('PGN FEN header disagrees with the declared starting position');
+  }
   const g = new Chess(startFen);
-  if (startFen && !/\[FEN "/.test(pgn)) {
+  if (startFen !== undefined && headerFen === undefined) {
     for (const san of sanTokensFromHeaderlessPgn(pgn)) {
       g.move(san);
     }
@@ -161,10 +167,11 @@ export function validateGameRecord(game: unknown, i = 0): void {
       fail('profile', `game ${game.id}: initialFen is not a valid chess position`);
     }
     startFen = game.initialFen as string;
-    // consistency: an embedded PGN FEN header must AGREE with the declared
-    // initialFen — a mismatch means one of them is wrong; refuse the record
+    // consistency: a REAL embedded PGN FEN header must AGREE with the
+    // declared initialFen — a mismatch means one of them is wrong; refuse
+    // the record. FEN-shaped text inside movetext comments is not a header.
     if (typeof game.pgn === 'string') {
-      const headerFen = /\[FEN "([^"]*)"\]/.exec(game.pgn)?.[1];
+      const headerFen = pgnHeaderTags(game.pgn).FEN;
       if (headerFen !== undefined && headerFen !== startFen) {
         fail('profile', `game ${game.id}: PGN FEN header disagrees with initialFen`);
       }
@@ -354,7 +361,7 @@ const validateActiveGame: SectionValidator = (v) => {
         fail('activeGame', 'initialFen is not a valid chess position');
       }
       cfgFen = v.config.initialFen as string;
-      const headerFen = /\[FEN "([^"]*)"\]/.exec(v.pgn)?.[1];
+      const headerFen = pgnHeaderTags(v.pgn).FEN;
       if (headerFen !== undefined && headerFen !== cfgFen) {
         fail('activeGame', 'PGN FEN header disagrees with config.initialFen');
       }

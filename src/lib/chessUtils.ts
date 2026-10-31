@@ -38,12 +38,38 @@ export function capturedFromFen(fen: string): { byWhite: PieceSymbol[]; byBlack:
 }
 
 /**
+ * Extract the REAL header tags of a PGN: only consecutive tag lines at the
+ * very top of the text (before any movetext) count. Regex searches across
+ * the raw text would mistake a movetext comment containing FEN-shaped text
+ * for a genuine header and silently switch the starting position. Blank
+ * lines are skipped; the first non-tag line ends the header block.
+ */
+export function pgnHeaderTags(text: string): Record<string, string> {
+  const tags: Record<string, string> = {};
+  let inHeaderBlock = true;
+  for (const rawLine of text.split(/\r?\n/)) {
+    const line = rawLine.trim();
+    if (line === '') continue;
+    const tag = inHeaderBlock ? /^\[([A-Za-z0-9_]+)\s+"((?:[^"\\]|\\.)*)"\]$/.exec(line) : null;
+    if (tag) {
+      tags[tag[1]] = tag[2].replace(/\\"/g, '"').replace(/\\\\/g, '\\');
+      continue;
+    }
+    inHeaderBlock = false; // movetext (or anything else) begins here
+  }
+  return tags;
+}
+
+/**
  * Extract SAN tokens from headerless PGN move text. Strips comments, NAGs,
  * one-level variations, header lines, result tokens, move numbers and `!?`
- * annotations. SANs always start with a letter (piece KQRBN, files a-h, or
- * O-O castling), so the token filter is safe. Used to replay headerless
- * move text against a NON-standard starting position, which chess.js
- * loadPgn cannot do (it resets to the standard start first).
+ * annotations. Every remaining token is returned UNFILTERED and must be
+ * judged by the caller's replay (chess.js move() throws on anything that is
+ * not a legal SAN) — silently dropping malformed numeric or unknown tokens
+ * here would let a loader report a successful recovery of an altered move
+ * history. Used to replay headerless move text against a NON-standard
+ * starting position, which chess.js loadPgn cannot do (it resets to the
+ * standard start first).
  */
 export function sanTokensFromHeaderlessPgn(text: string): string[] {
   const stripped = text
@@ -58,7 +84,7 @@ export function sanTokensFromHeaderlessPgn(text: string): string[] {
     ;
   return stripped
     .split(/\s+/)
-    .filter((t) => /^[A-Za-z]/.test(t) && t.length > 0);
+    .filter((t) => t.length > 0);
 }
 
 /** Build the annotated ply list from a chess.js game. */

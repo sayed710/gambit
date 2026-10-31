@@ -1,5 +1,5 @@
 import { Chess } from 'chess.js';
-import { START_FEN } from './chessUtils';
+import { pgnHeaderTags, START_FEN } from './chessUtils';
 
 export interface ParsedGame {
   moves: string[]; // SAN list
@@ -35,8 +35,11 @@ export function importPgn(text: string): { ok: true; game: ParsedGame } | { ok: 
   // first-move legality are enforced upstream — here we reject metadata
   // that is malformed or self-contradictory instead of silently assuming
   // the standard start.
-  const fenHeader = /\[FEN "([^"]*)"\]/.exec(trimmed)?.[1];
-  const setUp = /\[SetUp "([^"]*)"\]/.exec(trimmed)?.[1];
+  // REAL header tags only (block-scoped parse) — a movetext comment
+  // containing FEN-shaped text is never a header
+  const headerTags = pgnHeaderTags(trimmed);
+  const fenHeader = headerTags.FEN;
+  const setUp = headerTags.SetUp;
   if (fenHeader !== undefined) {
     try {
       new Chess(fenHeader);

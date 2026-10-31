@@ -5,7 +5,7 @@ import { validateGameRecord, parseBackupText } from './backup/validate';
 import { buildBackup } from './backup/exportBackup';
 import { matchRepertoire } from './repertoireMatch';
 import { applySan, createTree } from './gameTree';
-import { START_FEN } from './chessUtils';
+import { pgnHeaderTags, START_FEN } from './chessUtils';
 import MoveList from '../components/MoveList';
 import { buildReport } from './review';
 import { exportPgn, importPgn } from './pgn';
@@ -603,5 +603,119 @@ describe('PR #6 final review — importPgn actual start + editor reset', () => {
   it('rejects a malformed FEN header', () => {
     const parsed = importPgn(['[SetUp "1"]', '[FEN "not a fen"]', '', '1. e4'].join('\n'));
     expect(parsed.ok).toBe(false);
+  });
+});
+
+describe('PR #6 final Qodo fix — FEN-shaped comments are never headers', () => {
+  const K_ONLY = '8/8/8/8/8/8/8/K6k w - - 0 1';
+
+  it('pgnHeaderTags reads ONLY the top header block: movetext comments are invisible', () => {
+    expect(pgnHeaderTags('1. e4 { [FEN "8/8/8/8/8/8/8/K6k w - - 0 1"] }').FEN).toBeUndefined();
+    expect(pgnHeaderTags('1. e4 { [SetUp "1"] }').SetUp).toBeUndefined();
+    expect(pgnHeaderTags(['[Event "?"]', '[FEN "8/8/8/8/8/8/8/K6k w - - 0 1"]', '', '1. e4 { [FEN "junk"] }'].join(String.fromCharCode(10))).FEN).toBe('8/8/8/8/8/8/8/K6k w - - 0 1');
+  });
+
+  it('backup import rejects an illegal move hidden behind a FEN-shaped comment', () => {
+    // king-only start: e4 is illegal — the comment must not upgrade this to
+    // a "headered" PGN that skips the declared-start replay
+    localStorage.setItem(
+      'gambit.activeGame',
+      JSON.stringify({ config: { mode: 'pass', initialFen: K_ONLY }, playerColor: 'w', pgn: '1. e4 { [FEN "8/8/8/8/8/8/8/K6k w - - 0 1"] }', clocks: null, savedAt: 5 }),
+    );
+    expect(() => parseBackupText(buildBackup().text)).toThrow();
+  });
+
+  it('resume preserves the DECLARED custom position when a comment contains FEN-shaped text', async () => {
+    const commentFen = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
+    const resume: SavedGame = {
+      config: config({ mode: 'pass', initialFen: NO_E_PAWN_BLACK }),
+      playerColor: 'b',
+      pgn: `1... Nc6 { [FEN "${commentFen}"] }`, // comment is NOT a header
+      clocks: null,
+    };
+    const { result } = renderHook(() =>
+      useGame({ config: config({ mode: 'pass', initialFen: NO_E_PAWN_BLACK }), engineSearch: vi.fn(async () => null), resume }),
+    );
+    await waitFor(() => expect(result.current.plies).toHaveLength(1));
+    const expected = new Chess(NO_E_PAWN_BLACK);
+    expected.move('Nc6');
+    expect(result.current.fen).toBe(expected.fen());
+  });
+
+  it('a REAL headered custom PGN with comments round-trips (resume + backup validation)', async () => {
+    const g = new Chess(NO_E_PAWN_BLACK);
+    g.move('Nc6');
+    const pgn = `${g.pgn()} { a trailing comment }`;
+    // resume
+    const resume: SavedGame = { config: config({ mode: 'pass', initialFen: NO_E_PAWN_BLACK }), playerColor: 'b', pgn, clocks: null };
+    const { result } = renderHook(() =>
+      useGame({ config: config({ mode: 'pass', initialFen: NO_E_PAWN_BLACK }), engineSearch: vi.fn(async () => null), resume }),
+    );
+    await waitFor(() => expect(result.current.plies).toHaveLength(1));
+    expect(result.current.fen).toBe(g.fen());
+    // backup validation
+    localStorage.setItem('gambit.activeGame', JSON.stringify({ config: { mode: 'pass', initialFen: NO_E_PAWN_BLACK }, playerColor: 'b', pgn, clocks: null, savedAt: 5 }));
+    expect(() => parseBackupText(buildBackup().text)).not.toThrow();
+  });
+
+  it('a comment containing [SetUp "1"] is not a setup tag (pgn import + backup)', () => {
+    const parsed = importPgn(['[Event "?"]', '', '1. e4 { [SetUp "1"] [FEN "junk-fen"] } e5'].join(String.fromCharCode(10)));
+    if (!parsed.ok) throw new Error(parsed.error.message);
+    expect(parsed.game.startFen).toBe(START_FEN); // standard start untouched
+    localStorage.setItem(
+      'gambit.activeGame',
+      JSON.stringify({ config: { mode: 'pass' }, playerColor: 'w', pgn: '1. e4 { [SetUp "1"] } e5', clocks: null, savedAt: 5 }),
+    );
+    expect(() => parseBackupText(buildBackup().text)).not.toThrow();
+  });
+
+  it('an ACTUAL mismatched FEN header is still rejected even when comments also carry FENs', () => {
+    const g = new Chess(NO_E_PAWN_BLACK);
+    g.move('Nc6');
+    const pgn = `${g.pgn()} { [FEN "8/8/8/8/8/8/8/K6k w - - 0 1"] }`; // real header + decoy comment
+    localStorage.setItem(
+      'gambit.activeGame',
+      JSON.stringify({ config: { mode: 'pass', initialFen: NO_E_PAWN_BLACK }, playerColor: 'b', pgn, clocks: null, savedAt: 5 }),
+    );
+    // the REAL header (NO_E_PAWN_BLACK) matches the config → valid
+    expect(() => parseBackupText(buildBackup().text)).not.toThrow();
+    // a mismatched REAL header is rejected
+    const mismatched = `${g.pgn().replace(`[FEN "${NO_E_PAWN_BLACK}"]`, `[FEN "${K_ONLY}"]`)} { [FEN "${NO_E_PAWN_BLACK}"] }`;
+    localStorage.setItem(
+      'gambit.activeGame',
+      JSON.stringify({ config: { mode: 'pass', initialFen: NO_E_PAWN_BLACK }, playerColor: 'b', pgn: mismatched, clocks: null, savedAt: 5 }),
+    );
+    expect(() => parseBackupText(buildBackup().text)).toThrow();
+  });
+
+  it('standard PGN comments never affect the reported startFen', () => {
+    const parsed = importPgn(['[Event "?"]', '', '1. e4 e5 { [FEN "anything"] [SetUp "1"] }'].join(String.fromCharCode(10)));
+    if (!parsed.ok) throw new Error(parsed.error.message);
+    expect(parsed.game.startFen).toBe(START_FEN);
+  });
+
+  it('headerless black-first 1... Nc6 against the correct FEN still resumes', async () => {
+    const resume: SavedGame = { config: config({ mode: 'pass', initialFen: NO_E_PAWN_BLACK }), playerColor: 'b', pgn: '1... Nc6', clocks: null };
+    const { result } = renderHook(() =>
+      useGame({ config: config({ mode: 'pass', initialFen: NO_E_PAWN_BLACK }), engineSearch: vi.fn(async () => null), resume }),
+    );
+    await waitFor(() => expect(result.current.plies).toHaveLength(1));
+    expect(result.current.turn).toBe('w');
+  });
+
+  it('headerless replay REJECTS malformed numeric/unknown tokens instead of silently dropping them', async () => {
+    const resume: SavedGame = {
+      config: config({ mode: 'pass', initialFen: NO_E_PAWN_BLACK }),
+      playerColor: 'b',
+      pgn: '1... Nc6 2. @@@ 3. 4567', // unknown + numeric garbage after a legal move
+      clocks: null,
+    };
+    const { result } = renderHook(() =>
+      useGame({ config: config({ mode: 'pass', initialFen: NO_E_PAWN_BLACK }), engineSearch: vi.fn(async () => null), resume }),
+    );
+    // corrupt-save fallback: a FRESH custom game, not a partially replayed history
+    await waitFor(() => expect(result.current.plies).toHaveLength(0));
+    const fresh = new Chess(NO_E_PAWN_BLACK);
+    expect(result.current.fen).toBe(fresh.fen());
   });
 });

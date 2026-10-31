@@ -3,7 +3,7 @@ import { Chess } from 'chess.js';
 import type { Color, Square } from 'chess.js';
 import type { Move } from 'chess.js';
 import type { GameConfig, MoveTiming, Ply } from '../lib/types';
-import { capturedFromFen, hasMatingMaterial, pliesFromGame, sanTokensFromHeaderlessPgn } from '../lib/chessUtils';
+import { capturedFromFen, hasMatingMaterial, pliesFromGame, pgnHeaderTags, sanTokensFromHeaderlessPgn } from '../lib/chessUtils';
 import { playSound } from '../lib/sound';
 import { classifyMoveSound, planSoundEvents } from '../lib/moveSound';
 import { useClock } from './useClock';
@@ -145,7 +145,15 @@ export function useGame({ config, engineSearch, onGameOver, resume, initialFen }
       if (resume) {
         try {
           const restored = new Chess(resume.config.initialFen ?? undefined);
-          if (resume.config.initialFen && !/\[FEN "/.test(resume.pgn)) {
+          // REAL header tags only: a movetext comment containing FEN-shaped
+          // text must never make this look like a headered PGN
+          const headerFen = pgnHeaderTags(resume.pgn).FEN;
+          if (resume.config.initialFen !== undefined && headerFen !== undefined && headerFen !== resume.config.initialFen) {
+            // contradictory metadata: altered or corrupt snapshot — reject
+            // rather than silently resuming from the wrong position
+            throw new Error('snapshot FEN header disagrees with the declared starting position');
+          }
+          if (resume.config.initialFen && headerFen === undefined) {
             // Headerless legacy snapshot of a custom-start game: chess.js
             // loadPgn resets to the STANDARD start before applying a PGN's
             // own FEN header, so a headerless text must be parsed and its
