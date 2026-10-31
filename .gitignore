@@ -25,3 +25,7 @@ dist-ssr
 scripts/patch-*.py
 .fs-dl/
 fs-*.html
+
+
+# UI-redesign verification screenshots (regenerate via a Playwright probe)
+ui-*.png

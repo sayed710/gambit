@@ -1,321 +1,315 @@
-import type { CSSProperties } from 'react';
 import { Link } from 'react-router-dom';
-import BoardShowcase from '../components/home/BoardShowcase';
-import AuroraNight from '../components/home/AuroraNight';
+import { Chess } from 'chess.js';
+import { Chessboard } from 'react-chessboard';
 import { ArrowRight } from '../components/Icons';
-import { CLASSIFICATION_META, CLASSIFICATION_SYMBOL, type MoveClass } from '../lib/review';
 
 /* ------------------------------------------------------------------
-   Home — the Aurora Arctic poster page.
+   Home — the APPROVED design (owner reference, 2026-10-31).
 
-   Structure (deliberately unlike the old hero + ledger layout):
+   Structure:
      .home
-       AuroraNight                 full-bleed arctic environment
-       .home-hero                  editorial zone + board showcase
-       .hero-foot                  quote + vertical word stack
-       .home-more#more             "More than a board." mosaic
-       .home-close                 notation strip + Lasker quote
+       .hero      inset dark band: cinematic chess photograph
+                  (black queen, warm directional light) + editorial copy
+       #features  three substantial cards with genuine UI previews
+       .closing   dark band: "A calmer, deeper way to play chess."
+
+   Honesty rules: no online-play claims, no accounts, no community,
+   no fabricated metrics — every CTA goes to a real route.
    ------------------------------------------------------------------ */
 
-const BENEFITS = [
-  { stat: '900–2400', label: 'Stockfish 18, four honest strengths' },
-  { stat: 'Book → Brilliant', label: 'every move classified in review' },
-  { stat: '100% local', label: 'your games never leave the tab' },
+/* Ruy Lopez Exchange — the same game the Review preview shows in the
+   approved reference (the Bxc6/dxc6 exchange highlighted). */
+const REVIEW_GAME_SAN = [
+  'e4', 'e5', 'Nf3', 'Nc6', 'Bb5', 'a6', 'Bxc6', 'dxc6', 'O-O', 'f6',
+  'd4', 'exd4', 'Nxd4', 'c5', 'Ne2', 'Qxd1', 'Rxd1', 'Bd7',
 ];
 
-const TIME_CONTROLS = ['Bullet', 'Blitz', 'Rapid', 'Classical'];
-
-const PANEL_CHIPS: MoveClass[] = ['brilliant', 'great', 'best', 'inaccuracy', 'blunder'];
-
-/** Decorative ridge line used inside the Play panel's horizon strip. */
-function MiniRidge() {
-  return (
-    <svg viewBox="0 0 560 72" preserveAspectRatio="none" aria-hidden="true" focusable="false">
-      <path d="M0 62 L60 34 L118 54 L196 18 L268 52 L340 30 L414 54 L486 38 L560 50 L560 72 L0 72 Z" fill="#050A11" />
-      <path
-        d="M0 62 L60 34 L118 54 L196 18 L268 52 L340 30 L414 54 L486 38 L560 50"
-        fill="none"
-        stroke="rgba(142,216,240,0.28)"
-        strokeWidth="1.2"
-      />
-    </svg>
-  );
+interface PreviewPly {
+  san: string;
+  color: 'w' | 'b';
+  from: string;
+  to: string;
+  fenAfter: string;
 }
 
-/** Decorative evaluation curve for the Analysis panel. */
-function EvalCurve() {
-  return (
-    <svg viewBox="0 0 320 110" preserveAspectRatio="none" aria-hidden="true" focusable="false" className="mp-curve">
-      <defs>
-        <linearGradient id="mp-curve-stroke" x1="0" y1="0" x2="1" y2="0">
-          <stop offset="0" stopColor="#A99CFF" />
-          <stop offset="1" stopColor="#8ED8F0" />
-        </linearGradient>
-        <linearGradient id="mp-curve-fill" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0" stopColor="#A99CFF" stopOpacity="0.28" />
-          <stop offset="1" stopColor="#A99CFF" stopOpacity="0" />
-        </linearGradient>
-      </defs>
-      <line x1="0" y1="55" x2="320" y2="55" stroke="rgba(220,236,242,0.14)" strokeDasharray="3 5" />
-      <path
-        d="M0 52 C 30 48, 48 60, 74 58 C 104 55, 118 34, 148 36 C 178 38, 190 70, 220 72 C 250 74, 262 40, 292 30 C 304 26, 314 24, 320 22 L 320 110 L 0 110 Z"
-        fill="url(#mp-curve-fill)"
-      />
-      <path
-        d="M0 52 C 30 48, 48 60, 74 58 C 104 55, 118 34, 148 36 C 178 38, 190 70, 220 72 C 250 74, 262 40, 292 30 C 304 26, 314 24, 320 22"
-        fill="none"
-        stroke="url(#mp-curve-stroke)"
-        strokeWidth="2.4"
-        strokeLinecap="round"
-      />
-      <circle cx="292" cy="30" r="3.4" fill="#8ED8F0" />
-    </svg>
-  );
+function buildReplay(sanList: string[]): { plies: PreviewPly[]; finalFen: string } | null {
+  const game = new Chess();
+  const plies: PreviewPly[] = [];
+  try {
+    for (const san of sanList) {
+      const m = game.move(san);
+      plies.push({ san: m.san, color: m.color, from: m.from, to: m.to, fenAfter: m.after });
+    }
+  } catch {
+    return null;
+  }
+  return { plies, finalFen: game.fen() };
 }
 
-/** Decorative tactic motif for the Puzzles panel: knight, target, glow. */
-function TacticGrid() {
-  const cells = new Map<string, { glyph?: string; target?: boolean }>([
-    ['a1', { glyph: '♟' }],
-    ['b1', {}],
-    ['c1', {}],
-    ['d1', {}],
-    ['a2', {}],
-    ['b2', { glyph: '♞', target: true }],
-    ['c2', {}],
-    ['d2', { glyph: '♝' }],
-    ['a3', {}],
-    ['b3', {}],
-    ['c3', {}],
-    ['d3', {}],
-    ['a4', { glyph: '♛' }],
-    ['b4', {}],
-    ['c4', {}],
-    ['d4', {}],
-  ]);
-  const files = ['a', 'b', 'c', 'd'];
-  const ranks = [4, 3, 2, 1];
+const REVIEW_REPLAY = buildReplay(REVIEW_GAME_SAN);
+
+/* ---------------- hero ---------------- */
+
+function Hero({ onExplore }: { onExplore: () => void }) {
   return (
-    <div className="mp-tactic" aria-hidden="true">
-      {ranks.map((r) =>
-        files.map((f) => {
-          const cell = cells.get(`${f}${r}`) ?? {};
-          const dark = (files.indexOf(f) + r) % 2 === 0;
-          return (
-            <span key={`${f}${r}`} className={`mp-cell${dark ? ' dark' : ''}${cell.target ? ' target' : ''}`}>
-              {cell.glyph ?? ''}
+    <section className="hero">
+      <div className="hero-band">
+        <div className="hero-photo" role="img" aria-label="A black queen on a chessboard in warm window light" />
+        <div className="hero-veil" aria-hidden="true" />
+        <div className="container hero-inner">
+          <div className="hero-copy">
+            <p className="hero-eyebrow">A higher standard for chess</p>
+            <h1>
+              Play chess.
+              <br />
+              <em>Think deeper.</em>
+            </h1>
+            <p className="hero-sub">
+              A clean, focused space for real chess.
+              <br />
+              Play, analyze, train and grow — at your own pace.
+            </p>
+            <div className="hero-ctas">
+              <Link to="/play" className="btn btn-gold">
+                Start playing
+                <ArrowRight />
+              </Link>
+              <button type="button" className="btn btn-ghost-light" onClick={onExplore}>
+                Explore features
+              </button>
+            </div>
+            <p className="hero-note">Free to get started. A better chess experience for everyone.</p>
+          </div>
+          <p className="hero-quote">
+            <span>
+              “A quiet place
+              <br />
+              to become a
+              <br />
+              stronger player.”
             </span>
-          );
-        }),
-      )}
+            <span className="hero-quote-by">— The Gambit Team</span>
+          </p>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+/* ---------------- feature 1 · Play (setup preview) ---------------- */
+
+function PlayPreview() {
+  return (
+    <div className="ui-preview ui-dark" aria-hidden="true">
+      <div className="ui-setup">
+        <div className="ui-row between">
+          <span className="ui-pill">10 | 0 · Rapid</span>
+        </div>
+        <div className="ui-clock-row">
+          <span className="ui-side">● Black</span>
+          <span className="ui-clock">10:00</span>
+        </div>
+        <div className="ui-mini-board">
+          {Array.from({ length: 24 }, (_, i) => {
+            const r = Math.floor(i / 8);
+            const c = i % 8;
+            return <i key={i} style={{ background: (r + c) % 2 ? '#A98F63' : '#EFE3CB' }} />;
+          })}
+        </div>
+        <div className="ui-clock-row">
+          <span className="ui-side">○ White</span>
+          <span className="ui-clock">10:00</span>
+        </div>
+        <span className="ui-play-btn">Play</span>
+      </div>
     </div>
   );
 }
 
-/** Decorative game-graph for the Review panel, dotted with real classification colors. */
-function ReviewRibbon() {
-  const dots = [
-    { x: 38, y: 44, c: '#26c2a3' },
-    { x: 128, y: 30, c: '#5c8bb0' },
-    { x: 214, y: 58, c: '#f7c631' },
-    { x: 282, y: 22, c: '#fa412d' },
-  ];
+/* ---------------- feature 2 · Review (real game preview) ---------------- */
+
+function ReviewPreview() {
+  if (!REVIEW_REPLAY) return null;
+  const { plies } = REVIEW_REPLAY;
+  // The approved reference highlights 4. Bxc6 dxc6. Ply indexes are
+  // 0-based: Bxc6 = ply 6, dxc6 = ply 7 → the preview shows moves 3–5
+  // (ply indexes 4–9) with the middle row highlighted, and the board
+  // positioned after 4... dxc6.
+  const rowStarts = [4, 6, 8];
+  const highlightedStart = 6;
+  const lastMove = plies[7];
+  const position = plies[7].fenAfter;
   return (
-    <svg viewBox="0 0 320 78" preserveAspectRatio="none" aria-hidden="true" focusable="false" className="mp-ribbon">
-      <defs>
-        <linearGradient id="mp-ribbon-stroke" x1="0" y1="0" x2="1" y2="0">
-          <stop offset="0" stopColor="#DCECF2" stopOpacity="0.85" />
-          <stop offset="1" stopColor="#8ED8F0" stopOpacity="0.9" />
-        </linearGradient>
-      </defs>
-      <path
-        d="M0 40 C 22 38, 30 46, 38 44 C 60 40, 72 34, 96 33 C 118 32, 130 30, 152 32 C 176 34, 192 52, 214 58 C 236 64, 250 40, 268 32 C 274 29, 278 26, 282 22 C 294 16, 308 18, 320 20"
-        fill="none"
-        stroke="url(#mp-ribbon-stroke)"
-        strokeWidth="2"
-        strokeLinecap="round"
-        opacity="0.75"
-      />
-      {dots.map((d) => (
-        <g key={d.x}>
-          <circle cx={d.x} cy={d.y} r="7" fill={d.c} opacity="0.18" />
-          <circle cx={d.x} cy={d.y} r="3" fill={d.c} />
-        </g>
-      ))}
-    </svg>
+    <div className="ui-preview ui-dark" aria-hidden="true">
+      <div className="ui-review">
+        <div className="ui-review-board">
+          <Chessboard
+            options={{
+              id: 'home-review',
+              position,
+              boardOrientation: 'white',
+              allowDragging: false,
+              allowDrawingArrows: false,
+              allowAutoScroll: false,
+              animationDurationInMs: 0,
+              squareStyles: lastMove
+                ? {
+                    [lastMove.from]: { boxShadow: 'inset 0 0 0 3px rgba(201,184,150,0.9)' },
+                    [lastMove.to]: { boxShadow: 'inset 0 0 0 3px rgba(201,184,150,0.9)' },
+                  }
+                : {},
+              lightSquareStyle: { background: '#EFE3CB' },
+              darkSquareStyle: { background: '#A98F63' },
+            }}
+          />
+        </div>
+        <div className="ui-review-side">
+          <span className="ui-eval">+0.3</span>
+          <div className="ui-moves">
+            {rowStarts.map((idx) => (
+              <div key={idx} className={`ui-move-row${idx === highlightedStart ? ' hl' : ''}`}>
+                <span className="ui-no">{Math.floor(idx / 2) + 1}.</span>
+                <span>{plies[idx]?.san ?? ''}</span>
+                <span>{plies[idx + 1]?.san ?? ''}</span>
+              </div>
+            ))}
+          </div>
+          <svg viewBox="0 0 200 40" className="ui-curve">
+            <path d="M0 24 C30 20 55 28 85 24 C120 20 140 10 170 14 L200 12" fill="none" stroke="#C9B896" strokeWidth="1.6" />
+          </svg>
+        </div>
+      </div>
+    </div>
   );
 }
 
+/* ---------------- feature 3 · Training (real routes, decorative rows) ---------------- */
+
+function TrainPreview() {
+  const items = [
+    { to: '/puzzles', label: 'Tactical puzzles' },
+    { to: '/endgames', label: 'Curated endgame lessons' },
+    { to: '/training', label: 'Track your progress' },
+    { to: '/coordinates', label: 'Build board vision' },
+  ];
+  // Decorative preview: the rows mirror the app's REAL training routes but
+  // are non-interactive here (aria-hidden) — the card's own Start-training
+  // button is the accessible, working navigation.
+  return (
+    <div className="ui-phone" aria-hidden="true">
+      <div className="ui-phone-screen">
+        <div className="ui-phone-head">
+          <span className="ui-phone-brand">Gambit</span>
+        </div>
+        {items.map((it) => (
+          <span key={it.to} className="ui-phone-row">
+            <span>{it.label}</span>
+            <ArrowRight />
+          </span>
+        ))}
+        <span className="ui-phone-puzzle">
+          <span className="ui-phone-puzzle-k">Daily puzzle</span>
+          <span className="ui-phone-puzzle-s">Find the best move</span>
+        </span>
+      </div>
+    </div>
+  );
+}
+
+/* ---------------- page ---------------- */
 
 export default function Home() {
+  const exploreFeatures = () => {
+    const reduce = typeof window !== 'undefined' && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    document.getElementById('features')?.scrollIntoView({ behavior: reduce ? 'auto' : 'smooth', block: 'start' });
+  };
+
   return (
     <div className="home">
-      <AuroraNight />
+      <Hero onExplore={exploreFeatures} />
 
-      <div className="home-inner">
-        {/* ————— hero: editorial zone + live showcase ————— */}
-        <header className="home-hero">
-          <div className="hero-head">
-            <p className="hero-eyebrow">
-              <i className="eyebrow-rule" aria-hidden="true" />
-              66°33′ north — the aurora is out tonight
-            </p>
-            <h1 className="hero-headline">
-              Chess, played
-              <br />
-              on <em>thin ice</em>.
-            </h1>
-          </div>
-
-          <p className="hero-lede">
-            A quiet, arctic room for serious chess. Real clocks, Stockfish at four strengths, and a review that
-            teaches — all inside this browser tab. No account, no server.
-          </p>
-
-          <div className="hero-cta">
-            <Link to="/play" className="btn btn-lg hero-btn-primary">
-              Play now <ArrowRight />
-            </Link>
-            <button
-              type="button"
-              className="btn btn-lg hero-btn-ghost"
-              onClick={() => {
-                const smooth = !window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-                document.getElementById('more')?.scrollIntoView({ behavior: smooth ? 'smooth' : 'auto' });
-              }}
-            >
-              See what's inside
-            </button>
-          </div>
-
-          <ul className="hero-benefits">
-            {BENEFITS.map((b) => (
-              <li key={b.stat}>
-                <span className="benefit-stat">{b.stat}</span>
-                <span className="benefit-label">{b.label}</span>
-              </li>
-            ))}
-          </ul>
-
-          <div className="hero-show">
-            <BoardShowcase />
-          </div>
-        </header>
-
-        {/* ————— quote foot, like the reference's closing band ————— */}
-        <div className="hero-foot">
-          <p className="hero-quote">
-            “A small gambit
-            <br />
-            for a sharper tomorrow.”
-          </p>
-          <div className="hero-words" aria-hidden="true">
-            <span>Play</span>
-            <span>Learn</span>
-            <span>Belong</span>
-          </div>
-        </div>
-      </div>
-
-      {/* ————— More than a board ————— */}
-      <section className="home-more" id="more" aria-labelledby="more-title">
-        <div className="home-inner">
-          <div className="more-head">
-            <h2 id="more-title">More than a board.</h2>
-            <p>Four rooms under one northern sky — each does one job, properly.</p>
-          </div>
-
-          <div className="more-grid">
-            <Link to="/play" className="mp mp-play" data-voice="green">
-              <div className="mp-body">
-                <span className="mp-kicker">Play</span>
-                <h3>Find your tempo.</h3>
-                <p>
-                  Bullet to classical against Stockfish, or a shared board across the sofa. The clock is honest to
-                  the tenth of a second.
-                </p>
-                <div className="mp-chips">
-                  {TIME_CONTROLS.map((t) => (
-                    <span key={t} className="mp-chip">
-                      {t}
-                    </span>
-                  ))}
+      <section id="features" className="features">
+        <div className="container">
+          <div className="feature-grid">
+            {/* 1 · Play */}
+            <article className="feature-card wide">
+              <header className="feature-head">
+                <span className="feature-icon" aria-hidden="true">
+                  ♟
+                </span>
+                <div>
+                  <h2>Play</h2>
+                  <p>Jump into a game against the engine. Four honest strengths, local clocks — beautifully simple.</p>
                 </div>
-              </div>
-              <div className="mp-horizon" aria-hidden="true">
-                <MiniRidge />
-              </div>
-              <span className="mp-go" aria-hidden="true">
+              </header>
+              <PlayPreview />
+              <ul className="feature-points">
+                <li>Four honest engine strengths, rated play</li>
+                <li>Local clocks — bullet to classical, pass &amp; play</li>
+                <li>Custom positions from the editor</li>
+              </ul>
+              <Link to="/play" className="btn btn-dark feature-btn">
+                Start a game
                 <ArrowRight />
-              </span>
-            </Link>
+              </Link>
+            </article>
 
-            <Link to="/analysis" className="mp mp-analysis" data-voice="violet">
-              <div className="mp-body">
-                <span className="mp-kicker">Analysis</span>
-                <h3>See further.</h3>
-                <p>Load any FEN or PGN and read the position with engine lines, MultiPV and arrows.</p>
-              </div>
-              <div className="mp-figure" aria-hidden="true">
-                <EvalCurve />
-              </div>
-              <span className="mp-go" aria-hidden="true">
-                <ArrowRight />
-              </span>
-            </Link>
-
-            <Link to="/puzzles" className="mp mp-puzzles" data-voice="green-deep">
-              <div className="mp-body">
-                <span className="mp-kicker">Puzzles</span>
-                <h3>One position, one answer.</h3>
-                <p>Mate-in-one to discovered attacks — generated and verified on your machine, scored by streak.</p>
-              </div>
-              <div className="mp-figure" aria-hidden="true">
-                <TacticGrid />
-              </div>
-              <span className="mp-go" aria-hidden="true">
-                <ArrowRight />
-              </span>
-            </Link>
-
-            <Link to="/review" className="mp mp-review" data-voice="ice">
-              <div className="mp-body">
-                <span className="mp-kicker">Review</span>
-                <h3>Your games, graded kindly.</h3>
-                <p>Accuracy per player, a class for every move, and the moments that decided the game.</p>
-                <div className="mp-chips mp-chips-class">
-                  {PANEL_CHIPS.map((c) => (
-                    <span key={c} className="mp-chip class-chip" style={{ '--chip-c': CLASSIFICATION_META[c].color } as CSSProperties}>
-                      <b>{CLASSIFICATION_SYMBOL[c] ?? '!'}</b>
-                      {CLASSIFICATION_META[c].label}
-                    </span>
-                  ))}
+            {/* 2 · Analyze */}
+            <article className="feature-card tall">
+              <header className="feature-head">
+                <span className="feature-icon" aria-hidden="true">
+                  📊
+                </span>
+                <div>
+                  <h2>Analyze. Learn. Improve.</h2>
+                  <p>Get in-depth game review, clear insights and practical advice to elevate your play.</p>
                 </div>
+              </header>
+              <ReviewPreview />
+              <div className="feature-cta-row">
+                <Link to="/analysis" className="feature-cta">
+                  Analysis board
+                  <ArrowRight />
+                </Link>
+                <Link to="/library" className="feature-cta">
+                  Review a saved game
+                  <ArrowRight />
+                </Link>
               </div>
-              <div className="mp-figure" aria-hidden="true">
-                <ReviewRibbon />
-              </div>
-              <span className="mp-go" aria-hidden="true">
+            </article>
+
+            {/* 3 · Train */}
+            <article className="feature-card">
+              <header className="feature-head">
+                <span className="feature-icon" aria-hidden="true">
+                  🎓
+                </span>
+                <div>
+                  <h2>Train Your Game</h2>
+                  <p>Tactical puzzles, curated lessons and personalized training to build real progress.</p>
+                </div>
+              </header>
+              <TrainPreview />
+              <Link to="/puzzles" className="btn btn-gold feature-btn">
+                Start training
                 <ArrowRight />
-              </span>
-            </Link>
+              </Link>
+            </article>
           </div>
         </div>
       </section>
 
-      {/* ————— closing band: notation + Lasker ————— */}
-      <section className="home-close">
-        <div className="home-inner">
-          <div className="close-rule" aria-hidden="true" />
-          <div className="close-strip" aria-hidden="true">
-            1.d4 Nf6 2.c4 g6 3.Nc3 Bg7 4.e4 d6 5.Nf3 <span className="lit">O-O</span> 6.Be2 e5 7.O-O Nc6 8.d5 Ne7
-            <span className="lit">9.Ne1</span> Nd7 10.f5 <span className="lit">11.Bg5</span> h6 12.Bh4 c6 13.Qd2 Qe7
-            <span className="lit">14.O-O-O</span> — a King's Indian, mapped move by move.
+      <section className="closing">
+        <div className="container closing-inner">
+          <div>
+            <p className="closing-eyebrow">More than a game</p>
+            <h2>A calmer, deeper way to play chess.</h2>
+            <p className="closing-line">Gambit is built for players who love the game — from curious beginners to dedicated improvers.</p>
           </div>
-          <blockquote className="close-quote">
-            “When you see a good move, sit on your hands and look for a better one.”
-          </blockquote>
-          <cite className="close-cite">Emanuel Lasker, World Champion 1894–1921</cite>
+          <Link to="/play" className="btn btn-gold">
+            Start playing
+            <ArrowRight />
+          </Link>
         </div>
       </section>
     </div>

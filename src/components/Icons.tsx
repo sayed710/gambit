@@ -34,6 +34,15 @@ export const KnightMark = ({ className }: { className?: string }) => (
   </svg>
 );
 
+export const BrandMark = ({ className }: { className?: string }) => (
+  <span className={`brand-mark${className ? ` ${className}` : ''}`}>
+    {/* the approved logo artwork: black queen silhouette extracted from the
+        owner-approved lockup (transparent PNG, charcoal #0F1720) */}
+    <img src="/brand/queen.png" alt="" className="brand-queen-img" draggable={false} />
+    <span className="brand-word">Gambit</span>
+  </span>
+);
+
 export const SunIcon = ({ size = 18, className, style }: IconProps) => (
   <svg {...svgProps(size, className, style)}>
     <circle cx="12" cy="12" r="4" />
