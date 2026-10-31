@@ -31,8 +31,20 @@ export default function MoveList({ plies, currentPly = null, onSelect, resultLab
   }
 
   const rows: { no: number; white?: Ply; black?: Ply; wi: number; bi: number }[] = [];
-  for (let i = 0; i < plies.length; i += 2) {
-    rows.push({ no: i / 2 + 1, white: plies[i], black: plies[i + 1], wi: i, bi: i + 1 });
+  // Rows group a white ply with the black reply. Custom starts may begin
+  // with black to move: the first row then holds ONLY black's move, and the
+  // move numbering follows the real full-move count instead of assuming
+  // white opened the game.
+  let i = 0;
+  let no = 1;
+  if (plies[0]?.color === 'b') {
+    rows.push({ no, white: undefined, black: plies[0], wi: -1, bi: 0 });
+    no += 1;
+    i = 1;
+  }
+  for (; i < plies.length; i += 2) {
+    rows.push({ no, white: plies[i], black: plies[i + 1], wi: i, bi: i + 1 });
+    no += 1;
   }
   const selectable = typeof onSelect === 'function';
 
@@ -54,8 +66,8 @@ export default function MoveList({ plies, currentPly = null, onSelect, resultLab
               <tr key={r.no}>
                 <td className="mv-no">{r.no}.</td>
                 <td
-                  className={`mv${currentPly === r.wi ? ' current' : ''}${selectable ? ' selectable' : ''}`}
-                  onClick={() => onSelect?.(r.wi)}
+                  className={`mv${currentPly === r.wi ? ' current' : ''}${selectable && r.white ? ' selectable' : ''}`}
+                  onClick={() => r.white && onSelect?.(r.wi)}
                   title={wMeta ? `${r.white?.san} \u2014 ${wMeta.label}` : r.white?.san}
                   aria-label={wMeta ? `${r.no}. ${r.white?.san}, ${wMeta.label}` : undefined}
                 >

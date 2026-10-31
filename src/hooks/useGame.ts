@@ -115,7 +115,11 @@ export function useGame({ config, engineSearch, onGameOver, resume, initialFen }
       setThinking(false);
       setPlies([]);
       setLastMove(null);
-      setTurn('w');
+      // The side to move comes from the ACTUAL starting position: custom
+      // starts (Position Editor) may begin with black to move, and turn
+      // ownership drives the engine effect and the board's input gating.
+      const first: Color = gameRef.current.turn();
+      setTurn(first);
       setFen(gameRef.current.fen());
       const color: Color =
         (cfg?.playerColor ?? config.playerColor) === 'random'
@@ -126,15 +130,25 @@ export function useGame({ config, engineSearch, onGameOver, resume, initialFen }
       playerColorRef.current = color;
       setPlayerColor(color);
       clock.reset(initialMs);
-      // White's clock runs from the start in every timed mode (resume below
+      // The side to move owns the running clock from the start (resume below
       // re-baselines to the saved turn when applicable).
-      if (!unlimited) clock.start('w');
+      if (!unlimited) clock.start(first);
 
-      // restore a saved game: replay the PGN, fast-forward clocks
+      // restore a saved game: replay the PGN, fast-forward clocks. The
+      // constructor FEN (custom starts) is applied FIRST. chess.js loadPgn
+      // resets to the standard start before applying a PGN's own FEN header,
+      // so a headerless legacy snapshot of a custom-start game must have its
+      // SAN list replayed manually or the custom position would be lost.
       if (resume) {
         try {
-          const restored = new Chess();
-          restored.loadPgn(resume.pgn);
+          const restored = new Chess(resume.config.initialFen ?? undefined);
+          if (resume.config.initialFen && !/\[FEN "/.test(resume.pgn)) {
+            const scratch = new Chess();
+            scratch.loadPgn(resume.pgn); // throws on garbage — caught below
+            for (const san of scratch.history()) restored.move(san);
+          } else {
+            restored.loadPgn(resume.pgn);
+          }
           gameRef.current = restored;
           const hist = restored.history({ verbose: true });
           const last = hist[hist.length - 1];
@@ -341,7 +355,11 @@ export function useGame({ config, engineSearch, onGameOver, resume, initialFen }
   useEffect(() => {
     if (config.mode !== 'ai') return;
     if (over || pendingPromotion) return;
-    if (turn === playerColor) return;
+    // playerColorRef, not the state: on a custom black-to-move start the
+    // state still holds its 'w' initial during the mount commit (newGame
+    // corrects it in an earlier effect), which would spuriously hand the
+    // human's first move to the engine.
+    if (turn === playerColorRef.current) return;
     let cancelled = false;
     const fenAtRequest = gameRef.current.fen();
     setThinking(true);

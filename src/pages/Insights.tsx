@@ -63,8 +63,9 @@ export default function Insights() {
       const report = loadJSON<GameReport | null>(`review.${g.id}`, null);
       if (!report) continue;
       const fens: string[] = [];
-      // reconstruct fens from the game's SAN list
-      const replay = new Chess();
+      // reconstruct fens from the game's SAN list — from the game's ACTUAL
+      // starting position (custom starts replay correctly)
+      const replay = new Chess(g.initialFen ?? undefined);
       fens.push(replay.fen());
       for (const san of g.moves) {
         try {

@@ -383,6 +383,9 @@ function GameScreen({
       // game-over callback fires (state may lag one move behind)
       moves: getMoves(),
       pgn: game.pgn(),
+      // non-standard starting position — Review/Insights/validators replay
+      // from it; absent for standard chess starts (legacy records unchanged)
+      ...(config.initialFen ? { initialFen: config.initialFen } : {}),
       // real per-ply think times; old games (and this field) stay optional
       moveTimings: game.getMoveTimings(),
       ratingBefore: profile.rating,

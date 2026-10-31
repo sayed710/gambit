@@ -135,7 +135,22 @@ export function validateGameRecord(game: unknown, i = 0): void {
       fail('profile', `game ${game.id}: unreadable PGN`);
     }
   }
-  if (!replayableSans(game.moves)) fail('profile', `game ${game.id}: move list contains an illegal SAN`);
+  // Custom-start games carry their starting position; it must be a VALID
+  // FEN and the move list must replay from IT, not from the standard start.
+  // Legacy records without the field replay from the standard start.
+  let startFen: string | undefined;
+  if (game.initialFen !== undefined) {
+    if (typeof game.initialFen !== 'string' || game.initialFen.trim().length === 0) {
+      fail('profile', `game ${game.id}: initialFen is not a FEN string`);
+    }
+    try {
+      new Chess(game.initialFen as string);
+    } catch {
+      fail('profile', `game ${game.id}: initialFen is not a valid chess position`);
+    }
+    startFen = game.initialFen as string;
+  }
+  if (!replayableSans(game.moves, startFen)) fail('profile', `game ${game.id}: move list contains an illegal SAN`);
   if (game.moveTimings !== undefined) {
     if (!Array.isArray(game.moveTimings)) fail('profile', `game ${game.id}: moveTimings is not a list`);
     game.moveTimings.forEach((t: unknown, j: number) => {
