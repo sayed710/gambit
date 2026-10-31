@@ -1,199 +1,287 @@
 import { Link } from 'react-router-dom';
+import { Chess } from 'chess.js';
 import { Chessboard } from 'react-chessboard';
 import { ArrowRight } from '../components/Icons';
 
 /* ------------------------------------------------------------------
-   Home — the approved Heritage redesign.
+   Home — the APPROVED design (owner reference, 2026-10-31).
 
    Structure:
      .home
-       .hero          dark cinematic band — editorial copy + a real,
-                      static board on a warm stage
-       #features      four restrained cards, each wired to a real route
-   Honest by design: no stats, no testimonials, no sign-in — the app
-   has none of those things.
+       .hero      inset dark band: cinematic chess photograph
+                  (black queen, warm directional light) + editorial copy
+       #features  three substantial cards with genuine UI previews
+       .closing   dark band: "A calmer, deeper way to play chess."
+
+   Honesty rules: no online-play claims, no accounts, no community,
+   no fabricated metrics — every CTA goes to a real route.
    ------------------------------------------------------------------ */
 
-const HERO_FEN = 'r1bqkbnr/pppp1ppp/2n5/1B2p3/4P3/5N2/PPPP1PPP/RNBQK2R b KQkq - 3 3';
-
-const FEATURES = [
-  {
-    to: '/play',
-    kicker: 'Play',
-    title: 'Play the engine',
-    line: 'Four honest Stockfish strengths, local clocks, pass-and-play, and custom positions from the editor.',
-    cta: 'Start a game',
-    visual: 'board' as const,
-  },
-  {
-    to: '/analysis',
-    kicker: 'Analysis & Review',
-    title: 'Understand every move',
-    line: 'Full engine analysis with every move classified — Book to Brilliant — plus coach lessons and practice drills.',
-    cta: 'Open analysis',
-    visual: 'curve' as const,
-  },
-  {
-    to: '/puzzles',
-    kicker: 'Training',
-    title: 'Train deliberately',
-    line: 'Puzzles, blindfold visualization and endgame drills with spaced repetition that remembers what to resurface.',
-    cta: 'Visit training',
-    visual: 'ring' as const,
-  },
-  {
-    to: '/library',
-    kicker: 'Library',
-    title: 'Keep every game',
-    line: 'All of your games saved locally — search, tag, favorite, export PGN. Nothing leaves your browser.',
-    cta: 'Open library',
-    visual: 'rows' as const,
-  },
+/* Ruy Lopez Exchange — the same game the Review preview shows in the
+   approved reference (moves 12–16 highlighted with dxc6). */
+const REVIEW_GAME_SAN = [
+  'e4', 'e5', 'Nf3', 'Nc6', 'Bb5', 'a6', 'Bxc6', 'dxc6', 'O-O', 'f6',
+  'd4', 'exd4', 'Nxd4', 'c5', 'Ne2', 'Qxd1', 'Rxd1', 'Bd7',
 ];
 
-/** Warm-lit static board: real pieces, no interaction, part of the hero. */
-function HeroBoard() {
+interface PreviewPly {
+  san: string;
+  color: 'w' | 'b';
+  from: string;
+  to: string;
+  fenAfter: string;
+}
+
+function buildReplay(sanList: string[]): { plies: PreviewPly[]; finalFen: string } | null {
+  const game = new Chess();
+  const plies: PreviewPly[] = [];
+  try {
+    for (const san of sanList) {
+      const m = game.move(san);
+      plies.push({ san: m.san, color: m.color, from: m.from, to: m.to, fenAfter: m.after });
+    }
+  } catch {
+    return null;
+  }
+  return { plies, finalFen: game.fen() };
+}
+
+const REVIEW_REPLAY = buildReplay(REVIEW_GAME_SAN);
+
+/* ---------------- hero ---------------- */
+
+function Hero() {
   return (
-    <div className="hero-board" aria-hidden="true">
-      <Chessboard
-        options={{
-          id: 'hero',
-          position: HERO_FEN,
-          boardOrientation: 'white',
-          allowDragging: false,
-          allowDrawingArrows: false,
-          allowAutoScroll: false,
-          animationDurationInMs: 0,
-          boardStyle: { borderRadius: '6px', boxShadow: '0 40px 90px -30px rgba(0,0,0,0.75)' },
-          lightSquareStyle: { background: '#EFE3CB' },
-          darkSquareStyle: { background: '#A98F63' },
-          darkSquareNotationStyle: { color: '#EFE3CB', opacity: 0.8, fontSize: '0.5rem', fontWeight: 600 },
-          lightSquareNotationStyle: { color: '#7A6438', opacity: 0.8, fontSize: '0.5rem', fontWeight: 600 },
-        }}
-      />
+    <section className="hero">
+      <div className="hero-band">
+      <div className="hero-photo" role="img" aria-label="A black queen on a chessboard in warm window light" />
+      <div className="hero-veil" aria-hidden="true" />
+      <div className="container hero-inner">
+        <div className="hero-copy">
+          <p className="hero-eyebrow">A higher standard for chess</p>
+          <h1>
+            Play chess.
+            <br />
+            <em>Think deeper.</em>
+          </h1>
+          <p className="hero-sub">
+            A clean, focused space for real chess.
+            <br />
+            Play, analyze, train and grow — at your own pace.
+          </p>
+          <div className="hero-ctas">
+            <Link to="/play" className="btn btn-gold">
+              Start playing
+              <ArrowRight />
+            </Link>
+            <a href="#features" className="btn btn-ghost-light">
+              Explore features
+            </a>
+          </div>
+          <p className="hero-note">Free to get started. A better chess experience for everyone.</p>
+        </div>
+        <p className="hero-quote">
+          <span>
+            “A quiet place
+            <br />
+            to become a
+            <br />
+            stronger player.”
+          </span>
+          <span className="hero-quote-by">— The Gambit Team</span>
+        </p>
+      </div>
+      </div>
+    </section>
+  );
+}
+
+/* ---------------- feature 1 · Play (setup preview) ---------------- */
+
+function PlayPreview() {
+  return (
+    <div className="ui-preview ui-dark" aria-hidden="true">
+      <div className="ui-setup">
+        <div className="ui-row between">
+          <span className="ui-pill">10 | 0 · Rapid</span>
+        </div>
+        <div className="ui-clock-row">
+          <span className="ui-side">● Black</span>
+          <span className="ui-clock">10:00</span>
+        </div>
+        <div className="ui-mini-board">
+          {Array.from({ length: 24 }, (_, i) => {
+            const r = Math.floor(i / 8);
+            const c = i % 8;
+            return <i key={i} style={{ background: (r + c) % 2 ? '#A98F63' : '#EFE3CB' }} />;
+          })}
+        </div>
+        <div className="ui-clock-row">
+          <span className="ui-side">○ White</span>
+          <span className="ui-clock">10:00</span>
+        </div>
+        <span className="ui-play-btn">Play</span>
+      </div>
     </div>
   );
 }
 
-/** Decorative mini-visuals for the feature cards (chess imagery, no fake UI). */
-function CardVisual({ kind }: { kind: 'board' | 'curve' | 'ring' | 'rows' }) {
-  if (kind === 'board') {
-    const squares: { x: number; y: number; dark: boolean }[] = [];
-    for (let r = 0; r < 3; r++)
-      for (let c = 0; c < 8; c++) squares.push({ x: c, y: r, dark: (r + c) % 2 === 1 });
-    return (
-      <svg viewBox="0 0 320 120" className="card-art" aria-hidden="true">
-        {squares.map((s, i) => (
-          <rect key={i} x={s.x * 40} y={s.y * 40} width="40" height="40" fill={s.dark ? '#A98F63' : '#EFE3CB'} />
-        ))}
-        <circle cx="200" cy="60" r="11" fill="#F8F5EF" stroke="#0F1720" strokeWidth="2" />
-        <circle cx="280" cy="20" r="11" fill="#0F1720" stroke="#C9B896" strokeWidth="2" />
-        <rect x="0" y="0" width="320" height="120" fill="none" stroke="rgba(15,23,32,0.25)" />
-      </svg>
-    );
-  }
-  if (kind === 'curve') {
-    return (
-      <svg viewBox="0 0 320 120" className="card-art" aria-hidden="true">
-        <line x1="0" y1="60" x2="320" y2="60" stroke="rgba(51,65,85,0.18)" strokeDasharray="3 5" />
-        <path
-          d="M0 66 C40 60 70 44 110 48 C150 52 170 70 210 62 C250 54 280 34 320 30 L320 120 L0 120 Z"
-          fill="rgba(201,184,150,0.35)"
-        />
-        <path
-          d="M0 66 C40 60 70 44 110 48 C150 52 170 70 210 62 C250 54 280 34 320 30"
-          fill="none"
-          stroke="#0F1720"
-          strokeWidth="2"
-        />
-        <circle cx="210" cy="62" r="4.5" fill="#A9654D" />
-      </svg>
-    );
-  }
-  if (kind === 'ring') {
-    const ring = 2 * Math.PI * 44;
-    return (
-      <svg viewBox="0 0 320 120" className="card-art" aria-hidden="true">
-        <circle cx="160" cy="60" r="44" fill="none" stroke="rgba(51,65,85,0.14)" strokeWidth="10" />
-        <circle
-          cx="160"
-          cy="60"
-          r="44"
-          fill="none"
-          stroke="#597D5B"
-          strokeWidth="10"
-          strokeLinecap="round"
-          strokeDasharray={`${ring * 0.68} ${ring}`}
-          transform="rotate(-90 160 60)"
-        />
-        <text x="160" y="67" textAnchor="middle" fontFamily="Inter, sans-serif" fontWeight="700" fontSize="20" fill="#0F1720">
-          68%
-        </text>
-      </svg>
-    );
-  }
+/* ---------------- feature 2 · Review (real game preview) ---------------- */
+
+function ReviewPreview() {
+  if (!REVIEW_REPLAY) return null;
+  const { plies, finalFen } = REVIEW_REPLAY;
+  // rows 12–16, with 14. Bxc6 dxc6 highlighted — as in the approved reference
+  const rows = [10, 12, 14].map((start) => plies.slice(start, start + 2));
+  const lastMove = plies[13];
   return (
-    <svg viewBox="0 0 320 120" className="card-art" aria-hidden="true">
-      {[16, 50, 84].map((y, i) => (
-        <g key={i}>
-          <rect x="24" y={y} width="272" height="26" rx="7" fill={i === 0 ? '#E7E0D4' : '#F1ECE2'} stroke="rgba(15,23,32,0.12)" />
-          <circle cx="44" cy={y + 13} r="7" fill={i === 0 ? '#597D5B' : i === 1 ? '#A9654D' : '#C9B896'} />
-          <rect x="60" y={y + 9} width={i === 0 ? 120 : 96} height="8" rx="4" fill="rgba(15,23,32,0.22)" />
-        </g>
-      ))}
-    </svg>
+    <div className="ui-preview ui-dark" aria-hidden="true">
+      <div className="ui-review">
+        <div className="ui-review-board">
+          <Chessboard
+            options={{
+              id: 'home-review',
+              position: finalFen,
+              boardOrientation: 'white',
+              allowDragging: false,
+              allowDrawingArrows: false,
+              allowAutoScroll: false,
+              animationDurationInMs: 0,
+              squareStyles: lastMove ? { [lastMove.from]: { boxShadow: 'inset 0 0 0 3px rgba(201,184,150,0.9)' }, [lastMove.to]: { boxShadow: 'inset 0 0 0 3px rgba(201,184,150,0.9)' } } : {},
+              lightSquareStyle: { background: '#EFE3CB' },
+              darkSquareStyle: { background: '#A98F63' },
+            }}
+          />
+        </div>
+        <div className="ui-review-side">
+          <span className="ui-eval">+0.3</span>
+          <div className="ui-moves">
+            {rows.map((pair, i) => (
+              <div key={i} className={`ui-move-row${i === 1 ? ' hl' : ''}`}>
+                <span className="ui-no">{12 + i * 2}.</span>
+                <span>{pair[0]?.san ?? ''}</span>
+                <span>{pair[1]?.san ?? ''}</span>
+              </div>
+            ))}
+          </div>
+          <svg viewBox="0 0 200 40" className="ui-curve">
+            <path d="M0 24 C30 20 55 28 85 24 C120 20 140 10 170 14 L200 12" fill="none" stroke="#C9B896" strokeWidth="1.6" />
+          </svg>
+        </div>
+      </div>
+    </div>
   );
 }
+
+/* ---------------- feature 3 · Training (real routes) ---------------- */
+
+function TrainPreview() {
+  const items = [
+    { to: '/puzzles', label: 'Tactical puzzles' },
+    { to: '/endgames', label: 'Curated endgame lessons' },
+    { to: '/training', label: 'Track your progress' },
+    { to: '/coordinates', label: 'Build board vision' },
+  ];
+  return (
+    <div className="ui-phone" aria-hidden="true">
+      <div className="ui-phone-screen">
+        <div className="ui-phone-head">
+          <span className="ui-phone-brand">Gambit</span>
+        </div>
+        {items.map((it) => (
+          <Link key={it.to} to={it.to} className="ui-phone-row" tabIndex={-1}>
+            <span>{it.label}</span>
+            <ArrowRight />
+          </Link>
+        ))}
+        <Link to="/puzzles" className="ui-phone-puzzle" tabIndex={-1}>
+          <span className="ui-phone-puzzle-k">Daily puzzle</span>
+          <span className="ui-phone-puzzle-s">Find the best move</span>
+        </Link>
+      </div>
+    </div>
+  );
+}
+
+/* ---------------- page ---------------- */
 
 export default function Home() {
   return (
     <div className="home">
-      <section className="hero">
-        <div className="container hero-inner">
-          <div className="hero-copy">
-            <p className="hero-eyebrow">Local-first chess</p>
-            <h1>
-              Play chess.
-              <br />
-              <span className="hero-gold">Think deeper.</span>
-            </h1>
-            <p className="hero-sub">
-              Gambit runs Stockfish entirely in your browser — play, review every move, and train. No account, no
-              server; your games stay yours.
-            </p>
-            <div className="hero-ctas">
-              <Link to="/play" className="btn btn-gold">
-                Start playing
+      <Hero />
+
+      <section id="features" className="features">
+        <div className="container">
+          <div className="feature-grid">
+            {/* 1 · Play */}
+            <article className="feature-card wide">
+              <header className="feature-head">
+                <span className="feature-icon" aria-hidden="true">
+                  ♟
+                </span>
+                <div>
+                  <h2>Play</h2>
+                  <p>Jump into a game against the engine. Four honest strengths, local clocks — beautifully simple.</p>
+                </div>
+              </header>
+              <PlayPreview />
+              <ul className="feature-points">
+                <li>Four honest engine strengths, rated play</li>
+                <li>Local clocks — bullet to classical, pass &amp; play</li>
+                <li>Custom positions from the editor</li>
+              </ul>
+              <Link to="/play" className="btn btn-dark feature-btn">
+                Start a game
                 <ArrowRight />
               </Link>
-              <a href="#features" className="btn btn-ghost-dark">
-                Explore features
-              </a>
-            </div>
-          </div>
-          <div className="hero-stage" aria-hidden="true">
-            <HeroBoard />
+            </article>
+
+            {/* 2 · Analyze */}
+            <article className="feature-card tall">
+              <header className="feature-head">
+                <span className="feature-icon" aria-hidden="true">
+                  📊
+                </span>
+                <div>
+                  <h2>Analyze. Learn. Improve.</h2>
+                  <p>Get in-depth game review, clear insights and practical advice to elevate your play.</p>
+                </div>
+              </header>
+              <ReviewPreview />
+            </article>
+
+            {/* 3 · Train */}
+            <article className="feature-card">
+              <header className="feature-head">
+                <span className="feature-icon" aria-hidden="true">
+                  🎓
+                </span>
+                <div>
+                  <h2>Train Your Game</h2>
+                  <p>Tactical puzzles, curated lessons and personalized training to build real progress.</p>
+                </div>
+              </header>
+              <TrainPreview />
+              <Link to="/puzzles" className="btn btn-gold feature-btn">
+                Start training
+                <ArrowRight />
+              </Link>
+            </article>
           </div>
         </div>
       </section>
 
-      <section id="features" className="features">
-        <div className="container">
-          <h2 className="features-title">Built for the whole game</h2>
-          <div className="feature-grid">
-            {FEATURES.map((f) => (
-              <Link key={f.to} to={f.to} className="feature-card">
-                <CardVisual kind={f.visual} />
-                <span className="feature-kicker">{f.kicker}</span>
-                <span className="feature-title">{f.title}</span>
-                <span className="feature-line">{f.line}</span>
-                <span className="feature-cta">
-                  {f.cta}
-                  <ArrowRight />
-                </span>
-              </Link>
-            ))}
+      <section className="closing">
+        <div className="container closing-inner">
+          <div>
+            <p className="closing-eyebrow">More than a game</p>
+            <h2>A calmer, deeper way to play chess.</h2>
+            <p className="closing-line">Gambit is built for players who love the game — from curious beginners to dedicated improvers.</p>
           </div>
+          <Link to="/play" className="btn btn-gold">
+            Start playing
+            <ArrowRight />
+          </Link>
         </div>
       </section>
     </div>
