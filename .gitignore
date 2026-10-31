@@ -25,3 +25,9 @@ dist-ssr
 scripts/patch-*.py
 .fs-dl/
 fs-*.html
+
+# Bilgeon Script is PERSONAL-USE ONLY (Hanzel Space) — never commit or ship
+# without a commercial license. Kept local so the owner can verify typography.
+# See FONTS-LICENSE.md
+public/fonts/bilgeon-script.ttf
+public/fonts/bilgeon-script.otf

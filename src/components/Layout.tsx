@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { NavLink, Link, Outlet, useLocation } from 'react-router-dom';
 import { useSettings } from '../state/SettingsContext';
-import { GearIcon, KnightMark, MenuIcon, XIcon } from './Icons';
+import { BrandMark, GearIcon, MenuIcon, XIcon } from './Icons';
 import { NAV_SECTIONS, sectionMatches } from '../lib/navSection';
 import { unlockAudio } from '../lib/sound';
 
@@ -177,10 +177,7 @@ export default function Layout() {
       <header className="site-header">
         <div className="container inner">
           <Link to="/" className="brand" aria-label="Gambit home">
-            <span className="mark">
-              <KnightMark />
-            </span>
-            Gambit
+            <BrandMark />
           </Link>
           <nav className="main-nav" aria-label="Main">
             {NAV_SECTIONS.map((n) => (
@@ -222,7 +219,9 @@ export default function Layout() {
 
       <footer className="site-footer">
         <div className="container inner">
-          <span>Gambit, a quiet place to play chess.</span>
+          <span className="row" style={{ alignItems: 'center', gap: '0.5rem' }}>
+            <BrandMark className="footer-brand" />
+          </span>
           <span>
             Everything runs in your browser, no account, no server ·{' '}
             {new Date().getFullYear()}
