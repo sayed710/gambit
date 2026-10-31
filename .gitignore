@@ -27,10 +27,11 @@ scripts/patch-*.py
 fs-*.html
 
 # Bilgeon Script is PERSONAL-USE ONLY (Hanzel Space) — never commit or ship
-# without a commercial license. Kept local so the owner can verify typography.
+# without a commercial license. Kept in dev-assets/ (served by the dev server
+# only, never copied into dist) so the owner can verify typography locally.
 # See FONTS-LICENSE.md
-public/fonts/bilgeon-script.ttf
-public/fonts/bilgeon-script.otf
+dev-assets/fonts/bilgeon-script.ttf
+dev-assets/fonts/bilgeon-script.otf
 
 # UI-redesign verification screenshots (regenerate via a Playwright probe)
 ui-*.png

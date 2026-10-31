@@ -18,7 +18,7 @@ import { ArrowRight } from '../components/Icons';
    ------------------------------------------------------------------ */
 
 /* Ruy Lopez Exchange — the same game the Review preview shows in the
-   approved reference (moves 12–16 highlighted with dxc6). */
+   approved reference (the Bxc6/dxc6 exchange highlighted). */
 const REVIEW_GAME_SAN = [
   'e4', 'e5', 'Nf3', 'Nc6', 'Bb5', 'a6', 'Bxc6', 'dxc6', 'O-O', 'f6',
   'd4', 'exd4', 'Nxd4', 'c5', 'Ne2', 'Qxd1', 'Rxd1', 'Bd7',
@@ -50,47 +50,47 @@ const REVIEW_REPLAY = buildReplay(REVIEW_GAME_SAN);
 
 /* ---------------- hero ---------------- */
 
-function Hero() {
+function Hero({ onExplore }: { onExplore: () => void }) {
   return (
     <section className="hero">
       <div className="hero-band">
-      <div className="hero-photo" role="img" aria-label="A black queen on a chessboard in warm window light" />
-      <div className="hero-veil" aria-hidden="true" />
-      <div className="container hero-inner">
-        <div className="hero-copy">
-          <p className="hero-eyebrow">A higher standard for chess</p>
-          <h1>
-            Play chess.
-            <br />
-            <em>Think deeper.</em>
-          </h1>
-          <p className="hero-sub">
-            A clean, focused space for real chess.
-            <br />
-            Play, analyze, train and grow — at your own pace.
-          </p>
-          <div className="hero-ctas">
-            <Link to="/play" className="btn btn-gold">
-              Start playing
-              <ArrowRight />
-            </Link>
-            <a href="#features" className="btn btn-ghost-light">
-              Explore features
-            </a>
+        <div className="hero-photo" role="img" aria-label="A black queen on a chessboard in warm window light" />
+        <div className="hero-veil" aria-hidden="true" />
+        <div className="container hero-inner">
+          <div className="hero-copy">
+            <p className="hero-eyebrow">A higher standard for chess</p>
+            <h1>
+              Play chess.
+              <br />
+              <em>Think deeper.</em>
+            </h1>
+            <p className="hero-sub">
+              A clean, focused space for real chess.
+              <br />
+              Play, analyze, train and grow — at your own pace.
+            </p>
+            <div className="hero-ctas">
+              <Link to="/play" className="btn btn-gold">
+                Start playing
+                <ArrowRight />
+              </Link>
+              <button type="button" className="btn btn-ghost-light" onClick={onExplore}>
+                Explore features
+              </button>
+            </div>
+            <p className="hero-note">Free to get started. A better chess experience for everyone.</p>
           </div>
-          <p className="hero-note">Free to get started. A better chess experience for everyone.</p>
+          <p className="hero-quote">
+            <span>
+              “A quiet place
+              <br />
+              to become a
+              <br />
+              stronger player.”
+            </span>
+            <span className="hero-quote-by">— The Gambit Team</span>
+          </p>
         </div>
-        <p className="hero-quote">
-          <span>
-            “A quiet place
-            <br />
-            to become a
-            <br />
-            stronger player.”
-          </span>
-          <span className="hero-quote-by">— The Gambit Team</span>
-        </p>
-      </div>
       </div>
     </section>
   );
@@ -130,10 +130,15 @@ function PlayPreview() {
 
 function ReviewPreview() {
   if (!REVIEW_REPLAY) return null;
-  const { plies, finalFen } = REVIEW_REPLAY;
-  // rows 12–16, with 14. Bxc6 dxc6 highlighted — as in the approved reference
-  const rows = [10, 12, 14].map((start) => plies.slice(start, start + 2));
-  const lastMove = plies[13];
+  const { plies } = REVIEW_REPLAY;
+  // The approved reference highlights 4. Bxc6 dxc6. Ply indexes are
+  // 0-based: Bxc6 = ply 6, dxc6 = ply 7 → the preview shows moves 3–5
+  // (ply indexes 4–9) with the middle row highlighted, and the board
+  // positioned after 4... dxc6.
+  const rowStarts = [4, 6, 8];
+  const highlightedStart = 6;
+  const lastMove = plies[7];
+  const position = plies[7].fenAfter;
   return (
     <div className="ui-preview ui-dark" aria-hidden="true">
       <div className="ui-review">
@@ -141,13 +146,18 @@ function ReviewPreview() {
           <Chessboard
             options={{
               id: 'home-review',
-              position: finalFen,
+              position,
               boardOrientation: 'white',
               allowDragging: false,
               allowDrawingArrows: false,
               allowAutoScroll: false,
               animationDurationInMs: 0,
-              squareStyles: lastMove ? { [lastMove.from]: { boxShadow: 'inset 0 0 0 3px rgba(201,184,150,0.9)' }, [lastMove.to]: { boxShadow: 'inset 0 0 0 3px rgba(201,184,150,0.9)' } } : {},
+              squareStyles: lastMove
+                ? {
+                    [lastMove.from]: { boxShadow: 'inset 0 0 0 3px rgba(201,184,150,0.9)' },
+                    [lastMove.to]: { boxShadow: 'inset 0 0 0 3px rgba(201,184,150,0.9)' },
+                  }
+                : {},
               lightSquareStyle: { background: '#EFE3CB' },
               darkSquareStyle: { background: '#A98F63' },
             }}
@@ -156,11 +166,11 @@ function ReviewPreview() {
         <div className="ui-review-side">
           <span className="ui-eval">+0.3</span>
           <div className="ui-moves">
-            {rows.map((pair, i) => (
-              <div key={i} className={`ui-move-row${i === 1 ? ' hl' : ''}`}>
-                <span className="ui-no">{12 + i * 2}.</span>
-                <span>{pair[0]?.san ?? ''}</span>
-                <span>{pair[1]?.san ?? ''}</span>
+            {rowStarts.map((idx) => (
+              <div key={idx} className={`ui-move-row${idx === highlightedStart ? ' hl' : ''}`}>
+                <span className="ui-no">{Math.floor(idx / 2) + 1}.</span>
+                <span>{plies[idx]?.san ?? ''}</span>
+                <span>{plies[idx + 1]?.san ?? ''}</span>
               </div>
             ))}
           </div>
@@ -173,7 +183,7 @@ function ReviewPreview() {
   );
 }
 
-/* ---------------- feature 3 · Training (real routes) ---------------- */
+/* ---------------- feature 3 · Training (real routes, decorative rows) ---------------- */
 
 function TrainPreview() {
   const items = [
@@ -182,6 +192,9 @@ function TrainPreview() {
     { to: '/training', label: 'Track your progress' },
     { to: '/coordinates', label: 'Build board vision' },
   ];
+  // Decorative preview: the rows mirror the app's REAL training routes but
+  // are non-interactive here (aria-hidden) — the card's own Start-training
+  // button is the accessible, working navigation.
   return (
     <div className="ui-phone" aria-hidden="true">
       <div className="ui-phone-screen">
@@ -189,15 +202,15 @@ function TrainPreview() {
           <span className="ui-phone-brand">Gambit</span>
         </div>
         {items.map((it) => (
-          <Link key={it.to} to={it.to} className="ui-phone-row" tabIndex={-1}>
+          <span key={it.to} className="ui-phone-row">
             <span>{it.label}</span>
             <ArrowRight />
-          </Link>
+          </span>
         ))}
-        <Link to="/puzzles" className="ui-phone-puzzle" tabIndex={-1}>
+        <span className="ui-phone-puzzle">
           <span className="ui-phone-puzzle-k">Daily puzzle</span>
           <span className="ui-phone-puzzle-s">Find the best move</span>
-        </Link>
+        </span>
       </div>
     </div>
   );
@@ -206,9 +219,14 @@ function TrainPreview() {
 /* ---------------- page ---------------- */
 
 export default function Home() {
+  const exploreFeatures = () => {
+    const reduce = typeof window !== 'undefined' && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    document.getElementById('features')?.scrollIntoView({ behavior: reduce ? 'auto' : 'smooth', block: 'start' });
+  };
+
   return (
     <div className="home">
-      <Hero />
+      <Hero onExplore={exploreFeatures} />
 
       <section id="features" className="features">
         <div className="container">
@@ -248,6 +266,16 @@ export default function Home() {
                 </div>
               </header>
               <ReviewPreview />
+              <div className="feature-cta-row">
+                <Link to="/analysis" className="feature-cta">
+                  Analysis board
+                  <ArrowRight />
+                </Link>
+                <Link to="/library" className="feature-cta">
+                  Review a saved game
+                  <ArrowRight />
+                </Link>
+              </div>
             </article>
 
             {/* 3 · Train */}

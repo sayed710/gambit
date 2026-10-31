@@ -1,13 +1,40 @@
 /// <reference types="vitest/config" />
 import react from '@vitejs/plugin-react'
 import { VitePWA } from 'vite-plugin-pwa'
-import { defineConfig } from 'vite'
+import { defineConfig, type Plugin } from 'vite'
+import { existsSync, readFileSync } from 'node:fs'
+import { join } from 'node:path'
+
+/**
+ * Bilgeon Script (PERSONAL USE — see FONTS-LICENSE.md) lives in
+ * dev-assets/fonts/, which is gitignored and NEVER copied into dist.
+ * This dev-only middleware serves it to the local dev server so the
+ * owner can verify the approved typography; production builds from the
+ * repository 404 the font and fall back to Fraunces (font-display swap).
+ */
+function bilgeonDevServer(): Plugin {
+  return {
+    name: 'bilgeon-dev-font',
+    apply: 'serve',
+    configureServer(server) {
+      server.middlewares.use('/fonts', (req, res, next) => {
+        const file = String(req.url || '').replace(/^\//, '')
+        if (!/^bilgeon-script\.(ttf|otf)$/.test(file)) return next()
+        const full = join(process.cwd(), 'dev-assets', 'fonts', file)
+        if (!existsSync(full)) {
+          res.statusCode = 404
+          return res.end()
+        }
+        res.setHeader('Content-Type', file.endsWith('.otf') ? 'font/otf' : 'font/ttf')
+        res.end(readFileSync(full))
+      })
+    },
+  }
+}
 
 // https://vite.dev/config/
 export default defineConfig({
-  plugins: [
-    react(),
-    VitePWA({
+  plugins: [react(), bilgeonDevServer(), VitePWA({
       strategies: 'injectManifest', // hand-written SW (src/sw.ts) — no runtime module loader
       srcDir: 'src',
       filename: 'sw.ts',
@@ -31,7 +58,7 @@ export default defineConfig({
         ],
       },
       injectManifest: { // (injectManifest strategy reads this key, not `workbox`)
-        globPatterns: ['**/*.{js,css,html,svg,png,woff2,mp3,wasm}'],
+        globPatterns: ['**/*.{js,css,html,svg,png,jpg,woff2,mp3,wasm}'],
         // Stockfish is copied from public/ into dist/ and picked up by the
         // glob WITH revision — additionalManifestEntries would duplicate the
         // URLs and make workbox throw add-to-cache-list-conflicting-entries.
