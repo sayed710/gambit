@@ -29,13 +29,33 @@ export function importPgn(text: string): { ok: true; game: ParsedGame } | { ok: 
   if (history.length === 0) {
     return { ok: false, error: { stage: 'empty', message: 'The PGN contains no moves.' } };
   }
+  // The actual starting position: the PGN's own FEN header when present.
+  // loadPgn has ALREADY replayed the moves from that header FEN (chess.js
+  // applies it before validating the move text), so header legality and
+  // first-move legality are enforced upstream — here we reject metadata
+  // that is malformed or self-contradictory instead of silently assuming
+  // the standard start.
+  const fenHeader = /\[FEN "([^"]*)"\]/.exec(trimmed)?.[1];
+  const setUp = /\[SetUp "([^"]*)"\]/.exec(trimmed)?.[1];
+  if (fenHeader !== undefined) {
+    try {
+      new Chess(fenHeader);
+    } catch {
+      return { ok: false, error: { stage: 'parse', message: 'The PGN FEN header is not a valid chess position.' } };
+    }
+    if (setUp === '0') {
+      return { ok: false, error: { stage: 'parse', message: 'Contradictory PGN metadata: SetUp "0" with a FEN header.' } };
+    }
+  } else if (setUp === '1') {
+    return { ok: false, error: { stage: 'parse', message: 'Contradictory PGN metadata: SetUp "1" without a FEN header.' } };
+  }
   const headers = game.getHeaders();
   return {
     ok: true,
     game: {
       moves: history,
       pgn: game.pgn(),
-      startFen: START_FEN,
+      startFen: fenHeader ?? START_FEN,
       finalFen: game.fen(),
       headers: {
         white: headers.White,

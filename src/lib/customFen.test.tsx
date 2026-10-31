@@ -8,7 +8,7 @@ import { applySan, createTree } from './gameTree';
 import { START_FEN } from './chessUtils';
 import MoveList from '../components/MoveList';
 import { buildReport } from './review';
-import { exportPgn } from './pgn';
+import { exportPgn, importPgn } from './pgn';
 import { useGame, type SavedGame } from '../hooks/useGame';
 import type { GameConfig, GameRecord, Ply, TimeControl } from './types';
 import type { Square } from 'chess.js';
@@ -559,5 +559,49 @@ describe('PR #6 Qodo findings — downstream fixes', () => {
     expect(result.current.turn).toBe('w');
     // the running clock must be WHITE's (the side to move), never black's
     expect(result.current.clock.runningSide).toBe('w');
+  });
+});
+
+describe('PR #6 final review — importPgn actual start + editor reset', () => {
+  const FEN_23 = 'rnbqkbnr/pppp1ppp/8/8/8/8/PPPP1PPP/RNBQKBNR b KQkq - 0 23';
+
+  it('exportPgn → importPgn round trip keeps the black-first custom start (fullmove 23)', () => {
+    const exported = exportPgn(['Nc6', 'Nf3'], {}, FEN_23);
+    const parsed = importPgn(exported);
+    if (!parsed.ok) throw new Error(parsed.error.message);
+    expect(parsed.game.startFen).toBe(FEN_23); // the ACTUAL start, never START_FEN
+    expect(parsed.game.moves).toEqual(['Nc6', 'Nf3']);
+    expect(new Chess(parsed.game.startFen).turn()).toBe('b'); // initial side to move
+    const expected = new Chess(FEN_23);
+    expected.move('Nc6');
+    expected.move('Nf3');
+    expect(parsed.game.finalFen).toBe(expected.fen());
+    expect(parsed.game.pgn).toContain('[SetUp "1"]');
+    expect(parsed.game.pgn).toContain(`[FEN "${FEN_23}"]`);
+  });
+
+  it('a STANDARD pgn imports with the standard start (compatibility)', () => {
+    const parsed = importPgn('1. e4 e5 2. Nf3');
+    if (!parsed.ok) throw new Error(parsed.error.message);
+    expect(parsed.game.startFen).toBe(START_FEN);
+    expect(parsed.game.moves).toEqual(['e4', 'e5', 'Nf3']);
+  });
+
+  it('rejects contradictory metadata: SetUp "1" without a FEN header', () => {
+    const parsed = importPgn(['[SetUp "1"]', '', '1. e4 e5'].join('\n'));
+    expect(parsed.ok).toBe(false);
+  });
+
+  it('rejects contradictory metadata: SetUp "0" with a FEN header', () => {
+    const parsed = importPgn(`[SetUp "0"]
+[FEN "${FEN_23}"]
+
+1... Nc6`);
+    expect(parsed.ok).toBe(false);
+  });
+
+  it('rejects a malformed FEN header', () => {
+    const parsed = importPgn(['[SetUp "1"]', '[FEN "not a fen"]', '', '1. e4'].join('\n'));
+    expect(parsed.ok).toBe(false);
   });
 });

@@ -332,6 +332,9 @@ function GameScreen({
   const [recordId, setRecordId] = useState<string | null>(null);
   const [unsavedGame, setUnsavedGame] = useState<GameRecord | null>(null);
   const persistFailures = usePersistFailures();
+  // custom starting position (Position Editor) — drives the Unrated label
+  // and the rating gate in the game-over record
+  const customStart = !!config.initialFen && config.initialFen !== START_FEN;
   const lastPersistFailed = persistFailures.some((f) => f.key === 'gambit.profile');
 
   const downloadEmergency = useCallback(() => {
@@ -363,8 +366,10 @@ function GameScreen({
     // rating integrity: persona games are UNRATED — they appear in history
     // with full data but never move the Play rating
     const personaActive = config.mode === 'ai' && !!config.persona && config.persona !== 'stockfish';
-    // pass & play has no opponent rating to contest — explicitly unrated
-    const rated = config.mode === 'ai' && !personaActive;
+    // custom starts (Position Editor) are unrated too — an arbitrary
+    // position (possibly terminal at mount) must never move the Play rating
+    // (customStart is computed at GameScreen scope)
+    const rated = config.mode === 'ai' && !personaActive && !customStart;
     let delta = 0;
     if (config.mode === 'ai' && rated) {
       const expected = 1 / (1 + 10 ** ((opponentRating - profile.rating) / 400));
@@ -709,7 +714,7 @@ function GameScreen({
                   ? `vs ${config.persona && config.persona !== 'stockfish' ? PERSONAS[config.persona].name : 'Engine'}`
                   : 'Pass & play'}{' '}
                 · {unlimited ? 'No clock' : `${config.timeControl.minutes}+${config.timeControl.increment}`}
-                {config.mode === 'ai' && config.persona && config.persona !== 'stockfish' && ' · Unrated'}
+                {((config.mode === 'ai' && config.persona && config.persona !== 'stockfish') || customStart) && ' · Unrated'}
               </span>
             </div>
             {config.mode === 'ai' && config.persona && config.persona !== 'stockfish' && engineUsed === 'legacy' && (

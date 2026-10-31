@@ -256,7 +256,7 @@ export default function Editor() {
               </select>
             </div>
             <div className="row mt-2" style={{ gap: '0.4rem' }}>
-              <button type="button" className="btn btn-ghost btn-sm" onClick={() => { setPlacement(startingPlacement()); setTurn('w'); setCastling({ K: true, Q: true, k: true, q: true }); setEp('-'); }}>
+              <button type="button" className="btn btn-ghost btn-sm" onClick={() => { setPlacement(startingPlacement()); setTurn('w'); setCastling({ K: true, Q: true, k: true, q: true }); setEp('-'); setCounters({ halfmove: 0, fullmove: 1 }); }}>
                 Starting position
               </button>
               <button type="button" className="btn btn-ghost btn-sm" onClick={() => setPlacement({})}>

@@ -210,9 +210,9 @@ async function run() {
   });
   const noClockRuns = await page.evaluate(() => !document.body.textContent.includes('Engine is thinking'));
   log(
-    'K-vs-K start: over AT MOUNT (insufficient material), zero-move record saved, no engine search',
-    ended && recordKvK?.initialFen === K_VS_K && Array.isArray(recordKvK?.moves) && recordKvK.moves.length === 0 && noClockRuns,
-    `ended=${ended} zeroMoves=${Array.isArray(recordKvK?.moves) && recordKvK.moves.length === 0} noEngine=${noClockRuns}`,
+    'K-vs-K start: over AT MOUNT (insufficient material), zero-move UNRATED record, no engine search',
+    ended && recordKvK?.initialFen === K_VS_K && Array.isArray(recordKvK?.moves) && recordKvK.moves.length === 0 && noClockRuns && recordKvK.rated === false,
+    `ended=${ended} zeroMoves=${Array.isArray(recordKvK?.moves) && recordKvK.moves.length === 0} noEngine=${noClockRuns} unrated=${recordKvK?.rated === false}`,
   );
 
   /* ---- 6b. real move numbering from the start FEN fullmove counter ---- */
@@ -265,6 +265,39 @@ async function run() {
     return { count: games.length, custom: games.filter((g) => g.initialFen === fen).length };
   }, FEN_BLACK);
   log('restore: custom-start records survive a full backup round trip (validators accept them)', restored.custom >= 1, JSON.stringify(restored));
+
+  /* ---- 8. custom-position games are UNRATED: repeated results never move the rating ---- */
+  const ratingState = await page.evaluate(() => {
+    const p = JSON.parse(localStorage.getItem('gambit.profile') ?? '{}');
+    const games = p.games ?? [];
+    return {
+      rating: p.rating,
+      peak: p.peakRating,
+      history: p.ratingHistory,
+      customGames: games.filter((g) => g.initialFen),
+      allCustomUnrated: games.filter((g) => g.initialFen).every((g) => g.rated === false),
+    };
+  });
+  log(
+    'custom games UNRATED: repeated results left rating/peak/history untouched',
+    ratingState.customGames.length >= 2 && ratingState.allCustomUnrated && ratingState.rating === 1200 && ratingState.peak === 1200 && JSON.stringify(ratingState.history) === JSON.stringify([1200]),
+    `custom=${ratingState.customGames.length} allUnrated=${ratingState.allCustomUnrated} rating=${ratingState.rating} peak=${ratingState.peak} history=${JSON.stringify(ratingState.history)}`,
+  );
+
+  /* ---- 9. editor: Starting position resets the FEN counters ---- */
+  await page.goto(`${BASE}/#/editor`);
+  await page.fill('#ed-fen', FEN_23);
+  await page.press('#ed-fen', 'Enter');
+  await page.waitForTimeout(300);
+  const loadedFen = await page.evaluate(() => document.querySelector('[aria-label="Current FEN"]')?.value ?? '');
+  await page.click('button:has-text("Starting position")');
+  await page.waitForTimeout(300);
+  const resetFen = await page.evaluate(() => document.querySelector('[aria-label="Current FEN"]')?.value ?? '');
+  log(
+    'editor: loaded move-23 FEN keeps its counters; Starting position restores canonical START_FEN',
+    loadedFen.endsWith('0 23') && resetFen === 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1',
+    `loaded=${loadedFen.split(' ').slice(-2).join(' ')} reset=${resetFen.slice(0, 30)}…`,
+  );
 
   await ctx.close();
   await browser.close();
