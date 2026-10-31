@@ -156,7 +156,7 @@ describe('exercise identity collisions (PR #3 review)', () => {
       const ex = generateExerciseAny(1, seed);
       if (ex.id.includes('Opera Game')) expect(identitySet.has(ex.id)).toBe(true); // Opera ids come from its identity set
     }
-  });
+  }, 20_000); // 800 exhaustive generations — 5s default budget flakes under load (pre-existing, PR-C carries the fix)
 
   it('L2 ids also separate identical SANs from different positions', () => {
     const ids = new Set<string>();

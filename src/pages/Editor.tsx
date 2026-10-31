@@ -41,8 +41,14 @@ export default function Editor() {
   const [tool, setTool] = useState<Tool>({ kind: 'place', c: 'w', t: 'p' });
   const [fenInput, setFenInput] = useState('');
   const [fenError, setFenError] = useState<string | null>(null);
+  // halfmove/fullmove clocks of the position — carried verbatim from a
+  // loaded FEN so games started here keep the real move number and clocks
+  const [counters, setCounters] = useState({ halfmove: 0, fullmove: 1 });
 
-  const rawFen = useMemo(() => buildFen(placement, turn, castling, ep), [placement, turn, castling, ep]);
+  const rawFen = useMemo(
+    () => buildFen(placement, turn, castling, ep, counters.halfmove, counters.fullmove),
+    [placement, turn, castling, ep, counters],
+  );
   const validation = useMemo(() => validatePosition(rawFen), [rawFen]);
   const fen = validation.ok ? validation.fen : rawFen;
   const legal = validation.ok;
@@ -104,6 +110,12 @@ export default function Editor() {
     const c = parts[2];
     setCastling({ K: c.includes('K'), Q: c.includes('Q'), k: c.includes('k'), q: c.includes('q') });
     setEp(parts[3] === '-' ? '-' : parts[3]);
+    const half = Number(parts[4]);
+    const full = Number(parts[5]);
+    setCounters({
+      halfmove: Number.isFinite(half) && half >= 0 ? half : 0,
+      fullmove: Number.isFinite(full) && full >= 1 ? full : 1,
+    });
     setFenInput('');
     toast('Position loaded.');
   };
@@ -244,7 +256,7 @@ export default function Editor() {
               </select>
             </div>
             <div className="row mt-2" style={{ gap: '0.4rem' }}>
-              <button type="button" className="btn btn-ghost btn-sm" onClick={() => { setPlacement(startingPlacement()); setTurn('w'); setCastling({ K: true, Q: true, k: true, q: true }); setEp('-'); }}>
+              <button type="button" className="btn btn-ghost btn-sm" onClick={() => { setPlacement(startingPlacement()); setTurn('w'); setCastling({ K: true, Q: true, k: true, q: true }); setEp('-'); setCounters({ halfmove: 0, fullmove: 1 }); }}>
                 Starting position
               </button>
               <button type="button" className="btn btn-ghost btn-sm" onClick={() => setPlacement({})}>

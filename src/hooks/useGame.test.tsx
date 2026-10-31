@@ -260,20 +260,22 @@ describe('timeout vs mating material (bug 5)', () => {
     expect(api().over).toEqual({ winnerColor: 'b', reason: 'On time' });
   });
 
-  it('is a draw when the opponent lacks mating material', async () => {
+  it('a K+N vs K start is already a draw: adjudicated at mount as insufficient material (no flag needed)', async () => {
     const overSpy = vi.fn();
+    const engineSearch = vi.fn(async () => null);
     const { api } = setup({
       config: config({ timeControl: BLITZ_1_3 }),
       initialFen: 'k7/8/8/8/8/8/n7/K7 w - - 0 1', // black knight only → cannot mate
       onGameOver: overSpy,
+      engineSearch,
     });
-    act(() => {
-      api().clock.reset(0);
-      api().clock.start('w');
-    });
+    // terminal at mount — the insufficient-material adjudication fires
+    // before any clock interaction, so the flag path is never reached
     await waitFor(() => expect(api().over).not.toBeNull());
     expect(api().over?.winnerColor).toBeNull();
-    expect(api().over?.reason).toContain('insufficient material');
+    expect(api().over?.reason).toBe('Insufficient material');
+    expect(api().clock.runningSide).toBeNull();
+    expect(overSpy).toHaveBeenCalledTimes(1);
   });
 });
 

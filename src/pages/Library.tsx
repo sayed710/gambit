@@ -188,7 +188,9 @@ function LibraryRow({
   noteOpen: boolean;
   setNoteOpen: (open: boolean) => void;
 }) {
-  const opening = identifyOpening(game.moves);
+  // ECO names are defined from the standard start — a custom-start game is
+  // never an opening line, whatever its SAN prefix looks like
+  const opening = game.initialFen ? null : identifyOpening(game.moves);
   const tagList = meta.tags[game.id] ?? [];
   const note = meta.notes[game.id] ?? '';
   const fav = meta.favorites.includes(game.id);

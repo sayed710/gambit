@@ -1,5 +1,5 @@
 import { Chess } from 'chess.js';
-import { START_FEN } from './chessUtils';
+import { pgnHeaderTags, START_FEN } from './chessUtils';
 
 export interface ParsedGame {
   moves: string[]; // SAN list
@@ -29,13 +29,36 @@ export function importPgn(text: string): { ok: true; game: ParsedGame } | { ok: 
   if (history.length === 0) {
     return { ok: false, error: { stage: 'empty', message: 'The PGN contains no moves.' } };
   }
+  // The actual starting position: the PGN's own FEN header when present.
+  // loadPgn has ALREADY replayed the moves from that header FEN (chess.js
+  // applies it before validating the move text), so header legality and
+  // first-move legality are enforced upstream — here we reject metadata
+  // that is malformed or self-contradictory instead of silently assuming
+  // the standard start.
+  // REAL header tags only (block-scoped parse) — a movetext comment
+  // containing FEN-shaped text is never a header
+  const headerTags = pgnHeaderTags(trimmed);
+  const fenHeader = headerTags.FEN;
+  const setUp = headerTags.SetUp;
+  if (fenHeader !== undefined) {
+    try {
+      new Chess(fenHeader);
+    } catch {
+      return { ok: false, error: { stage: 'parse', message: 'The PGN FEN header is not a valid chess position.' } };
+    }
+    if (setUp === '0') {
+      return { ok: false, error: { stage: 'parse', message: 'Contradictory PGN metadata: SetUp "0" with a FEN header.' } };
+    }
+  } else if (setUp === '1') {
+    return { ok: false, error: { stage: 'parse', message: 'Contradictory PGN metadata: SetUp "1" without a FEN header.' } };
+  }
   const headers = game.getHeaders();
   return {
     ok: true,
     game: {
       moves: history,
       pgn: game.pgn(),
-      startFen: START_FEN,
+      startFen: fenHeader ?? START_FEN,
       finalFen: game.fen(),
       headers: {
         white: headers.White,
@@ -49,9 +72,12 @@ export function importPgn(text: string): { ok: true; game: ParsedGame } | { ok: 
   };
 }
 
-/** Export a move list (SAN) as a clean PGN with headers. */
-export function exportPgn(moves: string[], headers: { white?: string; black?: string; result?: string } = {}): string {
-  const game = new Chess();
+/** Export a move list (SAN) as a clean PGN with headers. `startFen`
+ *  replays the moves from a NON-standard starting position (chess.js then
+ *  emits the required SetUp/FEN headers automatically); omit it for games
+ *  from the standard start. */
+export function exportPgn(moves: string[], headers: { white?: string; black?: string; result?: string } = {}, startFen?: string): string {
+  const game = new Chess(startFen);
   for (const san of moves) {
     try {
       game.move(san);

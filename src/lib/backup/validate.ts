@@ -10,6 +10,7 @@
 
 import { Chess } from 'chess.js';
 import { isPersonaId } from '../engine/personas';
+import { pgnHeaderTags, sanTokensFromHeaderlessPgn } from '../chessUtils';
 import { buildIntegrity } from './exportBackup';
 import {
   ALL_SECTIONS,
@@ -108,6 +109,31 @@ const isId = (v: unknown): boolean => typeof v === 'string' && v.length > 0 && v
 const CLASSIFICATIONS = new Set(['brilliant', 'best', 'excellent', 'great', 'good', 'inaccuracy', 'mistake', 'miss', 'blunder', 'book']);
 const SR_RATINGS = new Set(['again', 'hard', 'good', 'easy']);
 
+/**
+ * Load a game PGN from its DECLARED start position. chess.js loadPgn resets
+ * to the standard start before applying the PGN's own FEN header, so a
+ * headerless PGN belonging to a custom-start game must have its SAN tokens
+ * parsed and replayed from the declared FEN (tokens legal only there would
+ * be rejected by loadPgn, and legal-but-different tokens would corrupt the
+ * position). Throws on invalid FEN or malformed move text.
+ */
+function loadPgnFromStart(pgn: string, startFen?: string): void {
+  // REAL header tags only (block-scoped parse) — a movetext comment
+  // containing FEN-shaped text is never a header
+  const headerFen = pgnHeaderTags(pgn).FEN;
+  if (startFen !== undefined && headerFen !== undefined && headerFen !== startFen) {
+    throw new Error('PGN FEN header disagrees with the declared starting position');
+  }
+  const g = new Chess(startFen);
+  if (startFen !== undefined && headerFen === undefined) {
+    for (const san of sanTokensFromHeaderlessPgn(pgn)) {
+      g.move(san);
+    }
+  } else {
+    g.loadPgn(pgn);
+  }
+}
+
 export function validateGameRecord(game: unknown, i = 0): void {
   if (!isPlainObject(game)) fail('profile', `game #${i} is not an object`);
   if (!isId(game.id)) fail('profile', `game #${i} has no valid id`);
@@ -127,15 +153,40 @@ export function validateGameRecord(game: unknown, i = 0): void {
       fail('profile', `game ${game.id}: zero-move game without a termination reason`);
     }
   }
-  if (typeof game.pgn === 'string' && game.pgn.length > 0) {
-    // PGN (when present) must itself be loadable — drop move-text comments via chess.js
+  // Custom-start games carry their starting position; it must be a VALID
+  // FEN and the move list must replay from IT, not from the standard start.
+  // Legacy records without the field replay from the standard start.
+  let startFen: string | undefined;
+  if (game.initialFen !== undefined) {
+    if (typeof game.initialFen !== 'string' || game.initialFen.trim().length === 0) {
+      fail('profile', `game ${game.id}: initialFen is not a FEN string`);
+    }
     try {
-      new Chess().loadPgn(game.pgn);
+      new Chess(game.initialFen as string);
+    } catch {
+      fail('profile', `game ${game.id}: initialFen is not a valid chess position`);
+    }
+    startFen = game.initialFen as string;
+    // consistency: a REAL embedded PGN FEN header must AGREE with the
+    // declared initialFen — a mismatch means one of them is wrong; refuse
+    // the record. FEN-shaped text inside movetext comments is not a header.
+    if (typeof game.pgn === 'string') {
+      const headerFen = pgnHeaderTags(game.pgn).FEN;
+      if (headerFen !== undefined && headerFen !== startFen) {
+        fail('profile', `game ${game.id}: PGN FEN header disagrees with initialFen`);
+      }
+    }
+  }
+  if (typeof game.pgn === 'string' && game.pgn.length > 0) {
+    // PGN (when present) must itself be loadable from the game's declared
+    // start position — never silently from the standard start
+    try {
+      loadPgnFromStart(game.pgn, startFen);
     } catch {
       fail('profile', `game ${game.id}: unreadable PGN`);
     }
   }
-  if (!replayableSans(game.moves)) fail('profile', `game ${game.id}: move list contains an illegal SAN`);
+  if (!replayableSans(game.moves, startFen)) fail('profile', `game ${game.id}: move list contains an illegal SAN`);
   if (game.moveTimings !== undefined) {
     if (!Array.isArray(game.moveTimings)) fail('profile', `game ${game.id}: moveTimings is not a list`);
     game.moveTimings.forEach((t: unknown, j: number) => {
@@ -294,14 +345,35 @@ const validateReviews: SectionValidator = (v) => {
 const validateActiveGame: SectionValidator = (v) => {
   if (!isPlainObject(v)) fail('activeGame', 'not an object');
   if (typeof v.pgn !== 'string') fail('activeGame', 'no pgn');
+  // Same resume contract as useGame: the snapshot's config may declare a
+  // custom starting position, and a HEADERLESS PGN must be validated from
+  // that position (chess.js loadPgn resets to the standard start first).
+  let cfgFen: string | undefined;
+  if (v.config !== undefined) {
+    if (!isPlainObject(v.config)) fail('activeGame', 'config is not an object');
+    if (v.config.initialFen !== undefined) {
+      if (typeof v.config.initialFen !== 'string' || (v.config.initialFen as string).trim().length === 0) {
+        fail('activeGame', 'initialFen is not a FEN string');
+      }
+      try {
+        new Chess(v.config.initialFen as string);
+      } catch {
+        fail('activeGame', 'initialFen is not a valid chess position');
+      }
+      cfgFen = v.config.initialFen as string;
+      const headerFen = pgnHeaderTags(v.pgn).FEN;
+      if (headerFen !== undefined && headerFen !== cfgFen) {
+        fail('activeGame', 'PGN FEN header disagrees with config.initialFen');
+      }
+    }
+    if (v.config.persona !== undefined && !isPersonaId(v.config.persona)) {
+      fail('activeGame', 'unknown persona in config');
+    }
+  }
   try {
-    new Chess().loadPgn(v.pgn);
+    loadPgnFromStart(v.pgn, cfgFen);
   } catch {
     fail('activeGame', 'unreadable PGN');
-  }
-  const cfg = v.config;
-  if (cfg !== undefined && isPlainObject(cfg) && cfg.persona !== undefined && !isPersonaId(cfg.persona)) {
-    fail('activeGame', 'unknown persona in config');
   }
 };
 

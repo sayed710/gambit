@@ -21,6 +21,7 @@ import { DEFAULT_TIME_CONTROL, TIME_CONTROLS, timeControlById, NO_CLOCK } from '
 import { Chess } from 'chess.js';
 import type { Color, GameConfig, GameRecord } from '../lib/types';
 import { loadJSON, saveJSON } from '../lib/storage';
+import { START_FEN } from '../lib/chessUtils';
 import { playSound } from '../lib/sound';
 import type { SavedGame } from '../hooks/useGame';
 import { identifyOpening } from '../lib/openings';
@@ -331,6 +332,9 @@ function GameScreen({
   const [recordId, setRecordId] = useState<string | null>(null);
   const [unsavedGame, setUnsavedGame] = useState<GameRecord | null>(null);
   const persistFailures = usePersistFailures();
+  // custom starting position (Position Editor) — drives the Unrated label
+  // and the rating gate in the game-over record
+  const customStart = !!config.initialFen && config.initialFen !== START_FEN;
   const lastPersistFailed = persistFailures.some((f) => f.key === 'gambit.profile');
 
   const downloadEmergency = useCallback(() => {
@@ -362,8 +366,10 @@ function GameScreen({
     // rating integrity: persona games are UNRATED — they appear in history
     // with full data but never move the Play rating
     const personaActive = config.mode === 'ai' && !!config.persona && config.persona !== 'stockfish';
-    // pass & play has no opponent rating to contest — explicitly unrated
-    const rated = config.mode === 'ai' && !personaActive;
+    // custom starts (Position Editor) are unrated too — an arbitrary
+    // position (possibly terminal at mount) must never move the Play rating
+    // (customStart is computed at GameScreen scope)
+    const rated = config.mode === 'ai' && !personaActive && !customStart;
     let delta = 0;
     if (config.mode === 'ai' && rated) {
       const expected = 1 / (1 + 10 ** ((opponentRating - profile.rating) / 400));
@@ -383,6 +389,11 @@ function GameScreen({
       // game-over callback fires (state may lag one move behind)
       moves: getMoves(),
       pgn: game.pgn(),
+      // non-standard starting position — Review/Insights/validators replay
+      // from it; absent for standard chess starts (legacy records unchanged)
+      // an unchanged Editor position IS the standard start — omit the field
+      // so openings/repertoires treat the game as standard
+      ...(config.initialFen && config.initialFen !== START_FEN ? { initialFen: config.initialFen } : {}),
       // real per-ply think times; old games (and this field) stay optional
       moveTimings: game.getMoveTimings(),
       ratingBefore: profile.rating,
@@ -703,7 +714,7 @@ function GameScreen({
                   ? `vs ${config.persona && config.persona !== 'stockfish' ? PERSONAS[config.persona].name : 'Engine'}`
                   : 'Pass & play'}{' '}
                 · {unlimited ? 'No clock' : `${config.timeControl.minutes}+${config.timeControl.increment}`}
-                {config.mode === 'ai' && config.persona && config.persona !== 'stockfish' && ' · Unrated'}
+                {((config.mode === 'ai' && config.persona && config.persona !== 'stockfish') || customStart) && ' · Unrated'}
               </span>
             </div>
             {config.mode === 'ai' && config.persona && config.persona !== 'stockfish' && engineUsed === 'legacy' && (
@@ -724,7 +735,7 @@ function GameScreen({
                 </p>
               </div>
             )}
-            <MoveList plies={plies} resultLabel={over ? `${verdict} (${why})` : null} />
+            <MoveList plies={plies} startFen={config.initialFen} resultLabel={over ? `${verdict} (${why})` : null} />
             <div className="row wrap" style={{ gap: '0.45rem' }}>
               <button className="btn btn-ghost btn-sm" onClick={undo} disabled={!canUndo} title="Take back your last move">
                 <UndoIcon /> Undo

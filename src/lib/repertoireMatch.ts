@@ -103,12 +103,16 @@ function walkLine(
   return result;
 }
 
-/** Match a saved game against every same-color repertoire; deepest run wins. */
+/** Match a saved game against every same-color repertoire; deepest run wins.
+ *  Custom-start games never match: every repertoire line is a standard-start
+ *  line, so a position played from a custom FEN is not an opening line. */
 export function matchRepertoire(
   repertoires: Repertoire[],
   playerColor: Color,
   sanMoves: string[],
+  startFen: string = START_FEN,
 ): RepertoireMatchResult | null {
+  if (startFen !== START_FEN) return null;
   const sameColor = repertoires.filter((r) => r.side === playerColor);
   if (sameColor.length === 0) return null;
 

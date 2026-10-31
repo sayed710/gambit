@@ -42,7 +42,9 @@ export default function Review() {
 
   const plies = useMemo(() => {
     if (!record) return [];
-    const game = new Chess();
+    // replay from the game's ACTUAL starting position — custom-start games
+    // (Position Editor) are never silently treated as standard chess
+    const game = new Chess(record.initialFen ?? undefined);
     const out: { san: string; from: Square; to: Square; color: 'w' | 'b'; fenAfter: string; isCapture: boolean; isCheck: boolean }[] = [];
     for (const san of record.moves) {
       try {
@@ -67,7 +69,10 @@ export default function Review() {
   const [plyIndex, setPlyIndex] = useState(plies.length); // 0 = start
   const [report, setReport] = useState<GameReport | null>(null);
   const [analysis, setAnalysis] = useState<{ done: number; total: number } | null>(null);
-  const opening = useMemo(() => (record ? identifyOpening(record.moves) : null), [record]);
+  // ECO opening identification is defined from the standard start only — a
+  // custom-start game has no opening book line, so report none rather than a
+  // misattributed one
+  const opening = useMemo(() => (record && !record.initialFen ? identifyOpening(record.moves) : null), [record]);
   const criticalPlys = useMemo(() => (report ? criticalMoments(report, 99).sort((a, b) => a - b) : []), [report]);
   const [analyzing, setAnalyzing] = useState(false);
   const runTokenRef = useRef(0); // increments per run; stale runs self-abort
@@ -82,8 +87,8 @@ export default function Review() {
   const [drillFirstTry, setDrillFirstTry] = useState<boolean[]>([]);
   const [greatPass, setGreatPass] = useState(false);
 
-  // fens before each ply (index 0 = start position)
-  const fens = useMemo(() => [START_FEN, ...plies.map((p) => p.fenAfter)], [plies]);
+  // fens before each ply (index 0 = the game's actual start position)
+  const fens = useMemo(() => [record?.initialFen ?? START_FEN, ...plies.map((p) => p.fenAfter)], [record?.initialFen, plies]);
 
   // fold a report's confirmed motifs into the persistent training stats —
   // once per game (applyMotifAnalysis is the idempotence set). Used by BOTH
@@ -150,8 +155,9 @@ export default function Review() {
         // a stale run owns no UI state: the newest run (or unmount) does
         onAbort: () => {},
       },
+      record?.initialFen, // custom-start games never classify against the standard book
     );
-  }, [plies, fens, engine, analyzing, record?.id, contributeMotifs]);
+  }, [plies, fens, engine, analyzing, record?.id, record?.initialFen, contributeMotifs]);
 
   // second pass: mark Great moves (top choice with a much worse alternative)
   const refineGreat = useCallback(
@@ -187,7 +193,7 @@ export default function Review() {
   }, [record?.id]);
 
   const current = plyIndex > 0 ? plies[plyIndex - 1] : null;
-  const fen = current?.fenAfter ?? START_FEN;
+  const fen = current?.fenAfter ?? record?.initialFen ?? START_FEN;
   const shownGame = useMemo(() => {
     try {
       return new Chess(fen);
@@ -424,14 +430,14 @@ export default function Review() {
   const coachLessons = useMemo(() => {
     if (!report || !record) return [];
     const motifs = motifAnalysisForReport(fens, report, record.playerColor);
-    const repertoireMatch = matchRepertoire(loadRepertoires(), record.playerColor, record.moves);
+    const repertoireMatch = matchRepertoire(loadRepertoires(), record.playerColor, record.moves, record.initialFen);
     const pressure = pressureCorrelation(record, report);
     return buildCoachLessons({ record, report, motifs, repertoireMatch, pressure });
   }, [report, record, fens]);
 
   const repertoireDeviation = useMemo(() => {
     if (!record) return null;
-    return matchRepertoire(loadRepertoires(), record.playerColor, record.moves);
+    return matchRepertoire(loadRepertoires(), record.playerColor, record.moves, record.initialFen);
   }, [record]);
 
   const saveForLater = useCallback(
@@ -813,6 +819,7 @@ export default function Review() {
             </div>
             <MoveList
               plies={plies}
+              startFen={record?.initialFen}
               currentPly={plyIndex - 1}
               onSelect={(i) => setPlyIndex(i + 1)}
               markers={report?.reviews.map((r) => r.classification)}

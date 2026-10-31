@@ -53,6 +53,8 @@ export interface GameRecord {
   reason: string;
   moves: string[];
   pgn: string;
+  /** non-standard starting position (SetUp/FEN); absent = standard chess start */
+  initialFen?: string;
   ratingBefore: number;
   ratingAfter: number;
   pinned?: boolean;

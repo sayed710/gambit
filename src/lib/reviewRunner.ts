@@ -44,6 +44,7 @@ export async function runGameAnalysis(
   evaluate: (fen: string, depth: number) => Promise<EngineEvalResult | null>,
   toPlyEval: (res: EngineEvalResult) => PlyEval,
   hooks: AnalysisHooks,
+  startFen?: string,
 ): Promise<void> {
   const total = plies.length + 1;
   if (hooks.isStale()) {
@@ -73,5 +74,5 @@ export async function runGameAnalysis(
     hooks.onAbort();
     return;
   }
-  hooks.onComplete(buildReport(plies, evals));
+  hooks.onComplete(buildReport(plies, evals, startFen));
 }
