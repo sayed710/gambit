@@ -11,9 +11,13 @@ interface MoveListProps {
   /** per-ply classification markers (review) */
   markers?: (import('../lib/review').MoveClass | undefined)[];
   maxHeight?: number;
+  /** the game's starting position: its fullmove counter seeds the row
+   *  numbering (a custom start at fullmove 23 labels its first move 23,
+   *  not 1). Omitted = standard start = fullmove 1. */
+  startFen?: string;
 }
 
-export default function MoveList({ plies, currentPly = null, onSelect, resultLabel, markers }: MoveListProps) {
+export default function MoveList({ plies, currentPly = null, onSelect, resultLabel, markers, startFen }: MoveListProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -33,10 +37,14 @@ export default function MoveList({ plies, currentPly = null, onSelect, resultLab
   const rows: { no: number; white?: Ply; black?: Ply; wi: number; bi: number }[] = [];
   // Rows group a white ply with the black reply. Custom starts may begin
   // with black to move: the first row then holds ONLY black's move, and the
-  // move numbering follows the real full-move count instead of assuming
-  // white opened the game.
+  // move numbering follows the start FEN's real fullmove counter instead of
+  // assuming white opened the game at move 1.
+  const startFullmove = (() => {
+    const n = Number(startFen?.split(' ')[5]);
+    return Number.isFinite(n) && n > 0 ? n : 1;
+  })();
   let i = 0;
-  let no = 1;
+  let no = startFullmove;
   if (plies[0]?.color === 'b') {
     rows.push({ no, white: undefined, black: plies[0], wi: -1, bi: 0 });
     no += 1;
@@ -63,8 +71,10 @@ export default function MoveList({ plies, currentPly = null, onSelect, resultLab
             const wSym = sym(wCls);
             const bSym = sym(bCls);
             return (
-              <tr key={r.no}>
-                <td className="mv-no">{r.no}.</td>
+              <tr key={`${r.no}-${r.wi}-${r.bi}`}>
+                {/* a row holding only BLACK's move (black-to-move custom
+                    start) is numbered PGN-style: "23..." not "23." */}
+                <td className="mv-no">{r.white === undefined ? `${r.no}...` : `${r.no}.`}</td>
                 <td
                   className={`mv${currentPly === r.wi ? ' current' : ''}${selectable && r.white ? ' selectable' : ''}`}
                   onClick={() => r.white && onSelect?.(r.wi)}

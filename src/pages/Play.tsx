@@ -21,6 +21,7 @@ import { DEFAULT_TIME_CONTROL, TIME_CONTROLS, timeControlById, NO_CLOCK } from '
 import { Chess } from 'chess.js';
 import type { Color, GameConfig, GameRecord } from '../lib/types';
 import { loadJSON, saveJSON } from '../lib/storage';
+import { START_FEN } from '../lib/chessUtils';
 import { playSound } from '../lib/sound';
 import type { SavedGame } from '../hooks/useGame';
 import { identifyOpening } from '../lib/openings';
@@ -385,7 +386,9 @@ function GameScreen({
       pgn: game.pgn(),
       // non-standard starting position — Review/Insights/validators replay
       // from it; absent for standard chess starts (legacy records unchanged)
-      ...(config.initialFen ? { initialFen: config.initialFen } : {}),
+      // an unchanged Editor position IS the standard start — omit the field
+      // so openings/repertoires treat the game as standard
+      ...(config.initialFen && config.initialFen !== START_FEN ? { initialFen: config.initialFen } : {}),
       // real per-ply think times; old games (and this field) stay optional
       moveTimings: game.getMoveTimings(),
       ratingBefore: profile.rating,
@@ -727,7 +730,7 @@ function GameScreen({
                 </p>
               </div>
             )}
-            <MoveList plies={plies} resultLabel={over ? `${verdict} (${why})` : null} />
+            <MoveList plies={plies} startFen={config.initialFen} resultLabel={over ? `${verdict} (${why})` : null} />
             <div className="row wrap" style={{ gap: '0.45rem' }}>
               <button className="btn btn-ghost btn-sm" onClick={undo} disabled={!canUndo} title="Take back your last move">
                 <UndoIcon /> Undo

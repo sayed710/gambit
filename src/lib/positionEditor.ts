@@ -38,7 +38,14 @@ const FEN_LETTER: Record<string, string> = {
   'bp': 'p', 'bn': 'n', 'bb': 'b', 'br': 'r', 'bq': 'q', 'bk': 'k',
 };
 
-export function buildFen(placement: PiecePlacement, turn: 'w' | 'b', castling: CastlingRights, ep: string): string {
+export function buildFen(
+  placement: PiecePlacement,
+  turn: 'w' | 'b',
+  castling: CastlingRights,
+  ep: string,
+  halfmove = 0,
+  fullmove = 1,
+): string {
   const rows: string[] = [];
   for (let r = 8; r >= 1; r--) {
     let row = '';
@@ -60,7 +67,9 @@ export function buildFen(placement: PiecePlacement, turn: 'w' | 'b', castling: C
   }
   const castleStr =
     `${castling.K ? 'K' : ''}${castling.Q ? 'Q' : ''}${castling.k ? 'k' : ''}${castling.q ? 'q' : ''}` || '-';
-  return `${rows.join('/')} ${turn} ${castleStr} ${ep || '-'} 0 1`;
+  // halfmove/fullmove counters are preserved (a loaded FEN keeps its clocks
+  // and move number — games, Review numbering and resumes depend on them)
+  return `${rows.join('/')} ${turn} ${castleStr} ${ep || '-'} ${halfmove} ${fullmove}`;
 }
 
 /** Rights only make sense while the king and rook sit on their home squares. */

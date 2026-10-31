@@ -44,7 +44,8 @@ export function openingInsights(
   let unidentified: { games: number; gameIds: string[] } | null = null;
 
   for (const g of games) {
-    const opening = identifyOpening(g.moves);
+    // custom-start games are not opening lines — counted as unidentified
+    const opening = g.initialFen ? null : identifyOpening(g.moves);
     if (!opening) {
       unidentified = unidentified ?? { games: 0, gameIds: [] };
       unidentified.games += 1;

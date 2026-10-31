@@ -200,20 +200,39 @@ async function run() {
   }));
   log('review: replays from the actual custom start (e-pawns absent, standard pieces intact)', reviewStart.e2Empty && reviewStart.e7Empty && reviewStart.whiteRookH1, JSON.stringify(reviewStart));
 
-  /* ---- 6. termination from a custom position (K vs K) ---- */
+  /* ---- 6. already-terminal start (K vs K): over at mount, no playable turn ---- */
   await startFromEditor(page, K_VS_K);
-  await drag('a1', 'a2');
   await page.waitForTimeout(700);
   const ended = await page.evaluate(() => document.body.textContent.includes('Insufficient material'));
   const recordKvK = await page.evaluate(() => {
     const games = JSON.parse(localStorage.getItem('gambit.profile')).games;
     return games[0] ?? null;
   });
+  const noClockRuns = await page.evaluate(() => !document.body.textContent.includes('Engine is thinking'));
   log(
-    'K-vs-K start: any move ends the game as insufficient material + record saved',
-    ended && recordKvK?.initialFen === K_VS_K,
-    `ended=${ended} initialFen=${recordKvK?.initialFen === K_VS_K}`,
+    'K-vs-K start: over AT MOUNT (insufficient material), zero-move record saved, no engine search',
+    ended && recordKvK?.initialFen === K_VS_K && Array.isArray(recordKvK?.moves) && recordKvK.moves.length === 0 && noClockRuns,
+    `ended=${ended} zeroMoves=${Array.isArray(recordKvK?.moves) && recordKvK.moves.length === 0} noEngine=${noClockRuns}`,
   );
+
+  /* ---- 6b. real move numbering from the start FEN fullmove counter ---- */
+  const FEN_23 = 'rnbqkbnr/pppp1ppp/8/8/8/8/PPPP1PPP/RNBQKBNR b KQkq - 0 23';
+  await startFromEditor(page, FEN_23);
+  await drag('g8', 'f6');
+  await page.waitForFunction(() => [...document.querySelectorAll('.move-list td.mv')].filter((e) => e.textContent?.trim()).length >= 1, null, { timeout: 45000, polling: 300 });
+  await page.waitForTimeout(300);
+  const numbering = await page.evaluate(() => {
+    const nos = [...document.querySelectorAll('.move-list td.mv-no')].map((e) => e.textContent?.trim());
+    const row1 = document.querySelector('.move-list tbody tr');
+    const cells = row1 ? [...row1.querySelectorAll('td')].map((e) => e.textContent?.trim()) : [];
+    return { firstNo: nos[0] ?? '', row1: cells };
+  });
+  log(
+    'fullmove 23 black-to-move: row numbered 23... with the move in the BLACK column',
+    numbering.firstNo === '23...' && numbering.row1.length === 3 && numbering.row1[0] === '23...' && numbering.row1[1] === '' && (numbering.row1[2] ?? '').length > 0,
+    JSON.stringify(numbering),
+  );
+  await resignGame(page);
 
   /* ---- 7. backup round trip keeps the custom start ---- */
   await page.goto(`${BASE}/#/profile`);

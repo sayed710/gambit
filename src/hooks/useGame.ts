@@ -3,7 +3,7 @@ import { Chess } from 'chess.js';
 import type { Color, Square } from 'chess.js';
 import type { Move } from 'chess.js';
 import type { GameConfig, MoveTiming, Ply } from '../lib/types';
-import { capturedFromFen, hasMatingMaterial, pliesFromGame } from '../lib/chessUtils';
+import { capturedFromFen, hasMatingMaterial, pliesFromGame, sanTokensFromHeaderlessPgn } from '../lib/chessUtils';
 import { playSound } from '../lib/sound';
 import { classifyMoveSound, planSoundEvents } from '../lib/moveSound';
 import { useClock } from './useClock';
@@ -43,8 +43,11 @@ export function useGame({ config, engineSearch, onGameOver, resume, initialFen }
   const initialMs = config.timeControl.minutes * 60_000;
   const incrementMs = config.timeControl.increment * 1000;
 
-  const startFenRef = useRef<string | null>(initialFen ?? null);
-  const gameRef = useRef(new Chess(initialFen ?? undefined));
+  // the starting position: explicit initialFen prop, else the RESUMED
+  // snapshot's config — a resume mount must never fall back to the standard
+  // start (its corrupt-save fallback path lands on this ref)
+  const startFenRef = useRef<string | null>(initialFen ?? resume?.config.initialFen ?? null);
+  const gameRef = useRef(new Chess(initialFen ?? resume?.config.initialFen ?? undefined));
   const [fen, setFen] = useState(gameRef.current.fen());
   const [plies, setPlies] = useState<Ply[]>([]);
   const [lastMove, setLastMove] = useState<{ from: Square; to: Square } | null>(null);
@@ -143,9 +146,16 @@ export function useGame({ config, engineSearch, onGameOver, resume, initialFen }
         try {
           const restored = new Chess(resume.config.initialFen ?? undefined);
           if (resume.config.initialFen && !/\[FEN "/.test(resume.pgn)) {
-            const scratch = new Chess();
-            scratch.loadPgn(resume.pgn); // throws on garbage — caught below
-            for (const san of scratch.history()) restored.move(san);
+            // Headerless legacy snapshot of a custom-start game: chess.js
+            // loadPgn resets to the STANDARD start before applying a PGN's
+            // own FEN header, so a headerless text must be parsed and its
+            // SAN tokens applied against the ACTUAL starting position —
+            // tokens legal only from the custom start (e.g. a black-first
+            // "1... Nc6") are rejected by loadPgn and would silently
+            // corrupt the position even when they parse.
+            for (const san of sanTokensFromHeaderlessPgn(resume.pgn)) {
+              restored.move(san); // illegal/garbage token throws → corrupt-save fallback below
+            }
           } else {
             restored.loadPgn(resume.pgn);
           }
@@ -158,11 +168,36 @@ export function useGame({ config, engineSearch, onGameOver, resume, initialFen }
           setTurn(restored.turn());
           playerColorRef.current = resume.playerColor;
           setPlayerColor(resume.playerColor);
-          if (resume.clocks && !unlimited) {
-            clock.restore(resume.clocks, restored.turn());
+          if (!unlimited) {
+            // the clock OWNER must always follow the replayed turn: a timed
+            // snapshot without saved clocks (null) would otherwise keep
+            // running the starting side's clock while the other side moves
+            clock.restore(resume.clocks ?? { w: initialMs, b: initialMs }, restored.turn());
           }
         } catch {
           // corrupt save — fall through to a fresh game
+        }
+      }
+      // An already-terminal START position is over before it begins:
+      // checkmate, stalemate, insufficient material, or an applicable
+      // fifty-move draw. Adjudicated immediately so no playable turn, no
+      // running clock, and no engine search remain — and the normal
+      // game-over path records the correct ZERO-MOVE GameRecord (result +
+      // reason, exactly what the backup validator requires). Resumed games
+      // skip this: their snapshot predates the check and must not be
+      // double-recorded.
+      if (!resume) {
+        const g = gameRef.current;
+        if (g.isCheckmate()) {
+          finish({ winnerColor: g.turn() === 'w' ? 'b' : 'w', reason: 'Checkmate' });
+        } else if (g.isStalemate()) {
+          finish({ winnerColor: null, reason: 'Stalemate' });
+        } else if (g.isInsufficientMaterial()) {
+          finish({ winnerColor: null, reason: 'Insufficient material' });
+        } else if (g.isThreefoldRepetition()) {
+          finish({ winnerColor: null, reason: 'Threefold repetition' });
+        } else if (g.isDraw()) {
+          finish({ winnerColor: null, reason: 'Fifty-move rule' });
         }
       }
     },
@@ -354,7 +389,9 @@ export function useGame({ config, engineSearch, onGameOver, resume, initialFen }
   // ---- engine opponent ----
   useEffect(() => {
     if (config.mode !== 'ai') return;
-    if (over || pendingPromotion) return;
+    // overRef (not the state): a terminal START position is adjudicated in
+    // the same mount commit — the state here would still be null
+    if (overRef.current || over || pendingPromotion) return;
     // playerColorRef, not the state: on a custom black-to-move start the
     // state still holds its 'w' initial during the mount commit (newGame
     // corrects it in an earlier effect), which would spuriously hand the

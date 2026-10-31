@@ -37,6 +37,30 @@ export function capturedFromFen(fen: string): { byWhite: PieceSymbol[]; byBlack:
   return { byWhite, byBlack, diff };
 }
 
+/**
+ * Extract SAN tokens from headerless PGN move text. Strips comments, NAGs,
+ * one-level variations, header lines, result tokens, move numbers and `!?`
+ * annotations. SANs always start with a letter (piece KQRBN, files a-h, or
+ * O-O castling), so the token filter is safe. Used to replay headerless
+ * move text against a NON-standard starting position, which chess.js
+ * loadPgn cannot do (it resets to the standard start first).
+ */
+export function sanTokensFromHeaderlessPgn(text: string): string[] {
+  const stripped = text
+    .replace(/\{[^}]*\}/g, ' ') // {comments}
+    .replace(/;[^\n\r]*/g, ' ') // rest-of-line comments
+    .replace(/\$\d+/g, ' ') // $NAGs
+    .replace(/\([^()]*\)/g, ' ') // (variations, one level)
+    .replace(/^[ \t]*\[[^\]]*\][ \t]*$/gm, ' ') // header lines
+    .replace(/(1-0|0-1|1\/2-1\/2|\*)/g, ' ') // results
+    .replace(/\d+[ \t]*\.+/g, ' ') // move numbers: "1." "23..." "1 . "
+    .replace(/[!?]+/g, ' ') // annotation glyphs
+    ;
+  return stripped
+    .split(/\s+/)
+    .filter((t) => /^[A-Za-z]/.test(t) && t.length > 0);
+}
+
 /** Build the annotated ply list from a chess.js game. */
 export function pliesFromGame(game: Chess): Ply[] {
   return game.history({ verbose: true }).map((m) => ({

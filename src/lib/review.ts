@@ -141,19 +141,17 @@ function moverCp(e: PlyEval, moverIsWhite: boolean): number {
   return moverIsWhite ? evalToCp(e) : -evalToCp(e);
 }
 
-/** centipawn loss for the mover of plies[i], given evals before and after. */
-function cplFor(evals: (PlyEval | null)[], i: number): number {
+/** centipawn loss for the mover of plies[i], given evals before and after.
+ *  The mover color comes from the ply itself — a custom-start game can open
+ *  with black, and an even/odd index assumption scores the wrong side. */
+function cplFor(evals: (PlyEval | null)[], i: number, moverColor: 'w' | 'b'): number {
   const before = evals[i];
   const after = evals[i + 1];
   if (!before || !after) return 0;
-  const moverIsWhite = pliesColor(i) === 'w';
+  const moverIsWhite = moverColor === 'w';
   const beforeMover = moverIsWhite ? evalToCp(before) : -evalToCp(before);
   const afterMover = moverIsWhite ? evalToCp(after) : -evalToCp(after);
   return Math.max(0, Math.min(1000, beforeMover - afterMover));
-}
-
-function pliesColor(i: number): 'w' | 'b' {
-  return i % 2 === 0 ? 'w' : 'b';
 }
 
 export function classifyMove(cpl: number, isEngineBest: boolean): MoveClass {
@@ -202,7 +200,7 @@ export function accuracyFromCpl(avgCpl: number): number {
   return Math.max(0, Math.min(100, Math.round(acc * 10) / 10));
 }
 
-export function buildReport(plies: Ply[], evals: (PlyEval | null)[]): GameReport {
+export function buildReport(plies: Ply[], evals: (PlyEval | null)[], startFen?: string): GameReport {
   const reviews: PlyReview[] = [];
   const counts = {
     w: emptyCounts(),
@@ -211,9 +209,11 @@ export function buildReport(plies: Ply[], evals: (PlyEval | null)[]): GameReport
   const cplSum = { w: 0, b: 0 };
   const cplN = { w: 0, b: 0 };
   const sanList = plies.map((p) => p.san);
+  // custom-start games (Position Editor) never match the standard-start book
+  const isCustomStart = !!startFen && startFen !== 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
 
   plies.forEach((ply, i) => {
-    const cpl = cplFor(evals, i);
+    const cpl = cplFor(evals, i, ply.color);
     const before = evals[i];
     const after = evals[i + 1];
     const played = ply.san;
@@ -224,7 +224,7 @@ export function buildReport(plies: Ply[], evals: (PlyEval | null)[]): GameReport
     // when the game steps off theory; it used to use identifyOpening, which
     // kept matching forever once an entry had been extended, silently marking
     // the rest of the game as book with zero accuracy signal.
-    if (isBookLine(sanList.slice(0, i + 1))) {
+    if (!isCustomStart && isBookLine(sanList.slice(0, i + 1))) {
       reviews.push({ san: played, color: ply.color, cpl: 0, classification: 'book' });
       counts[ply.color].book++;
       return; // book moves carry no accuracy signal

@@ -49,9 +49,12 @@ export function importPgn(text: string): { ok: true; game: ParsedGame } | { ok: 
   };
 }
 
-/** Export a move list (SAN) as a clean PGN with headers. */
-export function exportPgn(moves: string[], headers: { white?: string; black?: string; result?: string } = {}): string {
-  const game = new Chess();
+/** Export a move list (SAN) as a clean PGN with headers. `startFen`
+ *  replays the moves from a NON-standard starting position (chess.js then
+ *  emits the required SetUp/FEN headers automatically); omit it for games
+ *  from the standard start. */
+export function exportPgn(moves: string[], headers: { white?: string; black?: string; result?: string } = {}, startFen?: string): string {
+  const game = new Chess(startFen);
   for (const san of moves) {
     try {
       game.move(san);

@@ -117,11 +117,17 @@ export default function Profile() {
     async (id: string) => {
       const g = games.find((x) => x.id === id);
       if (!g) return;
-      const pgn = exportPgn(g.moves, {
-        white: g.playerColor === 'w' ? settings.name || 'You' : g.opponentName,
-        black: g.playerColor === 'w' ? g.opponentName : settings.name || 'You',
-        result: g.result === 'win' ? (g.playerColor === 'w' ? '1-0' : '0-1') : g.result === 'loss' ? (g.playerColor === 'w' ? '0-1' : '1-0') : '1/2-1/2',
-      });
+      const pgn = exportPgn(
+        g.moves,
+        {
+          white: g.playerColor === 'w' ? settings.name || 'You' : g.opponentName,
+          black: g.playerColor === 'w' ? g.opponentName : settings.name || 'You',
+          result: g.result === 'win' ? (g.playerColor === 'w' ? '1-0' : '0-1') : g.result === 'loss' ? (g.playerColor === 'w' ? '0-1' : '1-0') : '1/2-1/2',
+        },
+        // custom-start games replay from their actual position so the copied
+        // PGN carries the moves AND the required SetUp/FEN headers
+        g.initialFen,
+      );
       const ok = await copyText(pgn);
       toast(ok ? 'PGN copied.' : 'Copy failed.');
     },

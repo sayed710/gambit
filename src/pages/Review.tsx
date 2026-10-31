@@ -155,8 +155,9 @@ export default function Review() {
         // a stale run owns no UI state: the newest run (or unmount) does
         onAbort: () => {},
       },
+      record?.initialFen, // custom-start games never classify against the standard book
     );
-  }, [plies, fens, engine, analyzing, record?.id, contributeMotifs]);
+  }, [plies, fens, engine, analyzing, record?.id, record?.initialFen, contributeMotifs]);
 
   // second pass: mark Great moves (top choice with a much worse alternative)
   const refineGreat = useCallback(
@@ -818,6 +819,7 @@ export default function Review() {
             </div>
             <MoveList
               plies={plies}
+              startFen={record?.initialFen}
               currentPly={plyIndex - 1}
               onSelect={(i) => setPlyIndex(i + 1)}
               markers={report?.reviews.map((r) => r.classification)}
