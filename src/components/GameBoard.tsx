@@ -418,11 +418,12 @@ export default function GameBoard({
               style={{
                 position: 'absolute',
                 ...badgeOffset(squareBadge.square, orientation),
-                width: '7.2%',
-                height: '7.2%',
-                minWidth: 16,
-                minHeight: 16,
-                marginLeft: '7.6%',
+                // fully inside its own 12.5%-wide square (corner + 2.6%,
+                // size 9%): right edge = 11.6% < 12.5%, so the h-file badge
+                // is never clipped and no neighbor square is overlapped
+                width: '9%',
+                height: '9%',
+                marginLeft: '2.6%',
                 marginTop: '0.9%',
                 borderRadius: '50%',
                 background: squareBadge.color,

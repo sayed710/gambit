@@ -56,6 +56,25 @@ describe('GameBoard squareBadge', () => {
     expect(layer.style.pointerEvents).toBe('none');
   });
 
+  it('a rightmost-file badge stays fully inside its square (no clipping, no neighbor overlap)', () => {
+    const { container } = render(
+      <Board
+        boardId="t4"
+        fen="rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
+        orientation="white"
+        squareBadge={{ square: 'h4', text: '!', color: '#7ac70c', title: 'Best' }}
+      />,
+    );
+    const badge = container.querySelector('[data-square-badge="h4"]') as HTMLElement;
+    expect(badge).not.toBeNull();
+    // left (87.5% + 2.6% margin) + width 9% = 99.1% <= 100%: inside the board
+    const leftPct = parseFloat(badge.style.left) + parseFloat(badge.style.marginLeft);
+    const widthPct = parseFloat(badge.style.width);
+    expect(leftPct + widthPct).toBeLessThanOrEqual(100);
+    // and inside the h-file: square left edge = 87.5%, right edge = 100%
+    expect(leftPct).toBeGreaterThanOrEqual(87.5);
+  });
+
   it('no badge without one', () => {
     const { container } = render(
       <Board boardId="t3" fen="rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1" orientation="white" />,
