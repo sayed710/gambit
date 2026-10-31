@@ -31,3 +31,6 @@ fs-*.html
 # See FONTS-LICENSE.md
 public/fonts/bilgeon-script.ttf
 public/fonts/bilgeon-script.otf
+
+# UI-redesign verification screenshots (regenerate via a Playwright probe)
+ui-*.png
