@@ -29,7 +29,7 @@ export default defineConfig({
         ],
       },
       injectManifest: { // (injectManifest strategy reads this key, not `workbox`)
-        globPatterns: ['**/*.{js,css,html,svg,png,jpg,woff2,mp3,wasm}'],
+        globPatterns: ['**/*.{js,css,html,svg,png,jpg,ttf,woff2,mp3,wasm}'],
         // Stockfish is copied from public/ into dist/ and picked up by the
         // glob WITH revision — additionalManifestEntries would duplicate the
         // URLs and make workbox throw add-to-cache-list-conflicting-entries.
