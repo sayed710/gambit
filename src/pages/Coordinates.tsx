@@ -107,7 +107,7 @@ export default function Coordinates() {
             </div>
           </div>
           {last && (
-            <span className={`small ${last === 'hit' ? '' : 'muted'}`} style={{ color: last === 'hit' ? 'var(--good)' : undefined }}>
+            <span className={`small ${last === 'hit' ? '' : 'muted'}`} style={{ color: last === 'hit' ? 'var(--sage-ink)' : undefined }}>
               {last === 'hit' ? 'Hit.' : 'Miss.'}
             </span>
           )}

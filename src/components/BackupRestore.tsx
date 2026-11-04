@@ -204,7 +204,7 @@ export default function BackupRestore() {
               “Keep current data” permanently deletes the recovery snapshot — your data stays exactly as it is now, and the pre-restore state can no longer be restored.
             </p>
             {recoveryError && (
-              <p className="small" style={{ margin: '0.4rem 0 0', color: 'var(--bad)' }} role="alert">
+              <p className="small" style={{ margin: '0.4rem 0 0', color: 'var(--clay-ink)' }} role="alert">
                 {recoveryError}
               </p>
             )}

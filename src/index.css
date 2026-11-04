@@ -47,7 +47,15 @@
   --ink: var(--charcoal);
   --ink-soft: var(--slate);
   --muted: var(--blue-gray);
-  --faint: #64748B;
+  --faint: #566074;
+
+  /* accessible foreground tokens — the brand hues are mid-tone and fail
+     AA as text on the pale surfaces; these darker siblings keep the hue
+     family while passing 4.5:1 (measured: gold-ink 5.5-6.2, sage-ink
+     5.9-7.1, clay-ink 5.0-6.9 on cream/raised/soft blends). */
+  --gold-ink: #6B5A32;
+  --sage-ink: #3D5A40;
+  --clay-ink: #84503C;
 
   --border: #D9D0BF;
   --border-strong: #C8BCA6;
@@ -67,6 +75,8 @@
   --identity-violet-soft: rgba(51, 65, 85, 0.1);
   --identity-green: var(--sage);
   --identity-green-soft: rgba(89, 125, 91, 0.14);
+  /* deeper sage fill for text-on-fill pairings (cream on it: 5.7:1) */
+  --identity-green-deep: color-mix(in srgb, var(--sage) 78%, var(--charcoal));
   --identity-rose: var(--charcoal);
 
   --accent: var(--gold-deep);
@@ -107,9 +117,13 @@
 }
 
 /* ---------- per-page identity voices ---------- */
-[data-page='play'] { --accent: var(--identity-cyan); --accent-ink: var(--identity-cyan); --accent-soft: var(--identity-cyan-soft); }
-[data-page='analysis'], [data-page='review'] { --accent: var(--identity-violet); --accent-ink: var(--identity-violet); --accent-soft: var(--identity-violet-soft); }
-[data-page='puzzles'] { --accent: var(--identity-green); --accent-ink: var(--identity-green); --accent-soft: var(--identity-green-soft); }
+/* per-page accent hues. --accent stays a mid-tone for fills/borders;
+   --accent-ink must remain a DARK text token on the pale --accent-soft
+   (gold/sage as banner text measured 2.4-3.6:1 — below AA), so the ink
+   overrides are intentionally NOT redefined here. */
+[data-page='play'] { --accent: var(--identity-cyan); --accent-soft: var(--identity-cyan-soft); }
+[data-page='analysis'], [data-page='review'] { --accent: var(--identity-violet); --accent-soft: var(--identity-violet-soft); }
+[data-page='puzzles'] { --accent: var(--identity-green); --accent-soft: var(--identity-green-soft); }
 [data-theme='dark'][data-page='analysis'], [data-theme='dark'][data-page='review'] { --surface-teal: var(--surface-violet); }
 [data-page='review'] .site-header, [data-page='analysis'] .site-header { --accent-soft: var(--identity-violet-soft); }
 
@@ -261,7 +275,7 @@ h1, h2, h3, h4 { font-family: var(--serif); font-weight: 600; line-height: 1.1; 
 .btn-ghost { border-color: var(--border-strong); color: var(--ink-soft); background: var(--surface); }
 .btn-ghost:hover:not(:disabled) { border-color: var(--accent); color: var(--ink); }
 
-.btn-danger { border-color: var(--bad); color: var(--bad); background: transparent; }
+.btn-danger { border-color: var(--clay-ink); color: var(--clay-ink); background: transparent; }
 .btn-danger:hover:not(:disabled) { background: var(--bad-soft); }
 
 .btn-lg { padding: 0.85rem 1.6rem; font-size: 1rem; border-radius: 11px; }
@@ -314,7 +328,11 @@ textarea.input { font-family: var(--mono); font-size: 0.82rem; line-height: 1.5;
 /* ---------- game layout ---------- */
 .game-layout {
   display: grid; gap: 1.5rem; align-items: start; justify-content: start;
-  grid-template-columns: minmax(0, min(calc(100vh - 230px), calc(100% - 376px))) minmax(340px, 1fr);
+  /* Height-derived caps must never collapse the board: the inner max()
+     enforces a 420px practical minimum (extends below the fold on short
+     viewports, where vertical scrolling takes over). Width still caps
+     the track, so narrow viewports never overflow horizontally. */
+  grid-template-columns: minmax(0, min(max(calc(100vh - 230px), 420px), calc(100% - 376px))) minmax(340px, 1fr);
 }
 @media (max-width: 980px) { .game-layout { grid-template-columns: minmax(0, 1fr); } }
 
@@ -360,7 +378,7 @@ textarea.input { font-family: var(--mono); font-size: 0.82rem; line-height: 1.5;
   border-color: var(--sea);
   background: var(--surface-2);
 }
-.clock.low { color: var(--bad); border-color: var(--bad); background: var(--bad-soft); }
+.clock.low { color: var(--clay-ink); border-color: var(--bad); background: var(--bad-soft); }
 .clock.out { color: var(--faint); text-decoration: line-through; }
 .clock.hidden { visibility: hidden; }
 
@@ -378,7 +396,8 @@ textarea.input { font-family: var(--mono); font-size: 0.82rem; line-height: 1.5;
 .move-list .mv-sym { margin-left: 3px; font-weight: 700; letter-spacing: 0; }
 .move-list .mv.selectable { cursor: pointer; }
 .move-list .mv.selectable:hover { color: var(--ink); background: var(--accent-soft); }
-.move-list .mv.current { background: var(--accent); color: var(--bg-raised); font-weight: 600; }
+.move-list .mv.current { background: var(--accent); color: var(--accent-ink); font-weight: 600; }
+[data-page='puzzles'] .move-list .mv.current { background: var(--identity-green-deep); color: var(--cream); }
 .move-list .result-row { padding-top: 0.5rem; font-weight: 600; color: var(--ink); font-size: 0.85rem; }
 .move-list .empty { color: var(--muted); font-size: 0.85rem; padding: 1rem 0.5rem; text-align: center; }
 
@@ -416,7 +435,7 @@ textarea.input { font-family: var(--mono); font-size: 0.82rem; line-height: 1.5;
   background: var(--accent-soft); color: var(--accent-ink); font-weight: 600; font-size: 0.95rem;
   border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent);
 }
-.status-banner.check { background: var(--bad-soft); color: var(--bad); border-color: var(--bad); }
+.status-banner.check { background: var(--bad-soft); color: var(--clay-ink); border-color: var(--bad); }
 .status-banner .note { font-weight: 400; color: var(--muted); font-size: 0.85rem; }
 
 /* opening tag */
@@ -442,8 +461,8 @@ textarea.input { font-family: var(--mono); font-size: 0.82rem; line-height: 1.5;
 /* game over card */
 .result-card { text-align: center; padding: 1.9rem 1.4rem; animation: result-in 0.45s cubic-bezier(0.16, 1, 0.3, 1) both; }
 .result-card .verdict { font-family: var(--serif); font-size: 2rem; font-weight: 700; letter-spacing: -0.025em; line-height: 1.05; }
-.result-card .verdict.win { color: var(--good); }
-.result-card .verdict.loss { color: var(--bad); }
+.result-card .verdict.win { color: var(--sage-ink); }
+.result-card .verdict.loss { color: var(--clay-ink); }
 .result-card .why { color: var(--muted); margin-top: 0.45rem; font-size: 0.92rem; }
 .result-card .rule { width: 56px; height: 2px; background: var(--accent); margin: 1.1rem auto 0; border-radius: 99px; }
 .result-card .rating-note { margin-top: 0.9rem; font-size: 0.85rem; color: var(--muted); }
@@ -540,10 +559,13 @@ textarea.input { font-family: var(--mono); font-size: 0.82rem; line-height: 1.5;
    board centers in that column. */
 .workspace-board {
   width: 100%;
-  max-width: min(100%, calc(100vh - 350px));
+  /* Same anti-collapse rule as .game-layout: the height cap applies only
+     while it leaves a playable board; below that the 420px minimum wins
+     and the page scrolls vertically. */
+  max-width: min(100%, max(calc(100vh - 350px), 420px));
   margin-inline: auto;
 }
-@media (max-width: 1080px) { .workspace-board { max-width: min(100%, calc(100vh - 300px)); } }
+@media (max-width: 1080px) { .workspace-board { max-width: min(100%, max(calc(100vh - 300px), 420px)); } }
 
 .study-list { display: flex; flex-direction: column; }
 .study-card { display: flex; align-items: center; border-bottom: 1px solid var(--border); }
@@ -639,7 +661,7 @@ textarea.input { font-family: var(--mono); font-size: 0.82rem; line-height: 1.5;
 .verdict-glyph { margin-right: 0.3rem; }
 .verdict-whose { font-size: 0.72rem; color: var(--muted); text-transform: none; letter-spacing: 0.02em; font-weight: 500; }
 .verdict-facts { display: flex; gap: 0.9rem; justify-content: flex-end; align-items: baseline; }
-.verdict-loss { color: var(--bad); font-weight: 700; font-size: 0.95rem; }
+.verdict-loss { color: var(--clay-ink); font-weight: 700; font-size: 0.95rem; }
 .verdict-best { color: var(--ice); font-size: 0.85rem; }
 .verdict-copy { grid-column: 1 / -1; font-family: var(--serif); font-style: italic; font-size: 0.88rem; color: var(--muted); }
 @media (max-width: 640px) {
@@ -669,7 +691,7 @@ textarea.input { font-family: var(--mono); font-size: 0.82rem; line-height: 1.5;
 .trainer-layout { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 1.5rem; align-items: start; }
 @media (max-width: 980px) { .trainer-layout { grid-template-columns: minmax(0, 1fr); } }
 .rep-prompt { font-family: var(--serif); font-size: 1.15rem; line-height: 1.5; color: var(--ink); margin: 0; }
-.rep-verdict { font-family: var(--serif); font-size: 1.5rem; font-weight: 600; color: var(--good); margin: 0; }
+.rep-verdict { font-family: var(--serif); font-size: 1.5rem; font-weight: 600; color: var(--sage-ink); margin: 0; }
 .rep-stats { display: flex; gap: 2rem; padding: 0.6rem 0; border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); }
 .rep-stats .v { font-family: var(--serif); font-size: 1.4rem; font-weight: 700; font-variant-numeric: tabular-nums; }
 .sr-grade-row { display: flex; align-items: center; gap: 0.3rem; flex-wrap: wrap; margin-top: 0.6rem; }
@@ -701,7 +723,7 @@ textarea.input { font-family: var(--mono); font-size: 0.82rem; line-height: 1.5;
 .castle-chip.on { border-color: var(--sea); color: var(--ice); }
 .castle-chip.off { opacity: 0.4; cursor: not-allowed; }
 .tool-on { border-color: var(--sea) !important; color: var(--ice) !important; }
-.board-hint.invalid { color: var(--bad); }
+.board-hint.invalid { color: var(--clay-ink); }
 
 /* ---------- puzzles ---------- */
 .puzzle-layout { display: grid; grid-template-columns: minmax(0, 1fr) 330px; gap: 1.5rem; align-items: start; }
@@ -752,8 +774,8 @@ textarea.input { font-family: var(--mono); font-size: 0.82rem; line-height: 1.5;
 .score-anchor .big { font-family: var(--serif); font-size: 3.4rem; font-weight: 700; line-height: 1; letter-spacing: -0.03em; font-variant-numeric: tabular-nums; }
 .score-anchor .lbl { font-size: 0.75rem; font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted); }
 .score-anchor .delta { font-size: 0.85rem; font-weight: 600; }
-.score-anchor .delta.up { color: var(--good); }
-.score-anchor .delta.down { color: var(--bad); }
+.score-anchor .delta.up { color: var(--sage-ink); }
+.score-anchor .delta.down { color: var(--clay-ink); }
 .score-rest { padding: 1.4rem 1.5rem; display: flex; flex-direction: column; gap: 1.1rem; }
 .score-line { display: flex; flex-wrap: wrap; gap: 0.5rem 2.25rem; }
 .score-item .v { font-family: var(--serif); font-size: 1.45rem; font-weight: 600; line-height: 1.15; font-variant-numeric: tabular-nums; }
@@ -773,8 +795,8 @@ textarea.input { font-family: var(--mono); font-size: 0.82rem; line-height: 1.5;
 .table tbody tr.rowlink:hover { background: var(--accent-soft); }
 .table .num { font-variant-numeric: tabular-nums; }
 .badge { display: inline-flex; align-items: center; gap: 0.3rem; font-size: 0.75rem; font-weight: 600; padding: 0.15rem 0.55rem; border-radius: 99px; letter-spacing: 0.03em; }
-.badge.win { background: var(--good-soft); color: var(--aurora-green); }
-.badge.loss { background: var(--bad-soft); color: var(--bad); }
+.badge.win { background: var(--good-soft); color: var(--sage-ink); }
+.badge.loss { background: var(--bad-soft); color: var(--clay-ink); }
 .badge.draw { background: color-mix(in srgb, var(--draw) 14%, transparent); color: var(--draw); }
 
 .empty-state {
@@ -791,8 +813,8 @@ textarea.input { font-family: var(--mono); font-size: 0.82rem; line-height: 1.5;
   width: 22px; height: 22px; border-radius: 6px; display: inline-flex; align-items: center; justify-content: center;
   font-size: 0.72rem; font-weight: 700;
 }
-.form-win { background: var(--good-soft); color: var(--aurora-green); }
-.form-loss { background: var(--bad-soft); color: var(--bad); }
+.form-win { background: var(--good-soft); color: var(--sage-ink); }
+.form-loss { background: var(--bad-soft); color: var(--clay-ink); }
 .form-draw { background: color-mix(in srgb, var(--draw) 14%, transparent); color: var(--draw); }
 .rating-graph { display: block; width: 100%; height: 120px; }
 
@@ -847,7 +869,7 @@ textarea.input { font-family: var(--mono); font-size: 0.82rem; line-height: 1.5;
 }
 .tmv:hover { background: var(--surface-2); color: var(--ink); }
 .tmv.cur { background: var(--sea); color: #0B100E; font-weight: 600; }
-.tmv .nag { color: var(--sea); font-weight: 700; margin-left: 2px; font-size: 0.78rem; }
+.tmv .nag { color: var(--gold-ink); font-weight: 700; margin-left: 2px; font-size: 0.78rem; }
 .tmv.cur .nag { color: #0B100E; }
 .tnum { color: var(--faint); font-family: var(--mono); font-size: 0.8rem; }
 .tcomment { font-family: var(--serif); font-style: italic; color: var(--muted); font-size: 0.85rem; padding: 0 0.35rem; }
@@ -863,8 +885,8 @@ textarea.input { font-family: var(--mono); font-size: 0.82rem; line-height: 1.5;
   padding: 0.14rem 0.55rem; font-size: 0.85rem; transition: border-color 0.12s, color 0.12s;
 }
 .nag-btn:hover { border-color: var(--border-strong); color: var(--ink); }
-.nag-btn.on { border-color: var(--sea); color: var(--sea); }
-.nag-tag { color: var(--sea); font-weight: 700; }
+.nag-btn.on { border-color: var(--sea); color: var(--gold-ink); }
+.nag-tag { color: var(--gold-ink); font-weight: 700; }
 .pv-line .pv-plynum { color: var(--muted); }
 
 /* ---------- analysis board ---------- */
@@ -998,7 +1020,7 @@ textarea.input { font-family: var(--mono); font-size: 0.82rem; line-height: 1.5;
 
 .pwa-ready { color: var(--ice); border-color: color-mix(in srgb, var(--ice) 45%, transparent); background: color-mix(in srgb, var(--ice) 10%, transparent); }
 .pwa-preparing { color: var(--muted); }
-.pwa-offline { color: var(--sea); border-color: color-mix(in srgb, var(--sea) 45%, transparent); }
+.pwa-offline { color: var(--gold-ink); border-color: color-mix(in srgb, var(--sea) 45%, transparent); }
 @media (max-width: 720px) { .pwa-status { display: none; } }
 
 /* Persist failure banner — Arctic alert, persistent until resolved */

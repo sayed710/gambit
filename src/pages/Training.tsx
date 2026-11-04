@@ -327,7 +327,7 @@ function PracticeRunner({ item, onResolved, onExit }: { item: PracticeItem; onRe
         </div>
         {hint && <p className="small muted mt-1">Look for the move that changes the evaluation most.</p>}
         {revealed && (
-          <p className="small mt-1" style={{ color: 'var(--sea)' }}>
+          <p className="small mt-1" style={{ color: 'var(--gold-ink)' }}>
             Answer: {item.expectedSan ?? 'no verified best move (ungraded position)'}
           </p>
         )}

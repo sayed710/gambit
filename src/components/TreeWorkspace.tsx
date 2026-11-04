@@ -424,7 +424,7 @@ export default function TreeWorkspace({ tree, currentId, boardId, onTreeChange, 
               onKeyDown={(e) => e.key === 'Enter' && loadFenText()}
             />
             {fenError && (
-              <span className="small" style={{ color: 'var(--bad)' }}>
+              <span className="small" style={{ color: 'var(--clay-ink)' }}>
                 {fenError}
               </span>
             )}

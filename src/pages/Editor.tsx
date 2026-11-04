@@ -290,7 +290,7 @@ export default function Editor() {
                 onKeyDown={(e) => e.key === 'Enter' && loadFen()}
               />
               {fenError && (
-                <span className="small" style={{ color: 'var(--bad)' }}>
+                <span className="small" style={{ color: 'var(--clay-ink)' }}>
                   {fenError}
                 </span>
               )}

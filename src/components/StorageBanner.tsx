@@ -101,7 +101,7 @@ export default function StorageBanner() {
             <li>Open Backup &amp; Restore → Export all Gambit data (saves everything that IS stored), or</li>
             <li>free space: remove old studies/repertoires via Backup &amp; Restore, then retry the failed action.</li>
           </ol>
-          <p className="small" role="note" style={{ margin: '0.3rem 0 0', color: 'var(--bad)' }}>
+          <p className="small" role="note" style={{ margin: '0.3rem 0 0', color: 'var(--clay-ink)' }}>
             Reloading now loses unsaved data. This warning itself may fail to persist while storage is full — it is kept in memory for this session regardless.
             Unsaved records cannot be recovered automatically after a reload; use the Emergency export above while the game screen is open, or import an emergency file via Backup &amp; Restore.
           </p>

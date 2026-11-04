@@ -306,7 +306,7 @@ export default function Blindfold() {
             <button key={lvl} role="radio" aria-checked={level === lvl} className={level === lvl ? 'on' : ''} onClick={() => setLevel(lvl)}>
               {LEVEL_INFO[lvl].title.split('—')[0].trim()}
               {st.attempted > 0 && <span className="small muted"> · {Math.round((st.solved / st.attempted) * 100)}%</span>}
-              {due > 0 && <span className="small" style={{ color: 'var(--sea)' }}> · {due} due</span>}
+              {due > 0 && <span className="small" style={{ color: 'var(--gold-ink)' }}> · {due} due</span>}
             </button>
           );
         })}
