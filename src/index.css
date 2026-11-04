@@ -1059,6 +1059,22 @@ textarea.input { font-family: var(--mono); font-size: 0.82rem; line-height: 1.5;
 .feature-btn.btn-dark { background: var(--charcoal); color: var(--cream); border: 1px solid var(--charcoal); }
 .feature-btn.btn-dark:hover { background: var(--slate); }
 .feature-btn.btn-gold { align-self: center; width: 100%; justify-content: center; }
+.feature-cta-row { display: flex; flex-direction: column; gap: 0.6rem; margin-top: auto; padding-top: 0.6rem; }
+.feature-cta {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  width: fit-content;
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--ink);
+  text-decoration: none;
+  border-bottom: 1px solid transparent;
+  padding-bottom: 2px;
+  transition: color 0.15s ease, border-color 0.15s ease;
+}
+.feature-cta svg { width: 15px; height: 15px; flex: none; }
+.feature-cta:hover { color: var(--gold-deep); border-bottom-color: var(--gold-deep); }
 
 /* ---------- UI previews inside the cards ---------- */
 .ui-preview { border-radius: 12px; overflow: hidden; }
