@@ -396,7 +396,13 @@ textarea.input { font-family: var(--mono); font-size: 0.82rem; line-height: 1.5;
 .move-list .mv-sym { margin-left: 3px; font-weight: 700; letter-spacing: 0; }
 .move-list .mv.selectable { cursor: pointer; }
 .move-list .mv.selectable:hover { color: var(--ink); background: var(--accent-soft); }
+/* The current-move chip inherits each page's --accent fill, so its text
+   must pair with THAT fill: charcoal on Play's gold (6.1:1), cream on
+   the Analysis/Review blue-gray fill (9.5:1), cream on the derived
+   deep-sage fill on Puzzles (5.8:1). */
 .move-list .mv.current { background: var(--accent); color: var(--accent-ink); font-weight: 600; }
+[data-page='analysis'] .move-list .mv.current,
+[data-page='review'] .move-list .mv.current { color: var(--cream); }
 [data-page='puzzles'] .move-list .mv.current { background: var(--identity-green-deep); color: var(--cream); }
 .move-list .result-row { padding-top: 0.5rem; font-weight: 600; color: var(--ink); font-size: 0.85rem; }
 .move-list .empty { color: var(--muted); font-size: 0.85rem; padding: 1rem 0.5rem; text-align: center; }
