@@ -401,9 +401,14 @@ textarea.input { font-family: var(--mono); font-size: 0.82rem; line-height: 1.5;
    the Analysis/Review blue-gray fill (9.5:1), cream on the derived
    deep-sage fill on Puzzles (5.8:1). */
 .move-list .mv.current { background: var(--accent); color: var(--accent-ink); font-weight: 600; }
+/* Hovering the already-selected cell must not wash the fill out to the
+   translucent accent-soft (cream-on-wash measured ~1.4:1 in a real
+   screenshot); the current cell keeps its solid pairing while hovered. */
+.move-list .mv.current:hover { background: var(--accent); }
 [data-page='analysis'] .move-list .mv.current,
 [data-page='review'] .move-list .mv.current { color: var(--cream); }
-[data-page='puzzles'] .move-list .mv.current { background: var(--identity-green-deep); color: var(--cream); }
+[data-page='puzzles'] .move-list .mv.current,
+[data-page='puzzles'] .move-list .mv.current:hover { background: var(--identity-green-deep); color: var(--cream); }
 .move-list .result-row { padding-top: 0.5rem; font-weight: 600; color: var(--ink); font-size: 0.85rem; }
 .move-list .empty { color: var(--muted); font-size: 0.85rem; padding: 1rem 0.5rem; text-align: center; }
 
@@ -1054,7 +1059,9 @@ textarea.input { font-family: var(--mono); font-size: 0.82rem; line-height: 1.5;
 }
 .hero-photo {
   position: absolute; inset: 0;
-  background: url('/assets/hero-chess.jpg') center 32% / cover no-repeat;
+  /* top-anchored: the queen's crown sits at the very top edge of the
+     source photo — a vertical center-crop shears it off */
+  background: url('/assets/hero-chess.jpg') center top / cover no-repeat;
 }
 .hero-photo::after {
   content: ''; position: absolute; inset: 0;
@@ -1123,6 +1130,14 @@ textarea.input { font-family: var(--mono); font-size: 0.82rem; line-height: 1.5;
 .feature-btn.btn-dark { background: var(--charcoal); color: var(--cream); border: 1px solid var(--charcoal); }
 .feature-btn.btn-dark:hover { background: var(--slate); }
 .feature-btn.btn-gold { align-self: center; width: 100%; justify-content: center; }
+/* Card balance: the dark preview surfaces absorb the leftover height of
+   the shared grid row (the tallest card governs), so Analysis/Train no
+   longer show large empty sections under their content. */
+.feature-card > .ui-preview,
+.feature-card > .ui-phone { flex: 1 1 auto; display: flex; flex-direction: column; }
+.feature-card > .ui-preview > .ui-setup,
+.feature-card > .ui-preview > .ui-review,
+.feature-card > .ui-phone > .ui-phone-screen { flex: 1 1 auto; }
 .feature-cta-row { display: flex; flex-direction: column; gap: 0.6rem; margin-top: auto; padding-top: 0.6rem; }
 .feature-cta {
   display: inline-flex;

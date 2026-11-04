@@ -161,7 +161,43 @@ else {
       await page.waitForTimeout(400);
       reviewCur = await measureSel('.move-list .mv.current');
     }
+    // park the pointer OFF the cell so hover state cannot contaminate
+    // the resting measurement (the hover wash was the 1.41:1 defect)
+    await page.mouse.move(5, 5);
+    await page.waitForTimeout(250);
+    reviewCur = await measureSel('.move-list .mv.current');
     check('review .mv.current (REAL selected move, blue-gray fill)', reviewCur);
+    /* PIXEL TRUTH: screenshot the cell itself at this instant and sample
+       its ink-free edge — the blended pixel background must still pair
+       with the computed foreground at ≥ 4.5:1. */
+    const cur = page.locator('.move-list .mv.current').first();
+    await cur.screenshot({ path: 'ui-review-selected-move-cell.png' });
+    const pixel = await page.evaluate((m) => {
+      const measure = eval(m);
+      const el = document.querySelector('.move-list .mv.current');
+      return { color: getComputedStyle(el).color, box: el.getBoundingClientRect() };
+    }, M);
+    const sharpMod = await import('sharp');
+    const { data, info } = await sharpMod.default('ui-review-selected-move-cell.png').raw().toBuffer({ resolveWithObject: true });
+    // sample a text-free strip (top 6px) for the blended background
+    let r = 0, g = 0, b = 0, n = 0;
+    for (let y = 1; y < 6; y++) for (let x = 2; x < info.width - 2; x += 2) {
+      const i = (y * info.width + x) * info.channels;
+      r += data[i]; g += data[i + 1]; b += data[i + 2]; n++;
+    }
+    const blend = `rgb(${Math.round(r / n)},${Math.round(g / n)},${Math.round(b / n)})`;
+    const pixelCheck = await page.evaluate(([m, fg, bg]) => {
+      const lum = (c) => { const mm = c.match(/rgba?\(([^)]+)\)/); if (!mm) return null; const [R, G, B, A] = mm[1].split(',').map(parseFloat); if (A !== undefined && A < 0.35) return null; const f = (v) => { v /= 255; return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4); }; return 0.2126 * f(R) + 0.7152 * f(G) + 0.0722 * f(B); };
+      const l1 = lum(fg), l2 = lum(bg);
+      return (Math.max(l1, l2) + 0.05) / (Math.min(l1, l2) + 0.05);
+    }, [M, pixel.color, blend]);
+    check('review current-cell PIXEL background contrast ≥ 4.5', { ratio: pixelCheck, needed: 4.5, color: pixel.color, bg: blend });
+    /* HOVER STATE: hovering the selected cell must keep the solid pairing */
+    const box = await cur.boundingBox();
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+    await page.waitForTimeout(250);
+    const hoverCur = await measureSel('.move-list .mv.current');
+    check('review .mv.current HOVER keeps accessible pairing', hoverCur);
     // selection remains visually clear: current bg must differ from a normal mv bg
     const distinct = await page.evaluate(() => {
       const cur = document.querySelector('.move-list .mv.current');
