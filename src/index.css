@@ -1216,7 +1216,9 @@ textarea.input { font-family: var(--mono); font-size: 0.82rem; line-height: 1.5;
 .ui-phone-row:hover { background: rgba(248, 245, 239, 0.07); color: var(--cream); }
 .ui-phone-row svg { width: 0.8rem; height: 0.8rem; opacity: 0.5; }
 .ui-phone-puzzle {
-  margin-top: 0.35rem; background: var(--charcoal); border-radius: 10px; padding: 0.55rem 0.6rem;
+  /* pinned to the screen's bottom in the grown preview: the leftover
+     height reads as normal app spacing above the daily-puzzle card */
+  margin-top: auto; background: var(--charcoal); border-radius: 10px; padding: 0.55rem 0.6rem;
   display: flex; flex-direction: column; gap: 0.12rem; text-decoration: none;
 }
 .ui-phone-puzzle-k { font-size: 0.78rem; font-weight: 600; color: var(--cream); }
