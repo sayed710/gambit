@@ -107,33 +107,56 @@ await p.close();
 
 /* Home 390 — full page */
 p = await newPage(390, 844);
-await p.goto(`${BASE}/#/`, { waitUntil: 'load' });
+await goto(p, `${BASE}/#/`);
 await p.waitForTimeout(1400);
 await p.screenshot({ path: 'final-home-390-full.png', fullPage: true });
 await p.close();
-await browser.close();
 
-/* Palette pixel-verify: sample the rendered implementation against the
-   approved Heritage tokens. */
-const samples = [];
-async function sample(file, region, label, expectedHex) {
-  const buf = await sharp(file).extract(region).raw().toBuffer({ resolveWithObject: true });
-  const { data, info } = buf;
-  let r = 0, g = 0, b = 0, n = 0;
-  for (let i = 0; i < data.length; i += info.channels * 97) {
-    r += data[i]; g += data[i + 1]; b += data[i + 2]; n++;
+/* Palette verification — authoritative form: read the LIVE computed
+   styles (not pixel-coordinate guesses) and HARD-ASSERT against the
+   approved tokens. Exit 1 on any drift. Card tone expects the
+   documented intentional raised-sand #F1ECE2. */
+{
+  const vp = await newPage(1440, 900);
+  await goto(vp, `${BASE}/#/`);
+  await vp.waitForSelector('.feature-card');
+  await vp.waitForTimeout(1200);
+  const APPROVED = {
+    'body cream': ['#F8F5EF', 'body'],
+    'feature card (raised sand)': ['#F1ECE2', '.feature-card'],
+    'hero band charcoal': ['#0F1720', '.hero-band'],
+    'gold CTA': ['#C9B896', '.btn-gold'],
+    'sage Play button': ['#597D5B', '.ui-play-btn'],
+  };
+  const rendered = await vp.evaluate((sels) => {
+    const out = {};
+    for (const [label, sel] of Object.entries(sels)) {
+      const el = document.querySelector(sel);
+      out[label] = el ? getComputedStyle(el).backgroundColor : 'MISSING';
+    }
+    return out;
+  }, Object.fromEntries(Object.entries(APPROVED).map(([k, [, sel]]) => [k, sel])));
+  await vp.close();
+  const hexOf = (c) => {
+    const m = c.match(/rgba?\(([^)]+)\)/);
+    if (!m) return c;
+    const [r, g, b] = m[1].split(',').map((x) => Math.round(parseFloat(x)));
+    return '#' + [r, g, b].map((v) => v.toString(16).padStart(2, '0')).join('');
+  };
+  const parse = (h) => [0, 2, 4].map((i) => parseInt(h.replace('#', '').slice(i, i + 2), 16));
+  let drift = 0;
+  console.log('PALETTE ASSERTIONS (live computed vs approved):');
+  for (const [label, [expected]] of Object.entries(APPROVED)) {
+    const gotC = rendered[label];
+    const got = hexOf(gotC).toLowerCase();
+    const [er, eg, eb] = parse(expected);
+    const [gr, gg, gb] = parse(got);
+    const delta = Math.round(Math.sqrt((gr - er) ** 2 + (gg - eg) ** 2 + (gb - eb) ** 2));
+    const ok = gotC !== 'MISSING' && delta <= 2;
+    if (!ok) drift++;
+    console.log(`${ok ? 'PASS' : 'FAIL'}  ${label} — got=${got} expected=${expected} delta=${delta}`);
   }
-  r = Math.round(r / n); g = Math.round(g / n); b = Math.round(b / n);
-  const got = '#' + [r, g, b].map((v) => v.toString(16).padStart(2, '0')).join('');
-  const ex = expectedHex.replace('#', '');
-  const er = parseInt(ex.slice(0, 2), 16), eg = parseInt(ex.slice(2, 4), 16), eb = parseInt(ex.slice(4, 6), 16);
-  const delta = Math.round(Math.sqrt((r - er) ** 2 + (g - eg) ** 2 + (b - eb) ** 2));
-  samples.push({ label, got, expected: expectedHex, delta });
+  if (drift > 0) { console.log(`${drift} PALETTE DRIFT FAILURE(S)`); process.exitCode = 1; }
 }
-await sample('final-home-1440-full.png', { left: 20, top: 400, width: 30, height: 30 }, 'body cream', '#F8F5EF');
-await sample('final-home-1440-full.png', { left: 80, top: 900, width: 30, height: 30 }, 'feature card sand', '#E7E0D4');
-await sample('final-home-1440-full.png', { left: 700, top: 260, width: 40, height: 20 }, 'hero dark band', '#0F1720');
-await sample('final-home-1440-full.png', { left: 170, top: 500, width: 24, height: 14 }, 'gold CTA fill', '#C9B896');
-console.log('PALETTE SAMPLES (Euclidean RGB delta vs approved hex):');
-for (const s of samples) console.log(`  ${s.label.padEnd(20)} got=${s.got} expected=${s.expected} delta=${s.delta}`);
+await browser.close();
 console.log('DONE');
