@@ -99,6 +99,8 @@ function Hero({ onExplore }: { onExplore: () => void }) {
 /* ---------------- feature 1 · Play (setup preview) ---------------- */
 
 function PlayPreview() {
+  // The real board component in a decorative, non-interactive state —
+  // a genuine 8×8 position (the classical start), not a schematic grid.
   return (
     <div className="ui-preview ui-dark" aria-hidden="true">
       <div className="ui-setup">
@@ -109,12 +111,21 @@ function PlayPreview() {
           <span className="ui-side">● Black</span>
           <span className="ui-clock">10:00</span>
         </div>
-        <div className="ui-mini-board">
-          {Array.from({ length: 24 }, (_, i) => {
-            const r = Math.floor(i / 8);
-            const c = i % 8;
-            return <i key={i} style={{ background: (r + c) % 2 ? '#A98F63' : '#EFE3CB' }} />;
-          })}
+        <div className="ui-review-board">
+          <Chessboard
+            options={{
+              id: 'home-play',
+              // react-chessboard 5 takes a FEN — no 'start' shorthand.
+              position: 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1',
+              boardOrientation: 'white',
+              allowDragging: false,
+              allowDrawingArrows: false,
+              allowAutoScroll: false,
+              animationDurationInMs: 0,
+              lightSquareStyle: { background: '#EFE3CB' },
+              darkSquareStyle: { background: '#A98F63' },
+            }}
+          />
         </div>
         <div className="ui-clock-row">
           <span className="ui-side">○ White</span>

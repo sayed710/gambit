@@ -7,17 +7,18 @@
    ============================================================ */
 
 /* ---------- fonts ---------- */
-/* Bilgeon Script (Hanzel Space) — the approved wordmark face.
-   LICENSE: PERSONAL USE ONLY. The owner explicitly authorized its
-   deployment in Gambit (2026-10-31); a commercial license is still
-   REQUIRED before any commercial use — see FONTS-LICENSE.md. */
+/* Great Vibes — the wordmark script face.
+   LICENSE: SIL Open Font License 1.1 (free for commercial use and
+   redistribution; the OFL.txt ships alongside the font). It stands in
+   for the owner's personal-use Bilgeon Script, which cannot legally be
+   committed or distributed — see ASSET-LICENSES.md. */
 @font-face {
-  font-family: 'Bilgeon Script';
-  src: url('/fonts/bilgeon-script.ttf') format('truetype'); /* owner-authorized deployment — see FONTS-LICENSE.md */
+  font-family: 'Great Vibes';
+  src: url('/fonts/GreatVibes-Regular.ttf') format('truetype');
   font-display: swap;
 }
 :root {
-  --brand-font: 'Bilgeon Script', 'Fraunces', Georgia, serif;
+  --brand-font: 'Great Vibes', 'Fraunces', Georgia, serif;
   --serif: 'Fraunces', Georgia, 'Times New Roman', serif;
   --sans: 'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
   --mono: ui-monospace, 'Cascadia Code', Consolas, monospace;
@@ -385,6 +386,29 @@ textarea.input { font-family: var(--mono); font-size: 0.82rem; line-height: 1.5;
 .eval-bar { width: 14px; border-radius: 8px; overflow: hidden; background: var(--board-dark); border: 1px solid var(--board-border); position: relative; }
 .eval-bar .fill { position: absolute; inset: 0; background: linear-gradient(180deg, var(--glacial) 0%, #DCECF2 100%); transform-origin: bottom; transition: transform 0.4s cubic-bezier(0.16, 1, 0.3, 1); }
 .eval-bar .tick { position: absolute; left: 0; right: 0; height: 1px; background: rgba(0,0,0,0.35); top: 50%; }
+/* The score floats over a fill that swings between dark slate and light
+   ice — a translucent cream chip guarantees readable charcoal text in
+   every state (neutral / positive / negative, light and dark fill). */
+.eval-bar .eval-score {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+}
+.eval-bar .eval-score b {
+  background: rgba(248, 245, 239, 0.95);
+  color: var(--ink);
+  font-weight: 650;
+  font-size: 0.55rem;
+  letter-spacing: -0.04em;
+  white-space: nowrap;
+  padding: 0.28em 0.2em;
+  border-radius: 4px;
+  box-shadow: 0 0 0 1px rgba(15, 23, 32, 0.22);
+  transform: rotate(-90deg);
+}
 
 /* status banner */
 .status-banner {
@@ -505,9 +529,21 @@ textarea.input { font-family: var(--mono); font-size: 0.82rem; line-height: 1.5;
 /* ---------- tree workspace + studies ---------- */
 .workspace-layout {
   display: grid; gap: 1.5rem; align-items: start;
-  grid-template-columns: minmax(0, min(calc(100vh - 395px), calc(100% - 416px))) minmax(300px, 1fr);
+  /* Fixed-width side panel (engine lines / move tree) so the analysis
+     board keeps the larger, practical share instead of the panel
+     absorbing the entire remainder of wide containers. */
+  grid-template-columns: minmax(0, 1fr) minmax(320px, 400px);
 }
 @media (max-width: 1080px) { .workspace-layout { grid-template-columns: minmax(0, 1fr); } }
+/* The board is square, so capping its width by the viewport fold keeps
+   it fully visible while the surrounding column may run wider; the
+   board centers in that column. */
+.workspace-board {
+  width: 100%;
+  max-width: min(100%, calc(100vh - 350px));
+  margin-inline: auto;
+}
+@media (max-width: 1080px) { .workspace-board { max-width: min(100%, calc(100vh - 300px)); } }
 
 .study-list { display: flex; flex-direction: column; }
 .study-card { display: flex; align-items: center; border-bottom: 1px solid var(--border); }
@@ -1074,7 +1110,11 @@ textarea.input { font-family: var(--mono); font-size: 0.82rem; line-height: 1.5;
   transition: color 0.15s ease, border-color 0.15s ease;
 }
 .feature-cta svg { width: 15px; height: 15px; flex: none; }
-.feature-cta:hover { color: var(--gold-deep); border-bottom-color: var(--gold-deep); }
+/* Hover keeps the ink text (gold-deep failed contrast at ~2.5:1 on the
+   card) and uses gold only for the underline accent. */
+.feature-cta:hover { border-bottom-color: var(--gold-deep); }
+.feature-cta:hover svg { color: var(--gold-deep); }
+.feature-cta:focus-visible { outline: 2px solid var(--gold-deep); outline-offset: 3px; border-radius: 3px; }
 
 /* ---------- UI previews inside the cards ---------- */
 .ui-preview { border-radius: 12px; overflow: hidden; }
@@ -1091,8 +1131,7 @@ textarea.input { font-family: var(--mono); font-size: 0.82rem; line-height: 1.5;
   flex: 1; text-align: center; font-family: var(--mono); font-size: 1.25rem; font-weight: 600;
   color: var(--cream); background: var(--slate); border-radius: 9px; padding: 0.55rem 0.8rem;
 }
-.ui-mini-board { display: grid; grid-template-columns: repeat(8, 1fr); border-radius: 4px; overflow: hidden; }
-.ui-mini-board i { display: block; aspect-ratio: 1; }
+.ui-review-board { border-radius: 4px; overflow: hidden; }
 .ui-play-btn {
   display: block; text-align: center; font-weight: 650; font-size: 1rem;
   background: var(--sage); color: var(--cream); border-radius: 9px; padding: 0.6rem 0;

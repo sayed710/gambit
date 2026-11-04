@@ -36,8 +36,9 @@ export const KnightMark = ({ className }: { className?: string }) => (
 
 export const BrandMark = ({ className }: { className?: string }) => (
   <span className={`brand-mark${className ? ` ${className}` : ''}`}>
-    {/* the approved logo: queen + Bilgeon wordmark extracted from the
-        owner-approved artwork as one transparent asset (charcoal #0F1720) */}
+    {/* the approved queen silhouette + the wordmark rendered in Great Vibes
+        (OFL — Bilgeon's personal-use license forbids committing it); one
+        transparent charcoal asset, see ASSET-LICENSES.md */}
     <img src="/brand/gambit-lockup.png" alt="Gambit" className="brand-lockup" draggable={false} />
   </span>
 );
