@@ -195,22 +195,12 @@ h1, h2, h3, h4 { font-family: var(--serif); font-weight: 600; line-height: 1.1; 
 }
 .site-header .inner { display: flex; align-items: center; gap: 1.25rem; height: 4.25rem; color: var(--charcoal); }
 .brand { display: flex; align-items: center; text-decoration: none; color: var(--charcoal); }
-.brand-mark { display: inline-flex; align-items: flex-end; gap: 0.5rem; }
-.brand-queen-img {
-  height: 2.55rem; width: auto; flex: none;
-  user-select: none; transition: opacity 0.2s;
+.brand-mark { display: inline-flex; align-items: center; }
+.brand-lockup {
+  height: 2.5rem; width: auto; flex: none;
+  user-select: none; transition: opacity 0.15s;
 }
-.brand-word {
-  font-family: var(--brand-font);
-  font-size: 1.42rem;            /* deliberately SMALLER than the queen — approved balance */
-  font-weight: 500;
-  letter-spacing: 0.01em;
-  line-height: 1;
-  transform: translateY(-0.28rem);
-  color: var(--charcoal);
-}
-.brand:hover .brand-queen { color: var(--gold-deep); transition: color 0.2s; }
-.brand:hover .brand-word { color: var(--gold-deep); }
+.brand:hover .brand-lockup { opacity: 0.82; }
 
 .main-nav { display: flex; align-items: center; gap: 0.4rem; margin-left: 0.75rem; }
 .main-nav a {
@@ -894,8 +884,11 @@ textarea.input { font-family: var(--mono); font-size: 0.82rem; line-height: 1.5;
 .site-footer .inner { display: flex; align-items: center; justify-content: space-between; gap: 1rem; flex-wrap: wrap; font-size: 0.85rem; }
 .site-footer a { color: inherit; text-decoration: none; }
 .site-footer a:hover { color: var(--gold); }
-.site-footer .footer-brand .brand-queen-img { height: 1.55rem; filter: invert(0.88) sepia(0.12) brightness(1.1); }
-.site-footer .footer-brand .brand-word { font-size: 1.05rem; color: rgba(248, 245, 239, 0.55); transform: translateY(-0.18rem); }
+.site-footer .footer-brand .brand-lockup {
+  height: 1.35rem;
+  filter: invert(0.9) sepia(0.1) brightness(1.15);
+  opacity: 0.8;
+}
 
 /* toast */
 .toast-region { position: fixed; bottom: 1.25rem; left: 50%; transform: translateX(-50%); z-index: 120; display: flex; flex-direction: column; gap: 0.5rem; align-items: center; pointer-events: none; }
