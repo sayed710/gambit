@@ -31,22 +31,10 @@ export default function EvalBar({ evaluation, thinking }: EvalBarProps) {
     >
       <div className="fill" style={{ transform: `scaleY(${whiteShare})` }} />
       <div className="tick" />
-      <span
-        className="mono"
-        style={{
-          position: 'absolute',
-          inset: 0,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          fontSize: '0.55rem',
-          letterSpacing: '-0.04em',
-          transform: 'rotate(-90deg)',
-          whiteSpace: 'nowrap',
-          pointerEvents: 'none',
-        }}
-      >
-        {thinking ? '…' : label}
+      <span className="eval-score" aria-hidden="true">
+        {/* Backed chip: charcoal text on cream keeps ≥4.5:1 over both the
+            dark slate and light-ice fill states. */}
+        <b className="mono">{thinking ? '…' : label}</b>
       </span>
     </div>
   );
