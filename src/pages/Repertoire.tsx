@@ -498,8 +498,8 @@ function Trainer({ rep }: { rep: Repertoire }) {
               {reveal
                 ? (
                   <>
-                    <strong style={{ color: 'var(--bad)' }}>{drill.lastDeviation}</strong> deviates. The repertoire move
-                    here is <strong style={{ color: 'var(--sea)' }}>{reveal}</strong> — play it.
+                    <strong style={{ color: 'var(--clay-ink)' }}>{drill.lastDeviation}</strong> deviates. The repertoire move
+                    here is <strong style={{ color: 'var(--gold-ink)' }}>{reveal}</strong> — play it.
                   </>
                 )
                 : `Find the ${sideName.toLowerCase()} repertoire move.`}

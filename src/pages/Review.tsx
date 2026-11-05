@@ -716,7 +716,7 @@ export default function Review() {
                     {repertoireDeviation.deviation.expectedSan && (
                       <>
                         {' '}
-                        — your repertoire prefers <strong style={{ color: 'var(--sea)' }}>{repertoireDeviation.deviation.expectedSan}</strong>.
+                        — your repertoire prefers <strong style={{ color: 'var(--gold-ink)' }}>{repertoireDeviation.deviation.expectedSan}</strong>.
                       </>
                     )}
                   </p>

@@ -93,6 +93,26 @@ async function beforeUnloadVetoed(page) {
   });
 }
 
+/**
+ * Deterministic veto wait: the guard is registered in a passive effect
+ * that React flushes after paint, and the Stockfish WASM worker can
+ * occupy the main thread for long stretches right after a move — so a
+ * single dispatch can race the listener attachment. Poll until the veto
+ * matches the expectation (bounded); dispatching a synthetic
+ * beforeunload has no side effects on the app. This only synchronizes
+ * the check — the assertion still requires the guard to genuinely arm.
+ */
+async function pollVeto(page, expected, attempts = 20) {
+  let last = null;
+  for (let i = 0; i < attempts; i++) {
+    last = await beforeUnloadVetoed(page);
+    if (last === expected) return last;
+    await page.waitForTimeout(300);
+  }
+  return last;
+}
+
+
 const faultSetItem = (keys) => `
   (() => {
     const real = Storage.prototype.setItem;
@@ -536,16 +556,15 @@ async function run() {
   // (a) live game: reload/close is vetoed
   await resetToModeSwitch(page);
   await startAndPlayOpening(page);
-  // settle: the veto handler is registered in a passive effect, which can
-  // flush a frame after the DOM shows the second ply
-  await page.waitForTimeout(500);
-  const vetoLive = await beforeUnloadVetoed(page);
+  // the veto arms in a passive effect that can flush after the DOM shows
+  // the second ply — poll deterministically instead of racing it
+  const vetoLive = await pollVeto(page, true);
   log('beforeunload: live game arms a reload veto', vetoLive === true, `vetoed=${vetoLive}`);
   // (b) resign with WORKING storage: the finished record is durable → no veto
   const countBeforeB = await page.evaluate(() => JSON.parse(localStorage.getItem('gambit.profile')).games.length);
   await resignGame(page);
-  await page.waitForTimeout(500); // passive-effect settle before the dispatch
-  const vetoDurable = await beforeUnloadVetoed(page);
+  // the un-arm cleanup also flushes post-paint — poll until the guard is off
+  const vetoDurable = await pollVeto(page, false);
   const durableCount = await page.evaluate(() => JSON.parse(localStorage.getItem('gambit.profile')).games.length);
   log(
     'beforeunload: finished durable game does not veto',
@@ -558,8 +577,7 @@ async function run() {
   await startAndPlayOpening(page);
   const countBeforeC = await page.evaluate(() => JSON.parse(localStorage.getItem('gambit.profile')).games.length);
   await resignGame(page);
-  await page.waitForTimeout(500); // passive-effect settle before the dispatch
-  const vetoUnsaved = await beforeUnloadVetoed(page);
+  const vetoUnsaved = await pollVeto(page, true);
   log('beforeunload: finished UNPERSISTED game arms a reload veto', vetoUnsaved === true, `vetoed=${vetoUnsaved}`);
   // (d) SPA navigation: the emergency route stays reachable from any page
   await page.click('.main-nav a:has-text("Profile")');

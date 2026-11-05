@@ -5,9 +5,7 @@ import { defineConfig } from 'vite'
 
 // https://vite.dev/config/
 export default defineConfig({
-  plugins: [
-    react(),
-    VitePWA({
+  plugins: [react(), VitePWA({
       strategies: 'injectManifest', // hand-written SW (src/sw.ts) — no runtime module loader
       srcDir: 'src',
       filename: 'sw.ts',
@@ -22,8 +20,8 @@ export default defineConfig({
         scope: '/',
         display: 'standalone',
         orientation: 'any',
-        background_color: '#F5F1E8',
-        theme_color: '#1C1A17',
+        background_color: '#F8F5EF',
+        theme_color: '#0F1720',
         icons: [
           { src: '/pwa/icon-192.png', sizes: '192x192', type: 'image/png' },
           { src: '/pwa/icon-512.png', sizes: '512x512', type: 'image/png' },
@@ -31,7 +29,7 @@ export default defineConfig({
         ],
       },
       injectManifest: { // (injectManifest strategy reads this key, not `workbox`)
-        globPatterns: ['**/*.{js,css,html,svg,png,woff2,mp3,wasm}'],
+        globPatterns: ['**/*.{js,css,html,svg,png,jpg,ttf,woff2,mp3,wasm}'],
         // Stockfish is copied from public/ into dist/ and picked up by the
         // glob WITH revision — additionalManifestEntries would duplicate the
         // URLs and make workbox throw add-to-cache-list-conflicting-entries.

@@ -718,7 +718,7 @@ function GameScreen({
               </span>
             </div>
             {config.mode === 'ai' && config.persona && config.persona !== 'stockfish' && engineUsed === 'legacy' && (
-              <p className="small" role="note" style={{ margin: 0, color: 'var(--bad)' }}>
+              <p className="small" role="note" style={{ margin: 0, color: 'var(--clay-ink)' }}>
                 Stockfish is unavailable — the built-in fallback engine is answering, so this opponent is not playing its personality style.
               </p>
             )}
@@ -944,7 +944,7 @@ export default function Play() {
                 {Math.ceil((saved.pgn.match(/\./g)?.length ?? 0))} moves played
               </div>
               {(saved as { finishedId?: string }).finishedId && (
-                <div className="small" role="note" style={{ color: 'var(--bad)', marginTop: '0.25rem' }}>
+                <div className="small" role="note" style={{ color: 'var(--clay-ink)', marginTop: '0.25rem' }}>
                   This game already ended and could not be removed from storage — it is NOT resumable. Its record:{' '}
                   {(saved as { finishedId?: string }).finishedId && (loadJSON<{ games?: GameRecord[] }>('profile', {})).games?.some((g: { id: string }) => g.id === (saved as { finishedId?: string }).finishedId)
                     ? 'is saved in your history (open it from Profile).'
@@ -952,14 +952,14 @@ export default function Play() {
                 </div>
               )}
               {activeFailure && (
-                <div className="small" role="note" style={{ color: 'var(--bad)', marginTop: '0.25rem' }}>
+                <div className="small" role="note" style={{ color: 'var(--clay-ink)', marginTop: '0.25rem' }}>
                   The last save of this game could not be verified ({activeFailure.kind}). The snapshot may be older than
                   the game you were playing, so resuming may lose recent moves — or the whole game if storage failed at
                   the end.
                 </div>
               )}
               {discardError && (
-                <div className="small" role="note" style={{ color: 'var(--bad)', marginTop: '0.25rem' }}>
+                <div className="small" role="note" style={{ color: 'var(--clay-ink)', marginTop: '0.25rem' }}>
                   {discardError}
                 </div>
               )}

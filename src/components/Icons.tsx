@@ -34,6 +34,15 @@ export const KnightMark = ({ className }: { className?: string }) => (
   </svg>
 );
 
+export const BrandMark = ({ className }: { className?: string }) => (
+  <span className={`brand-mark${className ? ` ${className}` : ''}`}>
+    {/* the approved queen silhouette + the wordmark rendered in Great Vibes
+        (OFL — Bilgeon's personal-use license forbids committing it); one
+        transparent charcoal asset, see ASSET-LICENSES.md */}
+    <img src="/brand/gambit-lockup.png" alt="Gambit" className="brand-lockup" draggable={false} />
+  </span>
+);
+
 export const SunIcon = ({ size = 18, className, style }: IconProps) => (
   <svg {...svgProps(size, className, style)}>
     <circle cx="12" cy="12" r="4" />

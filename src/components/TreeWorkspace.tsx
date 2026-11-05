@@ -245,7 +245,7 @@ export default function TreeWorkspace({ tree, currentId, boardId, onTreeChange, 
       <div>
         <div className="row" style={{ alignItems: 'stretch', gap: '0.6rem' }}>
           {boardLeft}
-          <div className="grow">
+          <div className="grow workspace-board">
             <GameBoard
               boardId={boardId}
               fen={fen}
@@ -424,7 +424,7 @@ export default function TreeWorkspace({ tree, currentId, boardId, onTreeChange, 
               onKeyDown={(e) => e.key === 'Enter' && loadFenText()}
             />
             {fenError && (
-              <span className="small" style={{ color: 'var(--bad)' }}>
+              <span className="small" style={{ color: 'var(--clay-ink)' }}>
                 {fenError}
               </span>
             )}
