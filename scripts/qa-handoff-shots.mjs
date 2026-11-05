@@ -22,12 +22,14 @@ async function goto(p, url) {
 
 /* Home 1440 — full page + hero crop */
 let p = await newPage(1440, 900);
-await p.goto(`${BASE}/#/`, { waitUntil: 'load' });
+await goto(p, `${BASE}/#/`);
 await p.waitForSelector('.brand-lockup');
 await p.waitForTimeout(1500);
 await p.screenshot({ path: 'final-home-1440-full.png', fullPage: true });
 await p.screenshot({ path: 'final-header-logo-1440.png', clip: { x: 0, y: 0, width: 720, height: 68 } });
-await p.evaluate(() => document.querySelector('.hero')?.scrollIntoView());
+/* hero shot at scroll-top 0: scrollIntoView slides the band's top under
+   the sticky header, hiding the crown's orb and faking a crop */
+await p.evaluate(() => window.scrollTo(0, 0));
 await p.waitForTimeout(500);
 await p.screenshot({ path: 'final-home-hero-1440.png' });
 

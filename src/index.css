@@ -1130,14 +1130,22 @@ textarea.input { font-family: var(--mono); font-size: 0.82rem; line-height: 1.5;
 .feature-btn.btn-dark { background: var(--charcoal); color: var(--cream); border: 1px solid var(--charcoal); }
 .feature-btn.btn-dark:hover { background: var(--slate); }
 .feature-btn.btn-gold { align-self: center; width: 100%; justify-content: center; }
-/* Card balance: the dark preview surfaces absorb the leftover height of
-   the shared grid row (the tallest card governs), so Analysis/Train no
-   longer show large empty sections under their content. */
-.feature-card > .ui-preview,
-.feature-card > .ui-phone { flex: 1 1 auto; display: flex; flex-direction: column; }
-.feature-card > .ui-preview > .ui-setup,
-.feature-card > .ui-preview > .ui-review,
-.feature-card > .ui-phone > .ui-phone-screen { flex: 1 1 auto; }
+/* Desktop card balance: the Play setup preview is moderately downsized
+   (it was the row-height driver), so the shared row height follows
+   content again; the Analyze dark preview absorbs only the small
+   remainder with its content top-aligned — no large empty panel. The
+   Train phone keeps natural device proportions. Desktop only: below
+   781px the cards stack and keep their natural full-width previews. */
+@media (min-width: 781px) {
+  .feature-card > .ui-preview { flex: 1 1 auto; display: flex; flex-direction: column; }
+  .feature-card > .ui-preview > .ui-setup { width: min(100%, 300px); margin-inline: auto; }
+  /* center the board row in the grown dark panel — even margins instead
+     of one large void below the content */
+  .feature-card > .ui-preview > .ui-review { flex: 1 1 auto; align-content: center; }
+  /* natural device proportions: 9:16.5 frame, screen fills it */
+  .feature-card > .ui-phone { width: min(100%, 240px); margin-inline: auto; aspect-ratio: 9 / 16.5; display: flex; flex-direction: column; }
+  .feature-card > .ui-phone .ui-phone-screen { flex: 1 1 auto; }
+}
 .feature-cta-row { display: flex; flex-direction: column; gap: 0.6rem; margin-top: auto; padding-top: 0.6rem; }
 .feature-cta {
   display: inline-flex;
