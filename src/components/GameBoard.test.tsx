@@ -1,5 +1,5 @@
 import type { ComponentProps } from 'react';
-import { describe, expect, it } from 'vitest';
+import { afterAll, describe, expect, it } from 'vitest';
 import { render } from '@testing-library/react';
 import { SettingsProvider } from '../state/SettingsContext';
 import GameBoardDefault, { badgeOffset } from './GameBoard';
@@ -8,6 +8,17 @@ const Board = (props: ComponentProps<typeof GameBoardDefault>) => (
     <GameBoardDefault {...props} />
   </SettingsProvider>
 );
+
+afterAll(async () => {
+  // React schedules work-loop immediates (setImmediate) from the last
+  // renders and re-schedules itself while work remains; on a fast CI
+  // runner those fire AFTER vitest tears this file's jsdom environment
+  // down, and react-dom then throws 'window is not defined' as an
+  // uncaught exception. Drain on a short deadline (not a fixed count)
+  // while the environment is still alive.
+  const deadline = Date.now() + 120;
+  while (Date.now() < deadline) await new Promise<void>((r) => setTimeout(r, 15));
+});
 
 /* ============================================================
    Review quality badges — the classification badge pinned to the

@@ -1,0 +1,103 @@
+name: CI
+
+# Automated verification for the Gambit PWA. Before this workflow the
+# repository had NO GitHub Actions and every check ran on a developer
+# machine only (see PR #9's local-verification notes).
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read # read-only: no secrets, no PR writes, no deployments
+
+# one run per branch — a new push supersedes the previous in-flight run
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  core:
+    name: typecheck · lint · tests · build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24 # matches the version all local verification ran on
+          cache: npm
+
+      - name: Install dependencies (committed lockfile)
+        run: npm ci
+
+      - name: TypeScript typecheck
+        run: npx tsc -b
+
+      - name: Lint (oxlint)
+        run: npm run lint
+
+      - name: Unit/integration tests (vitest, serial files)
+        # --no-file-parallelism keeps execution deterministic on the
+        # 2-core runner: the load-sensitive practiceRunnerLifecycle
+        # timing previously flaked on saturated machines. Assertions
+        # are unchanged — this only stabilizes scheduling.
+        run: npx vitest run --no-file-parallelism
+
+      - name: Production build (tsc -b && vite build)
+        run: npm run build
+
+  browser-smoke:
+    name: browser QA (Playwright)
+    needs: core
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install dependencies (committed lockfile)
+        run: npm ci
+
+      - name: Install Playwright chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Build
+        run: npm run build
+
+      - name: Serve the production build
+        run: |
+          npx vite preview --port 5199 --strictPort &
+          for i in $(seq 1 30); do
+            if curl -sf http://localhost:5199/ > /dev/null; then
+              echo "server ready"; exit 0
+            fi
+            sleep 1
+          done
+          echo "server never became ready"; exit 1
+
+      - name: Run browser QA (hard assertions)
+        env:
+          QA_BASE: http://localhost:5199
+        run: node scripts/qa-ui-final.mjs
+
+      - name: Upload failure evidence
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: browser-qa-evidence
+          path: |
+            ui-*.png
+          if-no-files-found: ignore
+          retention-days: 7

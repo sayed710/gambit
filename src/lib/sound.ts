@@ -59,6 +59,23 @@ function proceduralBrush(level = 0.8) {
 }
 
 let unlocked = false;
+/** HTMLMediaElement.play() returns a Promise in browsers, but stubs
+    (jsdom, some embedded WebViews) return undefined — normalize so the
+    rejection guard never crashes on a non-Promise result. */
+function safePlay(el: HTMLAudioElement, onReject?: () => void): void {
+  try {
+    const result = el.play() as unknown;
+    if (result && typeof (result as Promise<void>).catch === 'function') {
+      (result as Promise<void>).catch(() => {
+        unlocked = false;
+        onReject?.();
+      });
+    }
+  } catch {
+    unlocked = false; // synchronous playback failure (stub environments)
+    onReject?.();
+  }
+}
 /** Browsers gate audio until a user gesture — unlock on the first one. */
 export function unlockAudio(): void {
   if (unlocked) return;
@@ -67,10 +84,7 @@ export function unlockAudio(): void {
   if (move) {
     const probe = move.cloneNode() as HTMLAudioElement;
     probe.volume = 0;
-    probe.play().catch(() => {
-      /* a later gesture will retry */
-      unlocked = false;
-    });
+    safePlay(probe); /* a later gesture will retry */
   }
   void ac();
 }
@@ -85,9 +99,8 @@ function playSample(name: string, gainScale: number, delayMs = 0): void {
   const play = () => {
     const el = base.cloneNode() as HTMLAudioElement;
     el.volume = Math.min(1, volumeGain(currentVolume) * gainScale);
-    el.play().catch(() => {
+    safePlay(el, () => {
       if (import.meta.env.DEV) console.warn(`[sound] "${name}" playback failed — unlock pending?`);
-      unlocked = false;
     });
   };
   if (delayMs > 0) window.setTimeout(play, delayMs);
