@@ -14,6 +14,7 @@ export interface NavSection {
 
 export const NAV_SECTIONS: NavSection[] = [
   { to: '/play', label: 'Play', match: ['/play'] },
+  { to: '/online', label: 'Online', match: ['/online'] },
   { to: '/analysis', label: 'Analysis', match: ['/analysis', '/editor', '/studies'] },
   { to: '/training', label: 'Train', match: ['/puzzles', '/training', '/repertoire', '/endgames', '/coordinates'] },
   { to: '/library', label: 'Library', match: ['/library', '/insights'] },

@@ -1,0 +1,153 @@
+/* Online multiplayer E2E — TWO isolated browser contexts against the
+   REAL local Supabase backend + the production build. Every UI claim is
+   polled until it holds (bounded) — a real regression still fails.
+   Prereqs: `npx supabase start`, `npm run build`, vite preview on 5199. */
+import { chromium } from 'playwright';
+
+const BASE = process.env.E2E_BASE ?? 'http://localhost:5199';
+let failures = 0;
+const check = (name, ok, detail = '') => {
+  console.log(`${ok ? 'PASS' : 'FAIL'}  ${name}${detail ? ' — ' + detail : ''}`);
+  if (!ok) failures++;
+};
+const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+
+/** poll an evaluate() until it returns truthy (bounded) */
+async function pollUntil(page, evalFn, timeoutMs = 15000) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const v = await page.evaluate(evalFn).catch(() => null);
+    if (v) return v;
+    await wait(300);
+  }
+  return null;
+}
+
+async function playSquare(page, from, to) {
+  await page.locator(`[data-square="${from}"]`).click();
+  await page.locator(`[data-square="${to}"]`).click();
+}
+
+const browser = await chromium.launch();
+const ctxA = await browser.newContext({ serviceWorkers: 'block', viewport: { width: 1280, height: 900 } });
+const ctxB = await browser.newContext({ serviceWorkers: 'block', viewport: { width: 900, height: 900 } });
+const ctxC = await browser.newContext({ serviceWorkers: 'block', viewport: { width: 900, height: 900 } });
+
+try {
+  /* ---- Player A: create a private game ---- */
+  const pA = await ctxA.newPage();
+  const errorsA = [];
+  pA.on('pageerror', (e) => errorsA.push(e.message));
+  await pA.goto(`${BASE}/#/online`, { waitUntil: 'load' });
+  await pA.waitForSelector('#online-name', { timeout: 30000 });
+  await pA.fill('#online-name', 'Alice');
+  // deterministic seat: White (the E2E plays the white opening moves)
+  await pA.locator('button[role="radio"]:has-text("White")').click();
+  await pA.locator('button:has-text("Create private game")').click();
+  await pA.waitForSelector('input[aria-label="Invitation link"]', { timeout: 30000 });
+  const link = await pA.locator('input[aria-label="Invitation link"]').inputValue();
+  check('A created a game and holds an invitation link', /#\/online\/join\?game=[^&]+&token=/.test(link));
+
+  /* ---- Player B: joins via the link from ANOTHER context ---- */
+  const pB = await ctxB.newPage();
+  const errorsB = [];
+  pB.on('pageerror', (e) => errorsB.push(e.message));
+  await pB.goto(link, { waitUntil: 'load' });
+  await pB.waitForSelector('#join-name', { timeout: 30000 });
+  await pB.fill('#join-name', 'Bob');
+  await pB.locator('button:has-text("Accept invitation")').click();
+  await pB.waitForSelector('.online-live', { timeout: 30000 });
+  check('B joined and sees the live board', true);
+
+  /* ---- A's waiting view flips to live (poll-based join detection) ---- */
+  const aLive = await pollUntil(pA, () => !!document.querySelector('.online-live'), 20000);
+  check('A sees the live game after the join', !!aLive);
+
+  /* ---- orientation: A is White (polled) ---- */
+  const aOrient = await pollUntil(
+    pA,
+    () => {
+      const a1 = document.querySelector('.online-live [data-square="a1"]')?.getBoundingClientRect().top;
+      const a8 = document.querySelector('.online-live [data-square="a8"]')?.getBoundingClientRect().top;
+      return a1 !== undefined && a8 !== undefined && a1 > a8;
+    },
+    10000,
+  );
+  check('A (White) sees a1 at the bottom', !!aOrient);
+
+  /* ---- A plays e4; B receives it ---- */
+  await playSquare(pA, 'e2', 'e4');
+  const bGotE4 = await pollUntil(pB, () => {
+    const txt = document.querySelector('.move-list')?.textContent ?? '';
+    return txt.includes('e4');
+  }, 15000);
+  check('B received A\'s e4 through the local backend', !!bGotE4);
+
+  /* ---- B replies e5; A receives it ---- */
+  await playSquare(pB, 'e7', 'e5');
+  const aGotE5 = await pollUntil(pA, () => {
+    const txt = document.querySelector('.move-list')?.textContent ?? '';
+    return txt.includes('e4') && txt.includes('e5');
+  }, 15000);
+  check('A received B\'s e5', !!aGotE5);
+
+  /* ---- identical authoritative history on both sides ---- */
+  const histA = await pA.evaluate(() => document.querySelector('.move-list')?.textContent ?? '');
+  const histB = await pB.evaluate(() => document.querySelector('.move-list')?.textContent ?? '');
+  check('both boards show the same move history', histA.includes('e4') && histB.includes('e4') && histA.includes('e5') && histB.includes('e5'), `A="${histA.slice(0, 40)}" B="${histB.slice(0, 40)}"`);
+
+  /* ---- A reloads: authoritative state restored ---- */
+  await pA.reload({ waitUntil: 'load' });
+  await pA.waitForSelector('.online-live', { timeout: 30000 }).catch(() => {});
+  const aRestored = await pollUntil(pA, () => {
+    const txt = document.querySelector('.move-list')?.textContent ?? '';
+    return txt.includes('e4') && txt.includes('e5');
+  }, 15000);
+  check('A reloads and restores the authoritative state', !!aRestored);
+
+  /* ---- third context C: the link cannot seat a third player ---- */
+  const pC = await ctxC.newPage();
+  await pC.goto(link, { waitUntil: 'load' });
+  await pC.waitForSelector('#join-name', { timeout: 30000 }).catch(() => {});
+  await pC.fill('#join-name', 'Eve');
+  await pC.locator('button:has-text("Accept invitation")').click();
+  await wait(2000);
+  const cRejected = (await pC.locator('.online-live').count()) === 0;
+  check('third context C cannot become a player', cRejected);
+
+  /* ---- clocks are visible on both sides ---- */
+  const aClocks = await pollUntil(pA, () => document.querySelectorAll('.clock').length === 2, 10000);
+  check('clock chips render on A\'s side', !!aClocks);
+
+  /* ---- B resigns (confirm banner); both see the final result ---- */
+  await pB.locator('button:has-text("Resign")').first().click();
+  await pB.locator('.status-banner.check button:has-text("Resign")').click();
+  const bOverlay = await pollUntil(pB, () => !!document.querySelector('.online-result-overlay'), 15000);
+  check('B sees the completion overlay after resigning', !!bOverlay);
+  const aOverlay = await pollUntil(pA, () => !!document.querySelector('.online-result-overlay'), 20000);
+  check('A sees the same final result', !!aOverlay);
+  const aResult = await pA.evaluate(() => document.querySelector('.online-result-title')?.textContent ?? '');
+  check('A\'s result text says won (B resigned)', aResult.includes('won'), aResult);
+
+  /* ---- PGN available ---- */
+  const pgnReady = await pollUntil(pA, () => {
+    const btn = [...document.querySelectorAll('.online-result-card button')].find((b) => b.textContent?.includes('PGN'));
+    return btn ? !btn.disabled : false;
+  }, 5000);
+  check('PGN download is enabled (authoritative PGN persisted)', !!pgnReady);
+
+  /* ---- zero page errors ---- */
+  check('zero page errors on A', errorsA.length === 0, errorsA.slice(0, 2).join(' | '));
+  check('zero page errors on B', errorsB.length === 0, errorsB.slice(0, 2).join(' | '));
+
+  await pA.screenshot({ path: 'ui-online-final-1280.png' });
+  await pB.screenshot({ path: 'ui-online-final-900.png' });
+  await pA.setViewportSize({ width: 390, height: 844 });
+  await wait(900);
+  await pA.screenshot({ path: 'ui-online-390.png' });
+} finally {
+  await browser.close();
+}
+
+console.log(failures === 0 ? 'ONLINE E2E: ALL PASS' : `ONLINE E2E: ${failures} FAILURES`);
+process.exit(failures === 0 ? 0 : 1);
