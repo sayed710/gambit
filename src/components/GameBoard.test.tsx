@@ -1,5 +1,5 @@
 import type { ComponentProps } from 'react';
-import { describe, expect, it } from 'vitest';
+import { afterAll, describe, expect, it } from 'vitest';
 import { render } from '@testing-library/react';
 import { SettingsProvider } from '../state/SettingsContext';
 import GameBoardDefault, { badgeOffset } from './GameBoard';
@@ -8,6 +8,15 @@ const Board = (props: ComponentProps<typeof GameBoardDefault>) => (
     <GameBoardDefault {...props} />
   </SettingsProvider>
 );
+
+afterAll(async () => {
+  // React schedules work-loop immediates (setImmediate) from the last
+  // renders; on a fast CI runner those fire AFTER vitest tears this
+  // file's jsdom environment down, and react-dom then throws
+  // 'window is not defined' as an uncaught exception. Yield while the
+  // environment is still alive so the pending immediates execute here.
+  for (let i = 0; i < 5; i++) await new Promise((r) => setImmediate(r));
+});
 
 /* ============================================================
    Review quality badges — the classification badge pinned to the
