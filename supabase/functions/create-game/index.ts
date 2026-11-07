@@ -6,7 +6,7 @@ import { createHash } from 'node:crypto';
 import { adminClient, corsPreflight, fail, json, requireUser } from '../_shared/game.ts';
 
 const ABUSE_WINDOW_MS = 10 * 60 * 1000;
-const ABUSE_MAX_OPEN = 5; // open (waiting/active) rooms per creator
+const ABUSE_MAX_OPEN = 8; // open (waiting/active) rooms per creator
 
 Deno.serve(async (req) => {
     if (req.method === 'OPTIONS') return corsPreflight();

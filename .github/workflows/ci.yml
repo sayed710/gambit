@@ -120,13 +120,14 @@ jobs:
       - name: Install dependencies (committed lockfile)
         run: npm ci
 
-      - name: Setup Supabase CLI
+      - name: Setup Supabase CLI (pinned to the locally verified version)
         uses: supabase/setup-cli@v1
         with:
-          version: latest
+          version: 3.0.0
 
-      - name: Start the local Supabase stack (excluding studio/storage/UI)
-        run: supabase start -x studio,imgproxy,inbucket,storage-api,pooler,vector
+      - name: Start the local Supabase stack (exclusions verified against CLI 3.0.0:
+        studio/imgproxy/storage-api/vector/pooler stop; mailpit+analytics start harmlessly)
+        run: supabase start -x studio,imgproxy,storage-api,vector,pooler
 
       - name: Apply migrations (db reset)
         run: supabase db reset

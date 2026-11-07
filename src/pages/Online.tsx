@@ -58,6 +58,7 @@ function LiveGame({
   const [game, setGame] = useState(initial);
   const [now, setNow] = useState(() => Date.now());
   const [conn, setConn] = useState<'connecting' | 'live' | 'offline'>('connecting');
+  const [backendOk, setBackendOk] = useState(true);
   const [pendingPromotion, setPendingPromotion] = useState<PendingPromotion | null>(null);
   const [confirmResign, setConfirmResign] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -124,14 +125,22 @@ function LiveGame({
     return (king?.square ?? null) as Square | null;
   }, [chess]);
 
-  /* authoritative fetch — the only accepted source of truth */
+  /* authoritative fetch — the only accepted source of truth. Its success
+     also proves backend reachability (independent of Realtime health). */
   const refetch = useCallback(async () => {
     try {
       const res = await api.getState(game.id);
+      setBackendOk(true);
       // strictly newer only — an equal version is the same state and
       // must not replace the object (avoids pointless board re-renders)
       setGame((cur) => (res.game.version > cur.version ? res.game : cur));
     } catch (e) {
+      // transport-level failure (network) marks the backend unreachable;
+      // an OnlineError (4xx from the API) proves the backend is reachable
+      if (!(e instanceof OnlineError)) {
+        setBackendOk(false);
+        setConn('offline');
+      }
       if (e instanceof OnlineError && e.code === 'not-found') setConn('offline');
     }
   }, [game.id]);
@@ -195,15 +204,17 @@ function LiveGame({
   );
 
   /* timeout claiming: when the OPPONENT's projected clock flags, claim.
-     A refused claim (race with the opponent's own claim or a lagging
-     projection) retries on a bounded backoff — the flag stays visible
-     until the server resolves it. */
+     Claims travel over HTTP — they must NOT depend on the Realtime
+     websocket being connected. A refused claim (race with the
+     opponent's own claim or a lagging projection) retries on a bounded
+     backoff (3 attempts) while the backend remains reachable; every
+     adjudication is version-guarded, so duplicates are impossible. */
   const [claimAttempts, setClaimAttempts] = useState(0);
   useEffect(() => {
     if (!finished) setClaimAttempts(0);
   }, [finished, game.id]);
   useEffect(() => {
-    if (finished || !mySeat || conn !== 'live') return;
+    if (finished || !mySeat || !backendOk) return;
     const flagged = clocks.flagged;
     if (!flagged || flagged === mySeat || claimAttempts >= 3) return;
     const t = window.setTimeout(() => {
@@ -211,15 +222,21 @@ function LiveGame({
       void (async () => {
         try {
           const res = await api.claimTimeout(game.id);
+          setBackendOk(true);
           applyAuthoritative(res.game);
           toast('Won on time — the opponent\'s clock flagged.');
-        } catch {
-          void refetch(); // refused — the next attempt decides
+        } catch (e) {
+          if (e instanceof OnlineError) {
+            setBackendOk(true); // the backend answered — only the claim was refused
+          } else {
+            setBackendOk(false); // transport failure — backend unreachable
+          }
+          void refetch();
         }
       })();
     }, claimAttempts === 0 ? 0 : 2000);
     return () => window.clearTimeout(t);
-  }, [clocks.flagged, claimAttempts, finished, mySeat, conn]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [clocks.flagged, claimAttempts, finished, mySeat, backendOk]); // eslint-disable-line react-hooks/exhaustive-deps
 
   /* ---- move submission ---- */
 
@@ -342,8 +359,12 @@ function LiveGame({
   return (
     <div className="online-live">
       <div className="row between online-status">
-        <span className={`conn-pill conn-${conn}`} role="status">
-          {conn === 'live' ? '● connected' : conn === 'offline' ? '○ offline — reconnecting…' : '○ connecting…'}
+        <span className={`conn-pill conn-${conn === 'live' && !backendOk ? 'offline' : conn}`} role="status" aria-live="polite">
+          {conn === 'live' && backendOk
+            ? '● realtime connected'
+            : conn === 'offline' || !backendOk
+              ? '○ offline — reconnecting…'
+              : '◐ realtime down — syncing by polling'}
         </span>
         <span className="small muted">{formatTimeControl(game.base_ms, game.increment_ms)} · unrated · private</span>
       </div>

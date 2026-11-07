@@ -3,6 +3,7 @@
    against the SERVER clock before adjudicating. No background cron is
    required in this milestone. */
 import { adminClient, corsPreflight, fail, isParticipant, json, loadGame, project, replay, requireUser, saveGame } from '../_shared/game.ts';
+import { expiryOutcome } from '../_shared/serverRules.ts';
 
 Deno.serve(async (req) => {
     if (req.method === 'OPTIONS') return corsPreflight();
@@ -26,7 +27,6 @@ if (req.method !== 'POST') return fail('method', 'POST only', 405);
   if (!seat) return fail('forbidden', 'you are not a player in this game', 403);
   if (game.status !== 'active') return fail('state', `game is ${game.status}, not active`, 409);
 
-  const opponentSeat = seat === 'w' ? 'b' : 'w';
   if (game.turn === seat) {
     return fail('not-expired', 'it is your own turn — no timeout to claim', 409, {
       yourMsRemaining: seat === 'w' ? game.white_ms_remaining : game.black_ms_remaining,
@@ -34,16 +34,16 @@ if (req.method !== 'POST') return fail('method', 'POST only', 405);
   }
   if (!game.turn_started_at) return fail('state', 'clock not started', 409);
 
-  const opponentRemaining = opponentSeat === 'w' ? game.white_ms_remaining : game.black_ms_remaining;
-  const elapsed = Math.max(0, Date.now() - new Date(game.turn_started_at).getTime());
-  const opponentLeft = opponentRemaining - elapsed;
-  if (opponentLeft > 0) {
-    return fail('not-expired', `opponent still has ${opponentLeft}ms`, 409, { opponentMsLeft: opponentLeft });
+  // the shared policy decides expiry AND the result (a win becomes a
+  // draw when the claimer lacks any mating material — FIDE 6.9)
+  const out = expiryOutcome(replay(game), game, Date.now());
+  if (!out || out.flagged === seat) {
+    return fail('not-expired', 'the opponent\'s clock has not expired', 409);
   }
 
   const { data, error } = await saveGame(admin, game, {
     status: 'completed',
-    result: seat === 'w' ? 'white' : 'black',
+    result: out.result,
     result_reason: 'timeout',
     pgn: replay(game).pgn(),
     version: game.version + 1,

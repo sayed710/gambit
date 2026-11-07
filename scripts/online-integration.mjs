@@ -139,16 +139,84 @@ check('invitation reuse after completion rejected', lateJoin.status === 409);
 const badJoin = await fn(C.token, 'join-game', { token: 'nonsense-token', name: 'Eve' });
 check('unknown token rejected', badJoin.status === 404);
 
-/* 20 — timeout claim (60s real wait — the honest path) */
-if (process.env.ONLINE_LONG === '1') {
+/* 20 — expiry adjudication policy (63s real wait — the honest path).
+   All expiry scenarios share ONE wait: five games start, the clocks run
+   down together, and every command shape is then asserted against the
+   shared policy (serverRules). */
+const LONG = process.env.ONLINE_LONG === '1';
+if (LONG) {
+  // seven games: B (black) will flag in all of them
+  const ids = [];
+  for (let i = 0; i < 7; i++) {
+    // B creates (A's open-room quota is spent by the earlier checks);
+    // B takes Black, A joins into the White seat
+    const c = await fn(B.token, 'create-game', { name: 'Bob', baseMs: 60000, incrementMs: 0, color: 'black' });
+    if (c.status !== 200 || !c.payload.gameId) { console.log('CREATE FAIL:', c.status, JSON.stringify(c.payload).slice(0, 160)); break; }
+    const j = await fn(A.token, 'join-game', { token: c.payload.token, name: 'Alice' });
+    if (j.status !== 200 || !j.payload.game) { console.log('JOIN FAIL:', j.status, JSON.stringify(j.payload).slice(0, 160)); break; }
+    ids.push(j.payload.game.id);
+    await fn(A.token, 'make-move', { gameId: j.payload.game.id, moveId: crypto.randomUUID(), from: 'e2', to: 'e4' }); // starts black's clock
+  }
+  // a legal black move BEFORE expiry is accepted normally (g0 — white
+  // becomes the flagged side there; used only for this positive check)
+  const earlyMove = await fn(B.token, 'make-move', { gameId: ids[0], moveId: crypto.randomUUID(), from: 'e7', to: 'e5' });
+  check('move inside the remaining time accepted', earlyMove.status === 200 && earlyMove.payload.applied === true);
+  console.log('waiting 63s for the five clocks to flag…');
+  await new Promise((r) => setTimeout(r, 63000));
+
+  // T1 — expired player attempts a move (B is flagged on g1)
+  const expiredMove = await fn(B.token, 'make-move', { gameId: ids[1], moveId: crypto.randomUUID(), from: 'e7', to: 'e5' });
+  check('expired player\'s move adjudicated (white wins, not applied)',
+    expiredMove.status === 409 && expiredMove.payload.error?.code === 'timeout' && expiredMove.payload.game?.status === 'completed' && expiredMove.payload.game?.result === 'white');
+
+  // T2 — expired player offers a draw
+  const expiredOffer = await fn(B.token, 'draw', { gameId: ids[2], action: 'offer' });
+  check('expired player\'s draw offer → timeout adjudication (white wins)',
+    expiredOffer.status === 200 && expiredOffer.payload.adjudicated === true && expiredOffer.payload.game?.result === 'white' && expiredOffer.payload.game?.result_reason === 'timeout');
+
+  // T3 — opponent accepts a draw after the deadline (offer pending pre-expiry)
+  // the OFFER itself reconciles the expired clock (any draw action does):
+  // the honest outcome is a timeout adjudication, not a pending offer
+  const lateOffer = await fn(A.token, 'draw', { gameId: ids[3], action: 'offer' });
+  check('draw offer after deadline → timeout adjudication (white wins)',
+    lateOffer.status === 200 && lateOffer.payload.adjudicated === true && lateOffer.payload.game?.result === 'white' && lateOffer.payload.game?.result_reason === 'timeout');
+  const lateAccept = await fn(B.token, 'draw', { gameId: ids[3], action: 'accept' });
+  check('draw accept on the adjudicated game is rejected (state)',
+    lateAccept.status === 409 && lateAccept.payload.error?.code === 'state');
+
+  // T4 — flagged player resigns after the deadline
+  const lateResign = await fn(B.token, 'resign', { gameId: ids[4] });
+  check('flagged player\'s resignation → timeout adjudication (white wins)',
+    lateResign.status === 200 && lateResign.payload.adjudicated === true && lateResign.payload.game?.result === 'white' && lateResign.payload.game?.result_reason === 'timeout');
+
+  // T5 — concurrent claim (A) + resignation (B)
+  const [claimX, resignX] = await Promise.all([
+    fn(A.token, 'claim-timeout', { gameId: ids[5] }),
+    fn(B.token, 'resign', { gameId: ids[5] }),
+  ]);
+  const winner = claimX.payload.game ?? resignX.payload.game;
+  console.log('T5 DIAG:', 'claim', claimX.status, JSON.stringify(claimX.payload).slice(0, 160), '| resign', resignX.status, JSON.stringify(resignX.payload).slice(0, 160));
+  check('concurrent claim+resign: exactly one adjudication, white wins on time',
+    winner?.status === 'completed' && winner?.result === 'white' && winner?.result_reason === 'timeout');
+
+  // T6 — concurrent claim (A) + move (B) on the flagged g6
+  const [claim2, moveB] = await Promise.all([
+    fn(A.token, 'claim-timeout', { gameId: ids[6] }),
+    fn(B.token, 'make-move', { gameId: ids[6], moveId: crypto.randomUUID(), from: 'e7', to: 'e5' }),
+  ]);
+  const finalG = moveB.payload.game ?? claim2.payload.game;
+  check('concurrent claim+move: consistent single outcome (flagged side never applies)',
+    finalG?.status === 'completed' && finalG?.result === 'white' && finalG?.result_reason === 'timeout');
+
+  /* 20b — timeout claim end-to-end (fresh game, honest 63s path) */
   const create3 = await fn(A.token, 'create-game', { name: 'Alice', baseMs: 60000, incrementMs: 0, color: 'white' });
   const join3 = await fn(B.token, 'join-game', { token: create3.payload.token, name: 'Bob' });
   const g3 = join3.payload.game;
   const early = await fn(A.token, 'claim-timeout', { gameId: g3.id });
   check('timeout claim rejected while clock alive', early.status === 409 && early.payload.error?.code === 'not-expired');
   await fn(A.token, 'make-move', { gameId: g3.id, moveId: crypto.randomUUID(), from: 'e2', to: 'e4' });
-  console.log('waiting 62s for black\'s clock to flag…');
-  await new Promise((r) => setTimeout(r, 62000));
+  console.log('waiting 63s for black\'s clock to flag…');
+  await new Promise((r) => setTimeout(r, 63000));
   const claim = await fn(A.token, 'claim-timeout', { gameId: g3.id });
   if (!(claim.status === 200 && claim.payload.game?.result === 'white')) {
     console.log('CLAIM DIAG:', claim.status, JSON.stringify(claim.payload).slice(0, 400));
@@ -157,7 +225,7 @@ if (process.env.ONLINE_LONG === '1') {
   const lateMove = await fn(B.token, 'make-move', { gameId: g3.id, moveId: crypto.randomUUID(), from: 'e7', to: 'e5' });
   check('moves after the flag are rejected (game already adjudicated)', lateMove.status === 409 && ['timeout', 'state'].includes(lateMove.payload.error?.code));
 } else {
-  console.log('NOTE  timeout claim test skipped (set ONLINE_LONG=1)');
+  console.log('NOTE  expiry adjudication suite skipped (set ONLINE_LONG=1)');
 }
 
 console.log(failures === 0 ? 'ONLINE INTEGRATION: ALL PASS' : `ONLINE INTEGRATION: ${failures} FAILURES`);

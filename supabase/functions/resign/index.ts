@@ -1,5 +1,6 @@
 /* resign — the seated participant resigns an active game. */
 import { adminClient, corsPreflight, fail, isParticipant, json, loadGame, project, replay, requireUser, saveGame } from '../_shared/game.ts';
+import { expiryOutcome } from '../_shared/serverRules.ts';
 
 Deno.serve(async (req) => {
     if (req.method === 'OPTIONS') return corsPreflight();
@@ -34,6 +35,22 @@ if (req.method !== 'POST') return fail('method', 'POST only', 405);
   }
 
   if (game.status !== 'active') return fail('state', `game is ${game.status}, not active`, 409);
+
+  // expiry reconciles BEFORE the resignation: if the resigning side's
+  // clock has already expired, the honest result is a timeout loss —
+  // a resignation cannot overwrite an adjudicated flag fall
+  const out = expiryOutcome(replay(game), game, Date.now());
+  if (out) {
+    const { data, error } = await saveGame(admin, game, {
+      status: 'completed',
+      result: out.result,
+      result_reason: 'timeout',
+      pgn: replay(game).pgn(),
+      version: game.version + 1,
+    }, game.version);
+    if (error || !data) return json({ ok: false, versionConflict: true, game: project(game) }, 409);
+    return json({ ok: true, adjudicated: true, game: project(data as typeof game) });
+  }
 
   const c = replay(game);
   const { data, error } = await saveGame(admin, game, {

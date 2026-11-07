@@ -4,7 +4,8 @@
    authoritative position), promotion, then an optimistic-concurrency
    CAS write (version). Idempotent via (id, last_move_id). Rejected
    after-deadline moves adjudicate a timeout instead. */
-import { adminClient, corsPreflight, detectEnd, elapsedMs, fail, isParticipant, json, loadGame, project, replay, requireUser, saveGame } from '../_shared/game.ts';
+import { adminClient, corsPreflight, detectEnd, fail, isParticipant, json, loadGame, project, replay, requireUser, saveGame } from '../_shared/game.ts';
+import { expiryOutcome } from '../_shared/serverRules.ts';
 
 interface MoveBody {
   gameId?: string;
@@ -51,15 +52,13 @@ if (req.method !== 'POST') return fail('method', 'POST only', 405);
 
   if (game.turn !== seat) return fail('turn', 'not your turn', 409, { turn: game.turn });
 
-  // authoritative clock — the move dies if the mover's deadline passed
-  const now = Date.now();
-  const remaining = seat === 'w' ? game.white_ms_remaining : game.black_ms_remaining;
-  const elapsed = elapsedMs(game, now);
-  if (game.turn_started_at && elapsed > remaining) {
-    const winner = seat === 'w' ? 'black' : 'white';
+  // authoritative clock — the shared policy decides expiry, the result
+  // (win vs insufficient-material draw) and persists it under CAS
+  const out = expiryOutcome(replay(game), game, Date.now());
+  if (out) {
     const { data } = await saveGame(admin, game, {
       status: 'completed',
-      result: winner,
+      result: out.result,
       result_reason: 'timeout',
       pgn: replay(game).pgn(),
       version: game.version + 1,
@@ -67,7 +66,7 @@ if (req.method !== 'POST') return fail('method', 'POST only', 405);
     return json({
       ok: false,
       applied: false,
-      error: { code: 'timeout', message: 'your clock ran out — the opponent wins on time' },
+      error: { code: 'timeout', message: out.result === 'draw' ? 'your clock ran out — insufficient material to mate: draw' : 'your clock ran out — the opponent wins on time' },
       game: data ? project(data) : project(game),
     }, 409);
   }
@@ -90,7 +89,10 @@ if (req.method !== 'POST') return fail('method', 'POST only', 405);
   // apply normally) until the offer is accepted or declined.
   const finished = end.over;
 
-  const remainingAfter = Math.max(0, remaining - elapsed + (finished ? 0 : game.increment_ms));
+  // the mover's clock: remaining minus the server-measured elapsed time
+  const moverRemaining = seat === 'w' ? game.white_ms_remaining : game.black_ms_remaining;
+  const elapsed = game.turn_started_at ? Math.max(0, Date.now() - new Date(game.turn_started_at).getTime()) : 0;
+  const remainingAfter = Math.max(0, moverRemaining - elapsed + (finished ? 0 : game.increment_ms));
   const patch: Record<string, unknown> = {
     moves,
     version: game.version + 1,

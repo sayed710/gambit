@@ -2,6 +2,7 @@
    (draw_offer_by); only the OPPONENT can accept; either side can
    decline. Accepting ends the game as an agreed draw. */
 import { adminClient, corsPreflight, fail, isParticipant, json, loadGame, project, replay, requireUser, saveGame } from '../_shared/game.ts';
+import { expiryOutcome } from '../_shared/serverRules.ts';
 
 Deno.serve(async (req) => {
     if (req.method === 'OPTIONS') return corsPreflight();
@@ -26,6 +27,22 @@ if (req.method !== 'POST') return fail('method', 'POST only', 405);
   const seat = isParticipant(game, user.id);
   if (!seat) return fail('forbidden', 'you are not a player in this game', 403);
   if (game.status !== 'active') return fail('state', `game is ${game.status}, not active`, 409);
+
+  // expiry reconciles BEFORE any draw action: if the side to move has
+  // already flagged, the timeout result stands — a draw cannot overwrite
+  // an adjudicated flag fall
+  const out = expiryOutcome(replay(game), game, Date.now());
+  if (out) {
+    const { data, error } = await saveGame(admin, game, {
+      status: 'completed',
+      result: out.result,
+      result_reason: 'timeout',
+      pgn: replay(game).pgn(),
+      version: game.version + 1,
+    }, game.version);
+    if (error || !data) return json({ ok: false, versionConflict: true, game: project(game) }, 409);
+    return json({ ok: true, adjudicated: true, game: project(data as typeof game) });
+  }
 
   const opponentId = seat === 'w' ? game.black_id : game.white_id;
 
