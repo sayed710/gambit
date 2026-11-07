@@ -1,7 +1,7 @@
 /* draw — offer / accept / decline. The offer lives on the row
    (draw_offer_by); only the OPPONENT can accept; either side can
    decline. Accepting ends the game as an agreed draw. */
-import { adminClient, fail, isParticipant, json, loadGame, project, replay, requireUser, saveGame } from '../_shared/game.ts';
+import { adminClient, corsPreflight, fail, isParticipant, json, loadGame, project, replay, requireUser, saveGame } from '../_shared/game.ts';
 
 Deno.serve(async (req) => {
     if (req.method === 'OPTIONS') return corsPreflight();

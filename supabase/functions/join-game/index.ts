@@ -3,7 +3,7 @@
    empty seat, so a third participant or a double-join can never corrupt
    the game. Body: { token, name } */
 import { createHash } from 'node:crypto';
-import { adminClient, fail, json, loadGame, project, requireUser } from '../_shared/game.ts';
+import { adminClient, corsPreflight, fail, json, loadGame, project, requireUser } from '../_shared/game.ts';
 
 Deno.serve(async (req) => {
     if (req.method === 'OPTIONS') return corsPreflight();

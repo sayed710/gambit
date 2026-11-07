@@ -4,7 +4,7 @@
    authoritative position), promotion, then an optimistic-concurrency
    CAS write (version). Idempotent via (id, last_move_id). Rejected
    after-deadline moves adjudicate a timeout instead. */
-import { adminClient, detectEnd, elapsedMs, fail, isParticipant, json, loadGame, project, replay, requireUser, saveGame } from '../_shared/game.ts';
+import { adminClient, corsPreflight, detectEnd, elapsedMs, fail, isParticipant, json, loadGame, project, replay, requireUser, saveGame } from '../_shared/game.ts';
 
 interface MoveBody {
   gameId?: string;

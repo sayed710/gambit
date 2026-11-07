@@ -2,7 +2,7 @@
    participant may claim; the function verifies the opponent's deadline
    against the SERVER clock before adjudicating. No background cron is
    required in this milestone. */
-import { adminClient, fail, isParticipant, json, loadGame, project, requireUser, saveGame } from '../_shared/game.ts';
+import { adminClient, corsPreflight, fail, isParticipant, json, loadGame, project, replay, requireUser, saveGame } from '../_shared/game.ts';
 
 Deno.serve(async (req) => {
     if (req.method === 'OPTIONS') return corsPreflight();

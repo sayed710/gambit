@@ -1,5 +1,5 @@
 /* resign — the seated participant resigns an active game. */
-import { adminClient, fail, isParticipant, json, loadGame, project, replay, requireUser, saveGame } from '../_shared/game.ts';
+import { adminClient, corsPreflight, fail, isParticipant, json, loadGame, project, replay, requireUser, saveGame } from '../_shared/game.ts';
 
 Deno.serve(async (req) => {
     if (req.method === 'OPTIONS') return corsPreflight();
