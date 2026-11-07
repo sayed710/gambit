@@ -135,3 +135,35 @@ jobs:
         env:
           ONLINE_LONG: '1' # includes the 62s real-time timeout claim test
         run: node scripts/online-integration.mjs
+
+      - name: Install Playwright chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Build
+        run: npm run build
+
+      - name: Serve the production build
+        run: |
+          npx vite preview --port 5199 --strictPort &
+          for i in $(seq 1 30); do
+            if curl -sf http://localhost:5199/ > /dev/null; then
+              echo "server ready"; exit 0
+            fi
+            sleep 1
+          done
+          echo "server never became ready"; exit 1
+
+      - name: Run the two-browser online E2E
+        env:
+          E2E_BASE: http://localhost:5199
+        run: node scripts/online-e2e.mjs
+
+      - name: Upload online E2E failure evidence
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: online-e2e-evidence
+          path: |
+            ui-online-*.png
+          if-no-files-found: ignore
+          retention-days: 7

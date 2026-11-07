@@ -1033,8 +1033,19 @@ textarea.input { font-family: var(--mono); font-size: 0.82rem; line-height: 1.5;
 .pwa-preparing { color: var(--muted); }
 .pwa-offline { color: var(--gold-ink); border-color: color-mix(in srgb, var(--sea) 45%, transparent); }
 /* the header is crowded between 720 and 820px with wide system fonts:
-   the STATUS CHIPS hide, while the Install/Update buttons stay usable */
-@media (max-width: 820px) { .pwa-status .pwa-chip { display: none; } }
+   the STATUS CHIPS collapse visually but stay in the accessibility tree
+   (screen readers still announce offline readiness); the Install/Update
+   buttons remain visible and usable */
+@media (max-width: 820px) {
+  .pwa-status .pwa-chip {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+}
 
 /* Persist failure banner — Arctic alert, persistent until resolved */
 .persist-banner {

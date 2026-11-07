@@ -42,8 +42,10 @@ if (req.method !== 'POST') return fail('method', 'POST only', 405);
   if (!seat) return fail('forbidden', 'you are not a player in this game', 403);
   if (game.status !== 'active') return fail('state', `game is ${game.status}, not active`, 409);
 
-  // idempotent replay of the last accepted command
-  if (game.last_move_id === moveId) {
+  // idempotency: a moveId already present ANYWHERE in the history is a
+  // no-op (a retried stale command must never apply twice, even if the
+  // position later repeats and the same move becomes legal again)
+  if (game.last_move_id === moveId || game.moves.some((m) => m.moveId === moveId)) {
     return json({ ok: true, applied: false, replay: true, game: project(game) });
   }
 
@@ -83,7 +85,10 @@ if (req.method !== 'POST') return fail('method', 'POST only', 405);
 
   const moves = [...game.moves, { san: move.san, from: move.from, to: move.to, fenAfter: c.fen(), moveId }];
   const end = detectEnd(c);
-  const finished = end.over || game.draw_offer_by; // accepting happens in draw-*; an offered draw does not end here
+  // ONLY rule-driven ends finish here. A pending draw offer is not a
+  // finished game: the clock keeps running (increment + turn handoff
+  // apply normally) until the offer is accepted or declined.
+  const finished = end.over;
 
   const remainingAfter = Math.max(0, remaining - elapsed + (finished ? 0 : game.increment_ms));
   const patch: Record<string, unknown> = {

@@ -64,6 +64,14 @@ function LiveGame({
   const versionRef = useRef(initial.version);
   const moveIdRef = useRef<string | null>(null);
   versionRef.current = game.version;
+  /* install an authoritative response only if it is not older than what
+     is already on screen — a late reply must never rewind the board */
+  const applyAuthoritative = useCallback((g: OnlineGame) => {
+    if (g.version >= versionRef.current) {
+      versionRef.current = g.version;
+      setGame(g);
+    }
+  }, []);
 
   const mySeat: 'w' | 'b' | null = game.white_id === me ? 'w' : game.black_id === me ? 'b' : null;
   const orientation = mySeat === 'b' ? 'black' : 'white';
@@ -87,7 +95,9 @@ function LiveGame({
   /* completed games persist locally for the lobby history (never touches
      the offline profile or ratings) */
   useEffect(() => {
-    if (game.status !== 'completed' || !game.pgn) return;
+    // wait for the REAL identity: recording before  resolves would
+    // mislabel color/opponent and the id guard would block correcting it
+    if (game.status !== 'completed' || game.pgn == null || !me) return;
     try {
       const hist = JSON.parse(localStorage.getItem('gambit.onlineHistory') ?? '[]') as {
         id: string; pgn: string; result: string; reason: string | null; opponent: string; color: 'White' | 'Black'; at: number;
@@ -187,7 +197,7 @@ function LiveGame({
       void (async () => {
         try {
           const res = await api.claimTimeout(game.id);
-          setGame(res.game);
+          applyAuthoritative(res.game);
           toast('Won on time — the opponent\'s clock flagged.');
         } catch {
           void refetch(); // refused — the next attempt decides
@@ -207,7 +217,7 @@ function LiveGame({
       setBusy(true);
       try {
         const res = await api.makeMove(game.id, moveId, from, to, promotion);
-        setGame(res.game); // authoritative regardless of applied/conflict/replay
+        applyAuthoritative(res.game); // authoritative regardless of applied/conflict/replay
         if (res.applied) {
           playSound('move');
           if (res.game.status === 'completed') toast(gameEndToast(res.game, mySeat));
@@ -273,7 +283,7 @@ function LiveGame({
     setBusy(true);
     try {
       const res = await api.resign(game.id);
-      setGame(res.game);
+      applyAuthoritative(res.game);
       setConfirmResign(false);
       toast('You resigned.');
     } catch (e) {
@@ -287,7 +297,7 @@ function LiveGame({
     setBusy(true);
     try {
       const res = await api.draw(game.id, action);
-      setGame(res.game);
+      applyAuthoritative(res.game);
       if (action === 'offer') toast('Draw offered.');
       if (action === 'decline') toast('Draw declined.');
     } catch (e) {
@@ -683,7 +693,7 @@ function OnlineInner() {
         if (res.game.status === 'waiting') {
           // the seat was chosen at creation — never derived from which id is filled
           setPhase({ kind: 'waiting', gameId: parsedSaved.id, token: parsedSaved.token, color: parsedSaved.color ?? 'white' });
-        } else if (res.game.status === 'active') {
+        } else if (res.game.status === 'active' || res.game.status === 'completed') {
           const me = await currentGuestId();
           if (me && (res.game.white_id === me || res.game.black_id === me)) setPhase({ kind: 'live', game: res.game });
         }
