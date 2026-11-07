@@ -15,7 +15,7 @@ afterAll(async () => {
   // file's jsdom environment down, and react-dom then throws
   // 'window is not defined' as an uncaught exception. Yield while the
   // environment is still alive so the pending immediates execute here.
-  for (let i = 0; i < 5; i++) await new Promise((r) => setImmediate(r));
+  for (let i = 0; i < 5; i++) await new Promise<void>((r) => setTimeout(r, 0));
 });
 
 /* ============================================================
