@@ -1264,3 +1264,21 @@ textarea.input { font-family: var(--mono); font-size: 0.82rem; line-height: 1.5;
   .page-head h1 { font-size: clamp(1.9rem, 3.4vw, 2.5rem); }
   .page-head .sub { margin-top: 0.4rem; }
 }
+
+/* ---------- Online Play ---------- */
+.online-page { display: flex; flex-direction: column; }
+.online-status { margin: 0.2rem 0 0.8rem; align-items: center; }
+.conn-pill { font-size: 0.78rem; font-weight: 600; border-radius: 99px; padding: 0.28rem 0.7rem; }
+.conn-live { background: rgba(89, 125, 91, 0.15); color: var(--sage-ink); }
+.conn-offline { background: var(--bad-soft); color: var(--clay-ink); }
+.conn-connecting { background: var(--surface-2); color: var(--muted); }
+.online-player-row { margin: 0.35rem 0; align-items: center; }
+.online-player-row .clock { font-size: 1.3rem; min-width: 5.4ch; text-align: center; padding: 0.3rem 0.7rem; }
+.online-side { display: flex; flex-direction: column; gap: 0.8rem; min-height: 0; }
+.online-note { border-top: 1px solid var(--border); padding-top: 0.6rem; margin-top: auto; }
+.online-waiting { max-width: 720px; display: flex; flex-direction: column; gap: 0.8rem; }
+.online-pulse { width: 10px; height: 10px; border-radius: 99px; background: var(--sage); margin: 0.6rem auto 0.2rem; animation: online-pulse 1.6s ease-in-out infinite; }
+@keyframes online-pulse { 0%, 100% { opacity: 0.25; } 50% { opacity: 1; } }
+.online-result-overlay { position: fixed; inset: 0; background: rgba(15, 23, 32, 0.55); display: flex; align-items: center; justify-content: center; z-index: 60; padding: 1rem; }
+.online-result-card { background: var(--bg-raised); border: 1px solid var(--gold-deep); border-radius: var(--radius-lg); max-width: 420px; width: 100%; box-shadow: var(--shadow-md); display: flex; flex-direction: column; gap: 0.4rem; }
+.online-result-title { font-family: var(--serif); font-size: 2rem; margin: 0; color: var(--ink); }

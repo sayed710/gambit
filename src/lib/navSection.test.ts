@@ -20,10 +20,12 @@ describe('navigation section matching', () => {
 
   it('keeps the desktop and mobile nav definitions identical', () => {
     // one shared constant is consumed by both navs; assert the shape
-    expect(NAV_SECTIONS.map((n) => n.label)).toEqual(['Play', 'Analysis', 'Train', 'Library', 'Profile']);
-    expect(sectionMatches(NAV_SECTIONS[1], '/studies/123')).toBe(true);
-    expect(sectionMatches(NAV_SECTIONS[2], '/repertoire/abc')).toBe(true);
+    expect(NAV_SECTIONS.map((n) => n.label)).toEqual(['Play', 'Online', 'Analysis', 'Train', 'Library', 'Profile']);
+    expect(sectionMatches(NAV_SECTIONS[2], '/studies/123')).toBe(true);
+    expect(sectionMatches(NAV_SECTIONS[3], '/repertoire/abc')).toBe(true);
     expect(sectionMatches(NAV_SECTIONS[0], '/studies/123')).toBe(false);
+    expect(sectionForPath('/online')).toBe('/online');
+    expect(sectionForPath('/online/join')).toBe('/online');
   });
 
   it('is not fooled by prefix collisions', () => {
