@@ -690,6 +690,11 @@ function OnlineInner() {
       try {
         const parsedSaved = JSON.parse(saved) as { id: string; token: string; color?: 'white' | 'black' };
         const res = await api.getState(parsedSaved.id);
+        // a room created while this fetch was in flight wins — the late
+        // completed-game response must not replace it
+        if (phase.kind !== 'create') return;
+        const current = localStorage.getItem('gambit.onlineGame');
+        if (current !== saved) return;
         if (res.game.status === 'waiting') {
           // the seat was chosen at creation — never derived from which id is filled
           setPhase({ kind: 'waiting', gameId: parsedSaved.id, token: parsedSaved.token, color: parsedSaved.color ?? 'white' });

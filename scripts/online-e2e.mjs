@@ -32,10 +32,12 @@ const browser = await chromium.launch();
 const ctxA = await browser.newContext({ serviceWorkers: 'block', viewport: { width: 1280, height: 900 } });
 const ctxB = await browser.newContext({ serviceWorkers: 'block', viewport: { width: 900, height: 900 } });
 const ctxC = await browser.newContext({ serviceWorkers: 'block', viewport: { width: 900, height: 900 } });
+let pA = null;
+let pB = null;
 
 try {
   /* ---- Player A: create a private game ---- */
-  const pA = await ctxA.newPage();
+  pA = await ctxA.newPage();
   const errorsA = [];
   pA.on('pageerror', (e) => errorsA.push(e.message));
   await pA.goto(`${BASE}/#/online`, { waitUntil: 'load' });
@@ -49,7 +51,7 @@ try {
   check('A created a game and holds an invitation link', /#\/online\/join\?game=[^&]+&token=/.test(link));
 
   /* ---- Player B: joins via the link from ANOTHER context ---- */
-  const pB = await ctxB.newPage();
+  pB = await ctxB.newPage();
   const errorsB = [];
   pB.on('pageerror', (e) => errorsB.push(e.message));
   await pB.goto(link, { waitUntil: 'load' });
@@ -146,6 +148,12 @@ try {
   await wait(900);
   await pA.screenshot({ path: 'ui-online-390.png' });
 } finally {
+  // evidence even when an early step throws
+  for (const [name, pg] of [['A', pA], ['B', pB]]) {
+    if (pg && !pg.isClosed()) {
+      await pg.screenshot({ path: `ui-online-${name}-on-error.png` }).catch(() => {});
+    }
+  }
   await browser.close();
 }
 

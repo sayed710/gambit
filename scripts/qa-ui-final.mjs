@@ -264,7 +264,7 @@ for (const [w, h] of [[1024, 768], [768, 1024], [390, 844]]) {
     for (const el of document.querySelectorAll('body *')) {
       const r = el.getBoundingClientRect();
       if (r.right > doc.clientWidth + 1 && (!worst || r.right > worst.right)) {
-        worst = { right: Math.round(r.right), tag: el.tagName + '.' + String(el.className).slice(0, 40), text: (el.textContent ?? '').trim().slice(0, 24) };
+        worst = { right: Math.round(r.right), tag: el.tagName.toLowerCase() + (el.getAttribute('class') ? '.' + el.getAttribute('class').split(' ').join('.') : ''), text: (el.textContent ?? '').trim().slice(0, 24) };
       }
     }
     return { scrollW: doc.scrollWidth, clientW: doc.clientWidth, worst };
