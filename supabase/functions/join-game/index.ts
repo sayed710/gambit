@@ -6,7 +6,8 @@ import { createHash } from 'node:crypto';
 import { adminClient, fail, json, loadGame, project, requireUser } from '../_shared/game.ts';
 
 Deno.serve(async (req) => {
-  if (req.method !== 'POST') return fail('method', 'POST only', 405);
+    if (req.method === 'OPTIONS') return corsPreflight();
+if (req.method !== 'POST') return fail('method', 'POST only', 405);
   const user = await requireUser(req);
   if (!user) return fail('auth', 'authentication required', 401);
 

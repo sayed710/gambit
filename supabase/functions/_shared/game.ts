@@ -31,10 +31,22 @@ export interface GameRow {
   last_move_id: string | null;
 }
 
+/* Browsers call these functions cross-origin (app origin != functions
+   origin) — every response carries CORS headers and every function
+   answers the preflight OPTIONS short-circuit via corsPreflight(). */
+export const corsHeaders: Record<string, string> = {
+  'content-type': 'application/json',
+  'access-control-allow-origin': '*',
+  'access-control-allow-headers': 'authorization, content-type, apikey, x-client-info',
+  'access-control-allow-methods': 'POST, GET, OPTIONS',
+};
+
+export const corsPreflight = (): Response => new Response('ok', { status: 200, headers: corsHeaders });
+
 export const json = (body: unknown, status = 200): Response =>
   new Response(JSON.stringify(body), {
     status,
-    headers: { 'content-type': 'application/json' },
+    headers: corsHeaders,
   });
 
 export const fail = (code: string, message: string, status = 400, extra?: Record<string, unknown>): Response =>

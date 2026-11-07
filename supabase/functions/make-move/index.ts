@@ -15,7 +15,8 @@ interface MoveBody {
 }
 
 Deno.serve(async (req) => {
-  if (req.method !== 'POST') return fail('method', 'POST only', 405);
+    if (req.method === 'OPTIONS') return corsPreflight();
+if (req.method !== 'POST') return fail('method', 'POST only', 405);
   const user = await requireUser(req);
   if (!user) return fail('auth', 'authentication required', 401);
 
@@ -58,6 +59,7 @@ Deno.serve(async (req) => {
       status: 'completed',
       result: winner,
       result_reason: 'timeout',
+      pgn: replay(game).pgn(),
       version: game.version + 1,
     }, game.version);
     return json({
@@ -91,6 +93,8 @@ Deno.serve(async (req) => {
     last_move_id: moveId,
     turn_started_at: finished ? game.turn_started_at : new Date().toISOString(),
   };
+  // a standing draw offer dies when its offerer moves (standard chess behavior)
+  if (game.draw_offer_by === user.id) patch.draw_offer_by = null;
   if (seat === 'w') patch.white_ms_remaining = remainingAfter;
   else patch.black_ms_remaining = remainingAfter;
   if (end.over) {

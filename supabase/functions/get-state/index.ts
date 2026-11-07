@@ -1,10 +1,11 @@
 /* get-state — participants read authoritative state through RLS.
    Realtime events are only bells: clients refetch here and reconcile
    by version. */
-import { fail, json, userClient } from '../_shared/game.ts';
+import { corsPreflight, fail, json, userClient } from '../_shared/game.ts';
 
 Deno.serve(async (req) => {
-  if (req.method !== 'GET' && req.method !== 'POST') return fail('method', 'GET/POST only', 405);
+    if (req.method === 'OPTIONS') return corsPreflight();
+if (req.method !== 'GET' && req.method !== 'POST') return fail('method', 'GET/POST only', 405);
   // gameId arrives as a query param (GET) or JSON body (POST)
   let gameId = new URL(req.url).searchParams.get('gameId') ?? '';
   if (!gameId && req.method === 'POST') {

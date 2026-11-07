@@ -83,6 +83,31 @@ function LiveGame({
   const lastMove = game.moves.length
     ? { from: game.moves[game.moves.length - 1].from as Square, to: game.moves[game.moves.length - 1].to as Square }
     : null;
+
+  /* completed games persist locally for the lobby history (never touches
+     the offline profile or ratings) */
+  useEffect(() => {
+    if (game.status !== 'completed' || !game.pgn) return;
+    try {
+      const hist = JSON.parse(localStorage.getItem('gambit.onlineHistory') ?? '[]') as {
+        id: string; pgn: string; result: string; reason: string | null; opponent: string; color: 'White' | 'Black'; at: number;
+      }[];
+      if (hist.some((h) => h.id === game.id)) return;
+      hist.unshift({
+        id: game.id,
+        pgn: game.pgn,
+        result: game.result ?? 'draw',
+        reason: game.result_reason,
+        opponent: game.white_id === me ? game.black_name : game.white_name,
+        color: game.white_id === me ? 'White' : 'Black',
+        at: Date.now(),
+      });
+      localStorage.setItem('gambit.onlineHistory', JSON.stringify(hist.slice(0, 20)));
+    } catch {
+      /* history is best-effort */
+    }
+  }, [game.status, game.pgn, game.id, me]);
+
   const checkSquare = useMemo(() => {
     if (!chess.inCheck()) return null;
     const king = chess.board().flat().find((sq) => sq?.type === 'k' && sq.color === chess.turn());
@@ -145,23 +170,32 @@ function LiveGame({
     now,
   );
 
-  /* timeout claiming: when the OPPONENT's projected clock flags, claim */
+  /* timeout claiming: when the OPPONENT's projected clock flags, claim.
+     A refused claim (race with the opponent's own claim or a lagging
+     projection) retries on a bounded backoff — the flag stays visible
+     until the server resolves it. */
+  const [claimAttempts, setClaimAttempts] = useState(0);
+  useEffect(() => {
+    if (!finished) setClaimAttempts(0);
+  }, [finished, game.id]);
   useEffect(() => {
     if (finished || !mySeat || conn !== 'live') return;
     const flagged = clocks.flagged;
-    if (flagged && flagged !== mySeat) {
+    if (!flagged || flagged === mySeat || claimAttempts >= 3) return;
+    const t = window.setTimeout(() => {
+      setClaimAttempts((n) => n + 1);
       void (async () => {
         try {
           const res = await api.claimTimeout(game.id);
           setGame(res.game);
           toast('Won on time — the opponent\'s clock flagged.');
         } catch {
-          /* the server refused (already adjudicated / not expired) — reconcile */
-          void refetch();
+          void refetch(); // refused — the next attempt decides
         }
       })();
-    }
-  }, [clocks.flagged, finished, mySeat, conn]); // eslint-disable-line react-hooks/exhaustive-deps
+    }, claimAttempts === 0 ? 0 : 2000);
+    return () => window.clearTimeout(t);
+  }, [clocks.flagged, claimAttempts, finished, mySeat, conn]); // eslint-disable-line react-hooks/exhaustive-deps
 
   /* ---- move submission ---- */
 
@@ -644,11 +678,11 @@ function OnlineInner() {
     if (!saved || location.pathname.endsWith('/online/join')) return;
     void (async () => {
       try {
-        const { id } = JSON.parse(saved) as { id: string };
-        const res = await api.getState(id);
+        const parsedSaved = JSON.parse(saved) as { id: string; token: string; color?: 'white' | 'black' };
+        const res = await api.getState(parsedSaved.id);
         if (res.game.status === 'waiting') {
-          const token = (JSON.parse(saved) as { token: string }).token;
-          setPhase({ kind: 'waiting', gameId: id, token, color: res.game.white_id ? 'black' : 'white' });
+          // the seat was chosen at creation — never derived from which id is filled
+          setPhase({ kind: 'waiting', gameId: parsedSaved.id, token: parsedSaved.token, color: parsedSaved.color ?? 'white' });
         } else if (res.game.status === 'active') {
           const me = await currentGuestId();
           if (me && (res.game.white_id === me || res.game.black_id === me)) setPhase({ kind: 'live', game: res.game });
@@ -710,6 +744,7 @@ function OnlineInner() {
       )}
 
       {phase.kind === 'create' && <CreateForm onCreate={create} />}
+      {phase.kind === 'create' && <OnlineHistory />}
       {phase.kind === 'waiting' && (
         <Waiting
           gameId={phase.gameId}
@@ -738,6 +773,41 @@ function OnlineInner() {
 }
 
 /* ------------------------------------------------ helpers ---- */
+
+/** finished online games kept locally (cap 20) — replayed via Analysis */
+function OnlineHistory() {
+  const navigate = useNavigate();
+  const [hist] = useState(() => {
+    try {
+      return JSON.parse(localStorage.getItem('gambit.onlineHistory') ?? '[]') as {
+        id: string; pgn: string; result: string; reason: string | null; opponent: string; color: 'White' | 'Black'; at: number;
+      }[];
+    } catch {
+      return [];
+    }
+  });
+  if (!hist.length) return null;
+  return (
+    <div className="panel panel-pad online-waiting">
+      <div className="section-label">
+        Finished games
+        <span className="small muted">{hist.length} · stored on this device</span>
+      </div>
+      {hist.map((h) => (
+        <div key={h.id} className="row between" style={{ gap: '0.6rem', padding: '0.4rem 0', borderBottom: '1px solid var(--border)', flexWrap: 'wrap' }}>
+          <span className="small">
+            {h.result === 'draw' ? '½–½' : h.result === 'white' ? '1–0' : '0–1'} · as {h.color} vs {h.opponent}
+            <span className="muted"> ({reasonText(h.reason)})</span>
+          </span>
+          <button className="btn btn-ghost btn-sm" onClick={() => navigate('/analysis', { state: { pgn: h.pgn } })}>
+            Replay in Analysis
+            <ArrowRight />
+          </button>
+        </div>
+      ))}
+    </div>
+  );
+}
 
 function gameEndToast(g: OnlineGame, me: string): string {
   if (g.result === 'draw') return 'Game drawn.';
