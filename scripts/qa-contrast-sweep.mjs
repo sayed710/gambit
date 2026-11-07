@@ -64,8 +64,6 @@ function check(name, r, extra = '') {
   if (!ok) bad++;
   console.log(`${ok ? 'PASS' : 'FAIL'}  ${name} — ${typeof r === 'object' && r ? `ratio=${r.ratio} (needs ${r.needed}) color=${r.color} bg=${r.bg}` : r}${extra ? ' ' + extra : ''}`);
 }
-const measureWith = (h) => page.evaluate((m) => { const measure = eval(m); return measure; }, h).then(() => null);
-
 /* helper: measure an element (or a selector that may not exist) */
 async function measureSel(selector) {
   return page.evaluate(([m, sel]) => {
@@ -172,11 +170,10 @@ else {
        with the computed foreground at ≥ 4.5:1. */
     const cur = page.locator('.move-list .mv.current').first();
     await cur.screenshot({ path: 'ui-review-selected-move-cell.png' });
-    const pixel = await page.evaluate((m) => {
-      const measure = eval(m);
+    const pixel = await page.evaluate(() => {
       const el = document.querySelector('.move-list .mv.current');
       return { color: getComputedStyle(el).color, box: el.getBoundingClientRect() };
-    }, M);
+    });
     const sharpMod = await import('sharp');
     const { data, info } = await sharpMod.default('ui-review-selected-move-cell.png').raw().toBuffer({ resolveWithObject: true });
     // sample a text-free strip (top 6px) for the blended background
@@ -186,11 +183,11 @@ else {
       r += data[i]; g += data[i + 1]; b += data[i + 2]; n++;
     }
     const blend = `rgb(${Math.round(r / n)},${Math.round(g / n)},${Math.round(b / n)})`;
-    const pixelCheck = await page.evaluate(([m, fg, bg]) => {
+    const pixelCheck = await page.evaluate(([fg, bg]) => {
       const lum = (c) => { const mm = c.match(/rgba?\(([^)]+)\)/); if (!mm) return null; const [R, G, B, A] = mm[1].split(',').map(parseFloat); if (A !== undefined && A < 0.35) return null; const f = (v) => { v /= 255; return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4); }; return 0.2126 * f(R) + 0.7152 * f(G) + 0.0722 * f(B); };
       const l1 = lum(fg), l2 = lum(bg);
       return (Math.max(l1, l2) + 0.05) / (Math.min(l1, l2) + 0.05);
-    }, [M, pixel.color, blend]);
+    }, [pixel.color, blend]);
     check('review current-cell PIXEL background contrast ≥ 4.5', { ratio: pixelCheck, needed: 4.5, color: pixel.color, bg: blend });
     /* HOVER STATE: hovering the selected cell must keep the solid pairing */
     const box = await cur.boundingBox();
