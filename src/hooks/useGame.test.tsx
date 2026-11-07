@@ -508,7 +508,10 @@ describe('white clock runs from game start (final pass #3)', () => {
   it('white clock visibly decreases before the first move in a timed game', async () => {
     const { api } = setup({ config: config({ timeControl: BLITZ_1_3, playerColor: 'w' }), initialFen: START_FEN });
     await waitFor(() => expect(api().clock.runningSide).toBe('w'));
-    expect(api().clock.clocks.w).toBe(60_000);
+    // a live clock ticks between waitFor resolving and this assertion —
+    // assert 'starts full' as a range, not an unreachable exact value
+    expect(api().clock.clocks.w).toBeLessThanOrEqual(60_000);
+    expect(api().clock.clocks.w).toBeGreaterThan(59_000);
     await sleep(350);
     expect(api().clock.clocks.w).toBeLessThan(60_000);
     expect(api().clock.clocks.w).toBeGreaterThan(59_000); // ~350ms billed, not zero, not more
