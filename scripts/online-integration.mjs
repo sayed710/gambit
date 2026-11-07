@@ -150,6 +150,9 @@ if (process.env.ONLINE_LONG === '1') {
   console.log('waiting 62s for black\'s clock to flag…');
   await new Promise((r) => setTimeout(r, 62000));
   const claim = await fn(A.token, 'claim-timeout', { gameId: g3.id });
+  if (!(claim.status === 200 && claim.payload.game?.result === 'white')) {
+    console.log('CLAIM DIAG:', claim.status, JSON.stringify(claim.payload).slice(0, 400));
+  }
   check('timeout claim wins on the server clock', claim.status === 200 && claim.payload.game?.result === 'white' && claim.payload.game?.result_reason === 'timeout');
   const lateMove = await fn(B.token, 'make-move', { gameId: g3.id, moveId: crypto.randomUUID(), from: 'e7', to: 'e5' });
   check('moves after the flag are rejected (game already adjudicated)', lateMove.status === 409 && ['timeout', 'state'].includes(lateMove.payload.error?.code));
