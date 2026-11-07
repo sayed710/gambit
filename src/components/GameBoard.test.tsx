@@ -11,11 +11,13 @@ const Board = (props: ComponentProps<typeof GameBoardDefault>) => (
 
 afterAll(async () => {
   // React schedules work-loop immediates (setImmediate) from the last
-  // renders; on a fast CI runner those fire AFTER vitest tears this
-  // file's jsdom environment down, and react-dom then throws
-  // 'window is not defined' as an uncaught exception. Yield while the
-  // environment is still alive so the pending immediates execute here.
-  for (let i = 0; i < 5; i++) await new Promise<void>((r) => setTimeout(r, 0));
+  // renders and re-schedules itself while work remains; on a fast CI
+  // runner those fire AFTER vitest tears this file's jsdom environment
+  // down, and react-dom then throws 'window is not defined' as an
+  // uncaught exception. Drain on a short deadline (not a fixed count)
+  // while the environment is still alive.
+  const deadline = Date.now() + 120;
+  while (Date.now() < deadline) await new Promise<void>((r) => setTimeout(r, 15));
 });
 
 /* ============================================================
