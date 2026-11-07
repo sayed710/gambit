@@ -126,7 +126,7 @@ jobs:
           version: latest
 
       - name: Start the local Supabase stack (excluding studio/storage/UI)
-        run: supabase start
+        run: supabase start -x studio,imgproxy,inbucket,storage-api,pooler,vector
 
       - name: Apply migrations (db reset)
         run: supabase db reset

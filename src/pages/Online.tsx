@@ -163,6 +163,18 @@ function LiveGame({
     return () => document.removeEventListener('visibilitychange', onVisible);
   }, [refetch]);
 
+  /* reconcile safety net: Realtime events can be missed (slow startup,
+     reconnect windows) — poll the authoritative state every 5s while a
+     game is live; the version guard discards no-op fetches */
+  useEffect(() => {
+    if (finished) return;
+    const t = window.setInterval(() => {
+      if (document.visibilityState !== 'visible') return;
+      void refetch();
+    }, 5000);
+    return () => window.clearInterval(t);
+  }, [finished, refetch]);
+
   /* clock projection — 200ms visual tick of SERVER timestamps */
   useEffect(() => {
     if (finished) return;
