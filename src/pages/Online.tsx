@@ -128,7 +128,9 @@ function LiveGame({
   const refetch = useCallback(async () => {
     try {
       const res = await api.getState(game.id);
-      setGame((cur) => (res.game.version >= cur.version ? res.game : cur));
+      // strictly newer only — an equal version is the same state and
+      // must not replace the object (avoids pointless board re-renders)
+      setGame((cur) => (res.game.version > cur.version ? res.game : cur));
     } catch (e) {
       if (e instanceof OnlineError && e.code === 'not-found') setConn('offline');
     }
