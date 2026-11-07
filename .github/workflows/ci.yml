@@ -101,3 +101,35 @@ jobs:
             ui-*.png
           if-no-files-found: ignore
           retention-days: 7
+
+  online-integration:
+    name: online backend integration (local Supabase)
+    needs: core
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install dependencies (committed lockfile)
+        run: npm ci
+
+      - name: Setup Supabase CLI
+        uses: supabase/setup-cli@v1
+        with:
+          version: latest
+
+      - name: Start the local Supabase stack (excluding studio/storage/UI)
+        run: supabase start -x studio,imgproxy,inbucket,storage-api,pooler,analytics,vector
+
+      - name: Apply migrations (db reset)
+        run: supabase db reset
+
+      - name: Run the online integration suite (RLS, commands, clocks)
+        run: node scripts/online-integration.mjs
