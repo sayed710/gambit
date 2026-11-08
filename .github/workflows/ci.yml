@@ -242,13 +242,13 @@ jobs:
       - name: Migrations replay from zero (db reset)
         run: npx supabase db reset
 
-      - name: Schema & RLS assertions (fresh database)
-        run: node scripts/online-db-check.mjs
-
       - name: Run the online integration suite (RLS behavior, commands, clocks, timeout)
         env:
           ONLINE_LONG: '1' # includes the 62s real-time timeout claim test
         run: node scripts/online-integration.mjs
+
+      - name: Schema & RLS assertions (against real rows the suite created)
+        run: node scripts/online-db-check.mjs
 
   # ---------------------------------------------------------------- 8
   multiplayer:

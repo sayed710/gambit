@@ -74,8 +74,25 @@ check(
   Number(psql("select count(*) from pg_constraint where conrelid = 'online_games'::regclass and pg_get_constraintdef(oid) like '%waiting%'")) >= 1,
 );
 
-/* 8 — the migration replayed from zero leaves NO games behind */
-check('fresh database has zero games (migration replay from zero)', psql('select count(*) from online_games') === '0');
+/* 8 — every stored invite hash is a 64-char hex digest (the plaintext
+   token never touches the database — asserted against the REAL rows the
+   integration suite created) */
+const hashes = psql("select invite_code_hash from online_games").split('
+').filter(Boolean);
+check(
+  'games exist to assert hash format on (integration suite ran first)',
+  hashes.length > 0,
+  `${hashes.length} rows`,
+);
+check(
+  'every invite_code_hash is a 64-char lowercase hex digest (never plaintext)',
+  hashes.every((h) => /^[0-9a-f]{64}$/.test(h)),
+  hashes.map((h) => h.slice(0, 12)).join(','),
+);
+check(
+  'no stored hash equals any plaintext token shape (base64url)',
+  hashes.every((h) => !/[-_]/.test(h)),
+);
 
 console.log(failures === 0 ? 'DB CHECK: ALL PASS' : `DB CHECK: ${failures} FAILURES`);
 process.exit(failures === 0 ? 0 : 1);

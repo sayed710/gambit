@@ -30,11 +30,13 @@ const secretPatterns = [
 ];
 let secretHits = [];
 for (const f of tracked) {
-  if (!/\.(ts|tsx|mjs|js|json|html|css|toml|ya?ml|md|svg)$/.test(f)) continue;
+  // SQL migrations are a classic credential-leak vector — scan them too
+  if (!/\.(ts|tsx|mjs|js|json|html|css|toml|ya?ml|md|svg|sql)$/.test(f)) continue;
   const lines = readTracked(f).split('\n');
   lines.forEach((line, i) => {
-    // skip comments — the security GUARD code legitimately names what it rejects
-    if (line.trim().startsWith('//') || line.trim().startsWith('*')) return;
+    // skip comment lines — the security GUARD code legitimately names
+    // what it rejects (SQL -- comments and JS // and block * comments)
+    if (line.trim().startsWith('//') || line.trim().startsWith('*') || line.trim().startsWith('--')) return;
     for (const [re, label] of secretPatterns) {
       if (re.test(line)) secretHits.push(`${f}:${i + 1}: ${label}`);
     }

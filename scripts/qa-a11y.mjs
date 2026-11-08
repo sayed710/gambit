@@ -10,6 +10,8 @@ const BASE = process.env.E2E_BASE ?? 'http://localhost:5199';
 const AXE = readFileSync('node_modules/axe-core/axe.min.js', 'utf8');
 
 let failures = 0;
+const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+const opts_settle = () => 1500;
 const check = (name, ok, detail = '') => {
   console.log(`${ok ? 'PASS' : 'FAIL'}  ${name}${detail ? ' — ' + detail : ''}`);
   if (!ok) failures += 1;
@@ -85,6 +87,41 @@ const landmarks = await page.evaluate(() => ({
   main: Boolean(document.querySelector('main, [role="main"]')),
 }));
 check('landmarks: header + nav + main present', landmarks.banner && landmarks.nav && landmarks.main, JSON.stringify(landmarks));
+
+/* 4b — board keyboard navigation: start a timed game, focus the board,
+   move the cursor with the arrow keys, verify the board's own aria-label
+   tracks the cursor position (GameBoard's custom keyboard layer) */
+await page.goto(`${BASE}/#/play`, { waitUntil: 'load' });
+await wait(1500);
+await page.locator('button:has-text("Start game")').click();
+await page.waitForSelector('.board-surface', { timeout: 20000 });
+await page.waitForTimeout(1200);
+const board = page.locator('.board-surface').first();
+await board.focus();
+await page.keyboard.press('ArrowRight');
+await page.keyboard.press('ArrowDown');
+await wait(400);
+// the cursor is announced through the board's sr-only live region
+const announce = () => page.evaluate(() => {
+  const live = document.querySelector('.board-frame [aria-live="polite"], .board-frame .sr-only');
+  return live?.textContent ?? '';
+});
+const ann0 = await announce();
+await page.keyboard.press('ArrowRight');
+await page.keyboard.press('ArrowDown');
+await wait(400);
+const ann1 = await announce();
+check('board keyboard: arrows move the cursor (live region updates)', ann0 !== ann1 && ann1.length > 0, `"${ann0.slice(0, 30)}" -> "${ann1.slice(0, 30)}"`);
+await page.keyboard.press('Enter'); // pick up the piece under the cursor
+await wait(400);
+// picking up sets a selection highlight on the source square
+const selectedStyle = await page.evaluate(() => {
+  const sq = document.querySelector('[data-square="g1"]');
+  return sq ? (sq.querySelector('[style*="inset"]') ? 'highlighted' : (sq.style.cssText || sq.innerHTML.slice(0, 60))) : 'missing';
+});
+check('board keyboard: Enter picks up a piece (selection highlight appears)', selectedStyle.includes('highlighted') || selectedStyle.includes('inset'), selectedStyle.slice(0, 60));
+await page.keyboard.press('Escape'); // clear selection — no stray state
+await wait(200);
 
 /* 5 — images have alt text (or are intentionally decorative) */
 await page.evaluate(() => document.querySelector('.hero')?.scrollIntoView());
