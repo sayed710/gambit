@@ -790,17 +790,6 @@ function OnlineInner() {
         </nav>
       </div>
 
-      {!onlineConfigured() && (
-        <div className="status-banner check" role="alert">
-          Online Play is not configured on this deployment — no Supabase backend was provided.
-          <span className="note" style={{ display: 'block', fontWeight: 400 }}>
-            Developers: run the local stack with <code>npx supabase start</code>. For a hosted deployment, set
-            VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY (publishable key only) before building. Offline and
-            engine play are unaffected.
-          </span>
-        </div>
-      )}
-
       {!onlineConfigured() ? (
         <div className="status-banner check" role="alert">
           Online Play is not configured on this deployment — no Supabase backend was provided.

@@ -45,6 +45,12 @@ describe('insufficientMaterialForAnyMate (FIDE 6.9 draw-on-time)', () => {
     const c = new Chess('7k/8/8/8/2B5/5N2/8/K7 w - - 0 1');
     expect(insufficientMaterialForAnyMate(c, 'w')).toBe(false);
   });
+  it('two same-color bishops + knight — KBN combination, win on time', () => {
+    // Bc4 (light) + Bf4 (light) + Nf3 vs bare black king — the KBN
+    // mating combination exists regardless of the extra same-color bishop
+    const c = new Chess('7k/8/8/8/2B2B2/5N2/8/K7 w - - 0 1');
+    expect(insufficientMaterialForAnyMate(c, 'w')).toBe(false);
+  });
   it('any pawn — mate is possible (promotion), win on time', () => {
     const c = new Chess('7k/8/8/8/8/8/P7/K7 w - - 0 1');
     expect(insufficientMaterialForAnyMate(c, 'w')).toBe(false);

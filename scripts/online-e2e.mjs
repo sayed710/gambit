@@ -1,11 +1,43 @@
 /* Online multiplayer E2E — TWO isolated browser contexts against the
    REAL local Supabase backend + the production build. Every UI claim is
    polled until it holds (bounded) — a real regression still fails.
-   Prereqs: `npx supabase start`, `npm run build`, vite preview on 5199. */
+   Prereqs: `npx supabase start` running; this script BUILDS the app
+   itself with the local-stack env (the onlineConfigured gate requires
+   it) and serves the bundle on port 5199. */
 import { chromium } from 'playwright';
+import { execSync, spawn } from 'node:child_process';
 
 const BASE = process.env.E2E_BASE ?? 'http://localhost:5199';
 let failures = 0;
+
+/* build with the local-stack env so the onlineConfigured gate opens */
+if (!process.env.E2E_SKIP_BUILD) {
+  console.log('building with local-stack env…');
+  execSync('npx vite build', {
+    stdio: 'inherit',
+    env: {
+      ...process.env,
+      VITE_SUPABASE_URL: 'http://127.0.0.1:54321',
+      VITE_SUPABASE_ANON_KEY: 'sb_publishable_ACJWlzQHlZjBrEguHvfOxg_3BJgxAaH',
+    },
+  });
+}
+let previewProc = null;
+if (!process.env.E2E_SKIP_SERVE) {
+  previewProc = spawn(process.execPath, ['node_modules/vite/bin/vite.js', 'preview', '--port', '5199', '--strictPort'], {
+    stdio: 'ignore',
+    detached: false,
+  });
+  // wait for readiness
+  const deadline = Date.now() + 30000;
+  while (Date.now() < deadline) {
+    try {
+      const res = await fetch(`${BASE}/`);
+      if (res.ok) break;
+    } catch { /* not ready yet */ }
+    await new Promise((r) => setTimeout(r, 500));
+  }
+}
 const check = (name, ok, detail = '') => {
   console.log(`${ok ? 'PASS' : 'FAIL'}  ${name}${detail ? ' — ' + detail : ''}`);
   if (!ok) failures++;
@@ -155,6 +187,7 @@ try {
     }
   }
   await browser.close();
+  if (previewProc) previewProc.kill();
 }
 
 console.log(failures === 0 ? 'ONLINE E2E: ALL PASS' : `ONLINE E2E: ${failures} FAILURES`);

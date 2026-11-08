@@ -68,8 +68,10 @@ export function insufficientMaterialForAnyMate(c: ChessLike, winnerColor: 'w' | 
   if (winnerKnights >= 2) return false;
   // opposite-colored winner bishops cover every escape color
   if (winnerBishopColors.length > 0 && winnerBishopColors.some((b) => b !== winnerBishopColors[0])) return false;
-  // bishop + knight: a standard KBN mates a bare king — sufficient
-  if (winnerBishopColors.length === 1 && winnerKnights === 1) return false;
+  // bishop + knight (any count, any colors — the knight covers the
+  // bishop's missing color; KBN help-mates vs a bare king exist):
+  // always sufficient
+  if (winnerBishopColors.length >= 1 && winnerKnights >= 1) return false;
   // a single minor can mate only when the defender still owns a piece
   // that can self-block; vs a bare king no mate exists
   if (winnerMinors >= 1) return defenderPieces === 0;
