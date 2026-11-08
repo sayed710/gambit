@@ -56,11 +56,13 @@ export function validatePublishableKey(key: string): void {
   }
 }
 
-validatePublishableKey(anonKey);
-
 let client: SupabaseClient | null = null;
 
 export function supabase(): SupabaseClient {
+  // validated lazily: a rejected key must not crash OFFLINE pages (App
+  // imports Online eagerly) — the throw surfaces when online features
+  // initialize, where the Online page's error handling catches it
+  validatePublishableKey(anonKey);
   if (!client) client = createClient(url, anonKey, { auth: { persistSession: true, autoRefreshToken: true } });
   return client;
 }

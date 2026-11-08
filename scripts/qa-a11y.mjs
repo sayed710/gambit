@@ -130,14 +130,22 @@ for (let i = 0; i < 40 && !cursorSquare; i++) {
 }
 check('board keyboard: cursor reached an own white piece', Boolean(cursorSquare), cursorSquare);
 
+// the SELECTION adds background: var(--hl-select) to the piece wrapper
+// inside the cursor square — assert that exact transition on the
+// announced square (robust to react-chessboard's internal DOM shape)
+const cellHasSelection = (sq) => page.evaluate((s) => {
+  const cell = document.querySelector(`[data-square="${s}"]`);
+  return cell ? cell.innerHTML.includes('--hl-select') : false;
+}, sq);
+const selBefore = await cellHasSelection(cursorSquare);
 await page.keyboard.press('Enter'); // pick up the piece under the cursor
 await wait(400);
-// picking up sets a selection highlight on the source square
-const selectedStyle = await page.evaluate((sq) => {
-  const cell = document.querySelector(`[data-square="${sq}"]`);
-  return cell ? cell.style.cssText : 'missing';
-}, cursorSquare);
-check('board keyboard: Enter picks up a piece (selection highlight appears)', /inset|background/.test(selectedStyle), `sq=${cursorSquare} style=${selectedStyle.slice(0, 70)}`);
+const selAfter = await cellHasSelection(cursorSquare);
+check(
+  'board keyboard: Enter SELECTS the piece (--hl-select background appears)',
+  !selBefore && selAfter,
+  `before=${selBefore} after=${selAfter}`,
+);
 await page.keyboard.press('Escape'); // clear selection — no stray state
 await wait(200);
 

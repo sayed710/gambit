@@ -351,7 +351,10 @@ jobs:
       - name: Install dependencies (committed lockfile)
         run: npm ci
 
-      - name: Security & licensing assertions
+      - name: Build (so the distributed-bundle scan has a real artifact)
+        run: npm run build
+
+      - name: Security & licensing assertions (incl. the built bundle)
         run: node scripts/ci-security.mjs
 
       - name: Dependency vulnerabilities (production deps)

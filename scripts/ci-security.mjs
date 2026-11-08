@@ -31,21 +31,22 @@ const secretPatterns = [
 ];
 let secretHits = [];
 for (const f of tracked) {
-  // SQL migrations are a classic credential-leak vector — scan them too.
-  // Test files are EXEMPT: their negative regressions legitimately contain
-  // fabricated secret-shaped strings (e.g. config.test.ts's guard tests)
-  if (/\.(test|spec)\.(ts|tsx|mjs|js)$/.test(f)) continue;
+  // SQL migrations are a classic credential-leak vector — scan them too
   if (!/\.(ts|tsx|mjs|js|json|html|css|toml|ya?ml|md|svg|sql)$/.test(f)) continue;
   const lines = readTracked(f).split('\n');
   lines.forEach((line, i) => {
     // skip comment lines — the security GUARD code legitimately names
     // what it rejects (SQL -- comments and JS // and block * comments)
     if (line.trim().startsWith('//') || line.trim().startsWith('*') || line.trim().startsWith('--')) return;
+    // the dedicated guard-test file legitimately contains FABRICATED
+    // tokens for its negative regressions — exempt that exact path;
+    // every OTHER file (test-named or not) is fully scanned
+    const guardTestFile = f === 'src/lib/online/config.test.ts';
     for (const [re, label] of secretPatterns) {
-      if (re.test(line)) secretHits.push(`${f}:${i + 1}: ${label}`);
+      if (re.test(line) && !guardTestFile) secretHits.push(`${f}:${i + 1}: ${label}`);
     }
     // a legacy service_role JWT assigned to a KEY variable is a real leak
-    if (/(KEY|key)[a-zA-Z_]*\s*[:=][^\n]*service_role/.test(line) && !line.includes('payload.role')) {
+    if (/(KEY|key)[a-zA-Z_]*\s*[:=][^\n]*service_role/.test(line) && !line.includes('payload.role') && !guardTestFile) {
       secretHits.push(`${f}:${i + 1}: service_role JWT assigned to a key variable`);
     }
   });
