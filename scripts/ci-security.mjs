@@ -31,7 +31,10 @@ const secretPatterns = [
 ];
 let secretHits = [];
 for (const f of tracked) {
-  // SQL migrations are a classic credential-leak vector — scan them too
+  // SQL migrations are a classic credential-leak vector — scan them too.
+  // Test files are EXEMPT: their negative regressions legitimately contain
+  // fabricated secret-shaped strings (e.g. config.test.ts's guard tests)
+  if (/\.(test|spec)\.(ts|tsx|mjs|js)$/.test(f)) continue;
   if (!/\.(ts|tsx|mjs|js|json|html|css|toml|ya?ml|md|svg|sql)$/.test(f)) continue;
   const lines = readTracked(f).split('\n');
   lines.forEach((line, i) => {

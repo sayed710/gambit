@@ -507,12 +507,13 @@ describe('flag fall adjudicated before a late move (final pass #1)', () => {
 describe('white clock runs from game start (final pass #3)', () => {
   const T0 = 1_700_000_000_000;
   it('white clock visibly decreases before the first move in a timed game', async () => {
+    // pin Date.now BEFORE setup so the clock records its start at T0 —
+    // the first projection is then EXACTLY the full 60,000 ms
+    const nowSpy = vi.spyOn(Date, 'now').mockReturnValue(T0);
     const { api } = setup({ config: config({ timeControl: BLITZ_1_3, playerColor: 'w' }), initialFen: START_FEN });
     await waitFor(() => expect(api().clock.runningSide).toBe('w'));
-    // pin Date.now so the projection is exact: the clock starts FULL
-    const nowSpy = vi.spyOn(Date, 'now').mockReturnValue(T0);
     expect(api().clock.clocks.w).toBe(60_000);
-    nowSpy.mockRestore();
+    nowSpy.mockRestore(); // real time resumes: the next projection bills real elapsed
     await sleep(350);
     expect(api().clock.clocks.w).toBeLessThan(60_000);
     expect(api().clock.clocks.w).toBeGreaterThan(59_000); // ~350ms billed, not zero, not more
