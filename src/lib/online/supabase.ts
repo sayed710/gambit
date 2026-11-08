@@ -27,18 +27,36 @@ export const onlineConfigured = (): boolean => {
 
 // publishable keys are safe client-side; SECRET keys must never ship to
 // the browser bundle — reject them loudly at startup
-if (anonKey.startsWith('sb_secret_')) {
-  throw new Error('[online] VITE_SUPABASE_ANON_KEY is a SECRET key — service-role keys must never be exposed to the browser.');
-}
-// legacy service-role JWTs carry the service_role claim — same rule
-try {
-  const payload = JSON.parse(atob(anonKey.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')));
-  if (payload.role === 'service_role') {
-    throw new Error('[online] VITE_SUPABASE_ANON_KEY is a legacy service_role JWT — it must never be exposed to the browser.');
+
+/**
+ * Validates that a Supabase client key is safe to embed in the browser:
+ * publishable keys and legacy anon JWTs pass; SECRET keys and legacy
+ * service_role JWTs throw (they bypass RLS and must never ship).
+ * The role check happens OUTSIDE the decode try/catch so a rejection
+ * cannot be swallowed by the decode fallback.
+ */
+export function validatePublishableKey(key: string): void {
+  if (key.startsWith('sb_secret_')) {
+    throw new Error('[online] the Supabase key is a SECRET key — service-role keys must never be exposed to the browser.');
   }
-} catch {
-  /* not a decodable JWT (publishable key or garbage) — nothing to guard */
+  let role: string | undefined;
+  const parts = key.split('.');
+  if (parts.length === 3) {
+    // legacy JWT-shaped key — decode the payload WITHOUT a swallowing
+    // try/catch around the role check
+    try {
+      const json = atob(parts[1].replace(/-/g, '+').replace(/_/g, '/'));
+      role = (JSON.parse(json) as { role?: string }).role;
+    } catch {
+      role = undefined; // undecodable payload — treated as opaque
+    }
+  }
+  if (role === 'service_role') {
+    throw new Error('[online] the Supabase key is a legacy service_role JWT — it must never be exposed to the browser.');
+  }
 }
+
+validatePublishableKey(anonKey);
 
 let client: SupabaseClient | null = null;
 

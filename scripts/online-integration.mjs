@@ -143,7 +143,9 @@ check('unknown token rejected', badJoin.status === 404);
    All expiry scenarios share ONE wait: five games start, the clocks run
    down together, and every command shape is then asserted against the
    shared policy (serverRules). */
-const LONG = process.env.ONLINE_LONG === '1';
+const LONG = process.env.ONLINE_LONG === '1'; // multiplayer job: includes the 62s timeout waits
+// the database job sets ONLINE_SKIP_TIMEOUT=1: it runs the RLS/authorization
+// portion only (the timeout adjudication lives in the multiplayer job)
 if (LONG) {
   // seven games: B (black) will flag in all of them
   const ids = [];

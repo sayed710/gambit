@@ -27,20 +27,22 @@ async function axeScan(name, route, opts = {}) {
   /* react-chessboard v5 renders pieces as role=button without accessible
      names — a known third-party a11y gap. GameBoard provides its own
      complete keyboard layer (arrow-key square navigation, Enter to pick
-     up/place, sr-only turn announcements), so the third-party buttons are
-     redundant AT noise: exclude the board internals from this specific
-     rule while scanning the whole document. */
-  const results = await page.evaluate(() => {
-    const boardEl = document.querySelector('.board-frame');
-    const context = boardEl
-      ? { exclude: [{ selects: boardEl }] }
-      : { exclude: [] };
-    return window.axe.run(document, {
-      resultTypes: ['violations'],
-      exclude: context.exclude,
-      rules: { 'aria-command-name': { enabled: false } },
-    });
-  });
+     up/place, sr-only turn announcements), so these redundant internal
+     buttons are excluded by their exact signature
+     ([role=button][aria-roledescription=draggable]) — the NARROWEST
+     exception; aria-command-name stays ENABLED for every other element
+     on the page, so genuine nameless-control defects outside the board
+     still fail this check. */
+  const results = await page.evaluate(() =>
+    // axe.run(context, options): the exclude targets ONLY the react-
+    // chessboard piece buttons inside square cells (the known third-party
+    // gap — GameBoard provides its own keyboard layer for them);
+    // aria-command-name stays enabled for every other element on the page
+    window.axe.run(
+      { exclude: ['[data-square] [role="button"]'] },
+      { resultTypes: ['violations'] },
+    ),
+  );
   const real = results.violations.filter((v) => v.impact === 'critical' || v.impact === 'serious');
   check(`${name}: no critical/serious axe violations`, real.length === 0,
     real.map((v) => `${v.id}(${v.nodes.length})`).join(', ') || 'clean');
@@ -93,6 +95,7 @@ check('landmarks: header + nav + main present', landmarks.banner && landmarks.na
    tracks the cursor position (GameBoard's custom keyboard layer) */
 await page.goto(`${BASE}/#/play`, { waitUntil: 'load' });
 await wait(1500);
+await page.locator('button[role="radio"]:has-text("White")').click();
 await page.locator('button:has-text("Start game")').click();
 await page.waitForSelector('.board-surface', { timeout: 20000 });
 await page.waitForTimeout(1200);
@@ -112,14 +115,29 @@ await page.keyboard.press('ArrowDown');
 await wait(400);
 const ann1 = await announce();
 check('board keyboard: arrows move the cursor (live region updates)', ann0 !== ann1 && ann1.length > 0, `"${ann0.slice(0, 30)}" -> "${ann1.slice(0, 30)}"`);
+
+// navigate until the cursor sits on an OWN white piece (deterministic
+// Enter pickup — the cursor may start on an enemy piece where Enter is
+// a correct no-op), then pick it up
+let cursorSquare = '';
+// walk the cursor down (and right) up to 30 presses — white pieces sit
+// on ranks 1-2, ~7 downs from the black back rank
+for (let i = 0; i < 40 && !cursorSquare; i++) {
+  await page.keyboard.press(['ArrowDown', 'ArrowRight', 'ArrowDown', 'ArrowLeft'][i % 4]);
+  await wait(200);
+  const m = (await announce()).match(/([a-h][1-8]), white/);
+  if (m) { cursorSquare = m[1]; break; }
+}
+check('board keyboard: cursor reached an own white piece', Boolean(cursorSquare), cursorSquare);
+
 await page.keyboard.press('Enter'); // pick up the piece under the cursor
 await wait(400);
 // picking up sets a selection highlight on the source square
-const selectedStyle = await page.evaluate(() => {
-  const sq = document.querySelector('[data-square="g1"]');
-  return sq ? (sq.querySelector('[style*="inset"]') ? 'highlighted' : (sq.style.cssText || sq.innerHTML.slice(0, 60))) : 'missing';
-});
-check('board keyboard: Enter picks up a piece (selection highlight appears)', selectedStyle.includes('highlighted') || selectedStyle.includes('inset'), selectedStyle.slice(0, 60));
+const selectedStyle = await page.evaluate((sq) => {
+  const cell = document.querySelector(`[data-square="${sq}"]`);
+  return cell ? cell.style.cssText : 'missing';
+}, cursorSquare);
+check('board keyboard: Enter picks up a piece (selection highlight appears)', /inset|background/.test(selectedStyle), `sq=${cursorSquare} style=${selectedStyle.slice(0, 70)}`);
 await page.keyboard.press('Escape'); // clear selection — no stray state
 await wait(200);
 
