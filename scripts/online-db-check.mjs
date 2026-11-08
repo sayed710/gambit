@@ -77,8 +77,7 @@ check(
 /* 8 — every stored invite hash is a 64-char hex digest (the plaintext
    token never touches the database — asserted against the REAL rows the
    integration suite created) */
-const hashes = psql("select invite_code_hash from online_games").split('
-').filter(Boolean);
+const hashes = psql('select invite_code_hash from online_games').split(String.fromCharCode(10)).filter(Boolean);
 check(
   'games exist to assert hash format on (integration suite ran first)',
   hashes.length > 0,

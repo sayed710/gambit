@@ -19,17 +19,29 @@ const exists = (p) => fs.existsSync(p);
 const mode = process.argv[2] ?? 'repo';
 
 if (mode === 'workflows') {
+  const YAML = (await import('yaml')).default;
   const dir = '.github/workflows';
   for (const f of fs.readdirSync(dir).filter((n) => n.endsWith('.yml') || n.endsWith('.yaml'))) {
     const text = fs.readFileSync(path.join(dir, f), 'utf8');
-    // a full YAML parser isn't available; assert the structural anchors
-    check(`${f}: jobs defined`, /^jobs:/m.test(text));
-    check(`${f}: pull_request + push triggers`, /pull_request:/.test(text) || /push:/.test(text));
-    check(`${f}: least-privilege permissions`, /permissions:\s*\n\s*contents:\s*read/.test(text));
-    check(`${f}: concurrency cancellation`, /cancel-in-progress:\s*true/.test(text));
-    check(`${f}: job timeouts`, /timeout-minutes:\s*\d+/.test(text));
-    check(`${f}: no pull_request_target (untrusted checkout)`, !/pull_request_target/.test(text));
-    check(`${f}: no secrets referenced`, !/\${{ *secrets\.+/.test(text));
+    // REAL parse: a malformed step or mapping fails the job here —
+    // regex anchors alone cannot catch broken step structure
+    let doc;
+    try {
+      doc = YAML.parse(text);
+      check(`${f}: parses as YAML`, true);
+    } catch (e) {
+      check(`${f}: parses as YAML`, false, String(e).slice(0, 120));
+      continue;
+    }
+    const jobs = doc?.jobs ?? {};
+    check(`${f}: jobs defined`, Object.keys(jobs).length > 0);
+    const triggers = doc[true] ?? doc.on ?? {};
+    check(`${f}: pull_request or push trigger`, Boolean(triggers.pull_request || triggers.push));
+    check(`${f}: least-privilege permissions`, doc.permissions?.contents === 'read');
+    check(`${f}: concurrency cancellation`, doc.concurrency?.['cancel-in-progress'] === true);
+    check(`${f}: every job has a timeout`, Object.values(jobs).every((j) => typeof j['timeout-minutes'] === 'number'));
+    check(`${f}: no pull_request_target (untrusted checkout)`, !text.includes('pull_request_target'));
+    check(`${f}: no secrets referenced`, !/\$\{\{ *secrets\./.test(text));
   }
 }
 
