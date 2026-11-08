@@ -134,7 +134,7 @@ jobs:
         run: npx supabase start -x studio,imgproxy,storage-api,vector,pooler
 
       - name: Apply migrations (db reset)
-        run: supabase db reset
+        run: npx supabase db reset
 
       - name: Run the online integration suite (RLS, commands, clocks, timeout)
         env:
