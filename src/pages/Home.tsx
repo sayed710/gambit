@@ -102,7 +102,7 @@ function PlayPreview() {
   // The real board component in a decorative, non-interactive state —
   // a genuine 8×8 position (the classical start), not a schematic grid.
   return (
-    <div className="ui-preview ui-dark" aria-hidden="true">
+    <div className="ui-preview ui-dark" aria-hidden="true" inert>
       <div className="ui-setup">
         <div className="ui-row between">
           <span className="ui-pill">10 | 0 · Rapid</span>
@@ -151,7 +151,7 @@ function ReviewPreview() {
   const lastMove = plies[7];
   const position = plies[7].fenAfter;
   return (
-    <div className="ui-preview ui-dark" aria-hidden="true">
+    <div className="ui-preview ui-dark" aria-hidden="true" inert>
       <div className="ui-review">
         <div className="ui-review-board">
           <Chessboard
@@ -207,7 +207,7 @@ function TrainPreview() {
   // are non-interactive here (aria-hidden) — the card's own Start-training
   // button is the accessible, working navigation.
   return (
-    <div className="ui-phone" aria-hidden="true">
+    <div className="ui-phone" aria-hidden="true" inert>
       <div className="ui-phone-screen">
         <div className="ui-phone-head">
           <span className="ui-phone-brand">Gambit</span>

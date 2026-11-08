@@ -1,0 +1,489 @@
+[
+ {
+  "id": "aria-hidden-focus",
+  "impact": "serious",
+  "tags": [
+   "cat.name-role-value",
+   "wcag2a",
+   "wcag412",
+   "TTv5",
+   "TT6.a",
+   "EN-301-549",
+   "EN-9.4.1.2",
+   "RGAAv4",
+   "RGAA-10.8.1"
+  ],
+  "description": "Ensure aria-hidden elements are not focusable nor contain focusable elements",
+  "help": "ARIA hidden element must not be focusable or contain focusable elements",
+  "helpUrl": "https://dequeuniversity.com/rules/axe/4.14/aria-hidden-focus?application=axeAPI",
+  "nodes": [
+   {
+    "any": [],
+    "all": [
+     {
+      "id": "focusable-not-tabbable",
+      "data": null,
+      "relatedNodes": [
+       {
+        "html": "<div role=\"button\" tabindex=\"0\" aria-disabled=\"true\" aria-roledescription=\"draggable\" aria-describedby=\"dnd-home-play\">",
+        "target": [
+         "#home-play-square-a8 > div > div[aria-describedby=\"dnd-home-play\"][role=\"button\"][aria-roledescription=\"draggable\"]"
+        ]
+       },
+       {
+        "html": "<div role=\"button\" tabindex=\"0\" aria-disabled=\"true\" aria-roledescription=\"draggable\" aria-describedby=\"dnd-home-play\">",
+        "target": [
+         "#home-play-square-b8 > div > div[aria-describedby=\"dnd-home-play\"][role=\"button\"][aria-roledescription=\"draggable\"]"
+        ]
+       },
+       {
+        "html": "<div role=\"button\" tabindex=\"0\" aria-disabled=\"true\" aria-roledescription=\"draggable\" aria-describedby=\"dnd-home-play\">",
+        "target": [
+         "#home-play-square-c8 > div > div[aria-describedby=\"dnd-home-play\"][role=\"button\"][aria-roledescription=\"draggable\"]"
+        ]
+       },
+       {
+        "html": "<div role=\"button\" tabindex=\"0\" aria-disabled=\"true\" aria-roledescription=\"draggable\" aria-describedby=\"dnd-home-play\">",
+        "target": [
+         "#home-play-square-d8 > div > div[aria-describedby=\"dnd-home-play\"][role=\"button\"][aria-roledescription=\"draggable\"]"
+        ]
+       },
+       {
+        "html": "<div role=\"button\" tabindex=\"0\" aria-disabled=\"true\" aria-roledescription=\"draggable\" aria-describedby=\"dnd-home-play\">",
+        "target": [
+         "#home-play-square-e8 > div > div[aria-describedby=\"dnd-home-play\"][role=\"button\"][aria-roledescription=\"draggable\"]"
+        ]
+       },
+       {
+        "html": "<div role=\"button\" tabindex=\"0\" aria-disabled=\"true\" aria-roledescription=\"draggable\" aria-describedby=\"dnd-home-play\">",
+        "target": [
+         "#home-play-square-f8 > div > div[aria-describedby=\"dnd-home-play\"][role=\"button\"][aria-roledescription=\"draggable\"]"
+        ]
+       },
+       {
+        "html": "<div role=\"button\" tabindex=\"0\" aria-disabled=\"true\" aria-roledescription=\"draggable\" aria-describedby=\"dnd-home-play\">",
+        "target": [
+         "#home-play-square-g8 > div > div[aria-describedby=\"dnd-home-play\"][role=\"button\"][aria-roledescription=\"draggable\"]"
+        ]
+       },
+       {
+        "html": "<div role=\"button\" tabindex=\"0\" aria-disabled=\"true\" aria-roledescription=\"draggable\" aria-describedby=\"dnd-home-play\">",
+        "target": [
+         "#home-play-square-h8 > div > div[aria-describedby=\"dnd-home-play\"][role=\"button\"][aria-roledescription=\"draggable\"]"
+        ]
+       },
+       {
+        "html": "<div role=\"button\" tabindex=\"0\" aria-disabled=\"true\" aria-roledescription=\"draggable\" aria-describedby=\"dnd-home-play\">",
+        "target": [
+         "#home-play-square-a7 > div > div[aria-describedby=\"dnd-home-play\"][role=\"button\"][aria-roledescription=\"draggable\"]"
+        ]
+       },
+       {
+        "html": "<div role=\"button\" tabindex=\"0\" aria-disabled=\"true\" aria-roledescription=\"draggable\" aria-describedby=\"dnd-home-play\">",
+        "target": [
+         "#home-play-square-b7 > div > div[aria-describedby=\"dnd-home-play\"][role=\"button\"][aria-roledescription=\"draggable\"]"
+        ]
+       },
+       {
+        "html": "<div role=\"button\" tabindex=\"0\" aria-disabled=\"true\" aria-roledescription=\"draggable\" aria-describedby=\"dnd-home-play\">",
+        "target": [
+         "#home-play-square-c7 > div > div[aria-describedby=\"dnd-home-play\"][role=\"button\"][aria-roledescription=\"draggable\"]"
+        ]
+       },
+       {
+        "html": "<div role=\"button\" tabindex=\"0\" aria-disabled=\"true\" aria-roledescription=\"draggable\" aria-describedby=\"dnd-home-play\">",
+        "target": [
+         "#home-play-square-d7 > div > div[aria-describedby=\"dnd-home-play\"][role=\"button\"][aria-roledescription=\"draggable\"]"
+        ]
+       },
+       {
+        "html": "<div role=\"button\" tabindex=\"0\" aria-disabled=\"true\" aria-roledescription=\"draggable\" aria-describedby=\"dnd-home-play\">",
+        "target": [
+         "#home-play-square-e7 > div > div[aria-describedby=\"dnd-home-play\"][role=\"button\"][aria-roledescription=\"draggable\"]"
+        ]
+       },
+       {
+        "html": "<div role=\"button\" tabindex=\"0\" aria-disabled=\"true\" aria-roledescription=\"draggable\" aria-describedby=\"dnd-home-play\">",
+        "target": [
+         "#home-play-square-f7 > div > div[aria-describedby=\"dnd-home-play\"][role=\"button\"][aria-roledescription=\"draggable\"]"
+        ]
+       },
+       {
+        "html": "<div role=\"button\" tabindex=\"0\" aria-disabled=\"true\" aria-roledescription=\"draggable\" aria-describedby=\"dnd-home-play\">",
+        "target": [
+         "#home-play-square-g7 > div > div[aria-describedby=\"dnd-home-play\"][role=\"button\"][aria-roledescription=\"draggable\"]"
+        ]
+       },
+       {
+        "html": "<div role=\"button\" tabindex=\"0\" aria-disabled=\"true\" aria-roledescription=\"draggable\" aria-describedby=\"dnd-home-play\">",
+        "target": [
+         "#home-play-square-h7 > div > div[aria-describedby=\"dnd-home-play\"][role=\"button\"][aria-roledescription=\"draggable\"]"
+        ]
+       },
+       {
+        "html": "<div role=\"button\" tabindex=\"0\" aria-disabled=\"true\" aria-roledescription=\"draggable\" aria-describedby=\"dnd-home-play\">",
+        "target": [
+         "#home-play-square-a2 > div > div[aria-describedby=\"dnd-home-play\"][role=\"button\"][aria-roledescription=\"draggable\"]"
+        ]
+       },
+       {
+        "html": "<div role=\"button\" tabindex=\"0\" aria-disabled=\"true\" aria-roledescription=\"draggable\" aria-describedby=\"dnd-home-play\">",
+        "target": [
+         "#home-play-square-b2 > div > div[aria-describedby=\"dnd-home-play\"][role=\"button\"][aria-roledescription=\"draggable\"]"
+        ]
+       },
+       {
+        "html": "<div role=\"button\" tabindex=\"0\" aria-disabled=\"true\" aria-roledescription=\"draggable\" aria-describedby=\"dnd-home-play\">",
+        "target": [
+         "#home-play-square-c2 > div > div[aria-describedby=\"dnd-home-play\"][role=\"button\"][aria-roledescription=\"draggable\"]"
+        ]
+       },
+       {
+        "html": "<div role=\"button\" tabindex=\"0\" aria-disabled=\"true\" aria-roledescription=\"draggable\" aria-describedby=\"dnd-home-play\">",
+        "target": [
+         "#home-play-square-d2 > div > div[aria-describedby=\"dnd-home-play\"][role=\"button\"][aria-roledescription=\"draggable\"]"
+        ]
+       },
+       {
+        "html": "<div role=\"button\" tabindex=\"0\" aria-disabled=\"true\" aria-roledescription=\"draggable\" aria-describedby=\"dnd-home-play\">",
+        "target": [
+         "#home-play-square-e2 > div > div[aria-describedby=\"dnd-home-play\"][role=\"button\"][aria-roledescription=\"draggable\"]"
+        ]
+       },
+       {
+        "html": "<div role=\"button\" tabindex=\"0\" aria-disabled=\"true\" aria-roledescription=\"draggable\" aria-describedby=\"dnd-home-play\">",
+        "target": [
+         "#home-play-square-f2 > div > div[aria-describedby=\"dnd-home-play\"][role=\"button\"][aria-roledescription=\"draggable\"]"
+        ]
+       },
+       {
+        "html": "<div role=\"button\" tabindex=\"0\" aria-disabled=\"true\" aria-roledescription=\"draggable\" aria-describedby=\"dnd-home-play\">",
+        "target": [
+         "#home-play-square-g2 > div > div[aria-describedby=\"dnd-home-play\"][role=\"button\"][aria-roledescription=\"draggable\"]"
+        ]
+       },
+       {
+        "html": "<div role=\"button\" tabindex=\"0\" aria-disabled=\"true\" aria-roledescription=\"draggable\" aria-describedby=\"dnd-home-play\">",
+        "target": [
+         "#home-play-square-h2 > div > div[aria-describedby=\"dnd-home-play\"][role=\"button\"][aria-roledescription=\"draggable\"]"
+        ]
+       },
+       {
+        "html": "<div role=\"button\" tabindex=\"0\" aria-disabled=\"true\" aria-roledescription=\"draggable\" aria-describedby=\"dnd-home-play\">",
+        "target": [
+         "#home-play-square-a1 > div > div[aria-describedby=\"dnd-home-play\"][role=\"button\"][aria-roledescription=\"draggable\"]"
+        ]
+       },
+       {
+        "html": "<div role=\"button\" tabindex=\"0\" aria-disabled=\"true\" aria-roledescription=\"draggable\" aria-describedby=\"dnd-home-play\">",
+        "target": [
+         "#home-play-square-b1 > div > div[aria-describedby=\"dnd-home-play\"][role=\"button\"][aria-roledescription=\"draggable\"]"
+        ]
+       },
+       {
+        "html": "<div role=\"button\" tabindex=\"0\" aria-disabled=\"true\" aria-roledescription=\"draggable\" aria-describedby=\"dnd-home-play\">",
+        "target": [
+         "#home-play-square-c1 > div > div[aria-describedby=\"dnd-home-play\"][role=\"button\"][aria-roledescription=\"draggable\"]"
+        ]
+       },
+       {
+        "html": "<div role=\"button\" tabindex=\"0\" aria-disabled=\"true\" aria-roledescription=\"draggable\" aria-describedby=\"dnd-home-play\">",
+        "target": [
+         "#home-play-square-d1 > div > div[aria-describedby=\"dnd-home-play\"][role=\"button\"][aria-roledescription=\"draggable\"]"
+        ]
+       },
+       {
+        "html": "<div role=\"button\" tabindex=\"0\" aria-disabled=\"true\" aria-roledescription=\"draggable\" aria-describedby=\"dnd-home-play\">",
+        "target": [
+         "#home-play-square-e1 > div > div[aria-describedby=\"dnd-home-play\"][role=\"button\"][aria-roledescription=\"draggable\"]"
+        ]
+       },
+       {
+        "html": "<div role=\"button\" tabindex=\"0\" aria-disabled=\"true\" aria-roledescription=\"draggable\" aria-describedby=\"dnd-home-play\">",
+        "target": [
+         "#home-play-square-f1 > div > div[aria-describedby=\"dnd-home-play\"][role=\"button\"][aria-roledescription=\"draggable\"]"
+        ]
+       },
+       {
+        "html": "<div role=\"button\" tabindex=\"0\" aria-disabled=\"true\" aria-roledescription=\"draggable\" aria-describedby=\"dnd-home-play\">",
+        "target": [
+         "#home-play-square-g1 > div > div[aria-describedby=\"dnd-home-play\"][role=\"button\"][aria-roledescription=\"draggable\"]"
+        ]
+       },
+       {
+        "html": "<div role=\"button\" tabindex=\"0\" aria-disabled=\"true\" aria-roledescription=\"draggable\" aria-describedby=\"dnd-home-play\">",
+        "target": [
+         "#home-play-square-h1 > div > div[aria-describedby=\"dnd-home-play\"][role=\"button\"][aria-roledescription=\"draggable\"]"
+        ]
+       }
+      ],
+      "impact": "serious",
+      "message": "Focusable content should have tabindex=\"-1\", be removed from the DOM, or not be hidden with aria-hidden"
+     }
+    ],
+    "none": [],
+    "impact": "serious",
+    "html": "<div class=\"ui-preview ui-dark\" aria-hidden=\"true\">",
+    "target": [
+     ".wide > .ui-preview.ui-dark[aria-hidden=\"true\"]"
+    ],
+    "failureSummary": "Fix all of the following:\n  Focusable content should have tabindex=\"-1\", be removed from the DOM, or not be hidden with aria-hidden"
+   },
+   {
+    "any": [],
+    "all": [
+     {
+      "id": "focusable-not-tabbable",
+      "data": null,
+      "relatedNodes": [
+       {
+        "html": "<div role=\"button\" tabindex=\"0\" aria-disabled=\"true\" aria-roledescription=\"draggable\" aria-describedby=\"dnd-home-review\">",
+        "target": [
+         "#home-review-square-a8 > div > div[aria-describedby=\"dnd-home-review\"][role=\"button\"][aria-roledescription=\"draggable\"]"
+        ]
+       },
+       {
+        "html": "<div role=\"button\" tabindex=\"0\" aria-disabled=\"true\" aria-roledescription=\"draggable\" aria-describedby=\"dnd-home-review\">",
+        "target": [
+         "#home-review-square-c8 > div > div[aria-describedby=\"dnd-home-review\"][role=\"button\"][aria-roledescription=\"draggable\"]"
+        ]
+       },
+       {
+        "html": "<div role=\"button\" tabindex=\"0\" aria-disabled=\"true\" aria-roledescription=\"draggable\" aria-describedby=\"dnd-home-review\">",
+        "target": [
+         "#home-review-square-d8 > div > div[aria-describedby=\"dnd-home-review\"][role=\"button\"][aria-roledescription=\"draggable\"]"
+        ]
+       },
+       {
+        "html": "<div role=\"button\" tabindex=\"0\" aria-disabled=\"true\" aria-roledescription=\"draggable\" aria-describedby=\"dnd-home-review\">",
+        "target": [
+         "#home-review-square-e8 > div > div[aria-describedby=\"dnd-home-review\"][role=\"button\"][aria-roledescription=\"draggable\"]"
+        ]
+       },
+       {
+        "html": "<div role=\"button\" tabindex=\"0\" aria-disabled=\"true\" aria-roledescription=\"draggable\" aria-describedby=\"dnd-home-review\">",
+        "target": [
+         "#home-review-square-f8 > div > div[aria-describedby=\"dnd-home-review\"][role=\"button\"][aria-roledescription=\"draggable\"]"
+        ]
+       },
+       {
+        "html": "<div role=\"button\" tabindex=\"0\" aria-disabled=\"true\" aria-roledescription=\"draggable\" aria-describedby=\"dnd-home-review\">",
+        "target": [
+         "#home-review-square-g8 > div > div[aria-describedby=\"dnd-home-review\"][role=\"button\"][aria-roledescription=\"draggable\"]"
+        ]
+       },
+       {
+        "html": "<div role=\"button\" tabindex=\"0\" aria-disabled=\"true\" aria-roledescription=\"draggable\" aria-describedby=\"dnd-home-review\">",
+        "target": [
+         "#home-review-square-h8 > div > div[aria-describedby=\"dnd-home-review\"][role=\"button\"][aria-roledescription=\"draggable\"]"
+        ]
+       },
+       {
+        "html": "<div role=\"button\" tabindex=\"0\" aria-disabled=\"true\" aria-roledescription=\"draggable\" aria-describedby=\"dnd-home-review\">",
+        "target": [
+         "#home-review-square-b7 > div > div[aria-describedby=\"dnd-home-review\"][role=\"button\"][aria-roledescription=\"draggable\"]"
+        ]
+       },
+       {
+        "html": "<div role=\"button\" tabindex=\"0\" aria-disabled=\"true\" aria-roledescription=\"draggable\" aria-describedby=\"dnd-home-review\">",
+        "target": [
+         "#home-review-square-c7 > div > div[aria-describedby=\"dnd-home-review\"][role=\"button\"][aria-roledescription=\"draggable\"]"
+        ]
+       },
+       {
+        "html": "<div role=\"button\" tabindex=\"0\" aria-disabled=\"true\" aria-roledescription=\"draggable\" aria-describedby=\"dnd-home-review\">",
+        "target": [
+         "#home-review-square-f7 > div > div[aria-describedby=\"dnd-home-review\"][role=\"button\"][aria-roledescription=\"draggable\"]"
+        ]
+       },
+       {
+        "html": "<div role=\"button\" tabindex=\"0\" aria-disabled=\"true\" aria-roledescription=\"draggable\" aria-describedby=\"dnd-home-review\">",
+        "target": [
+         "#home-review-square-g7 > div > div[aria-describedby=\"dnd-home-review\"][role=\"button\"][aria-roledescription=\"draggable\"]"
+        ]
+       },
+       {
+        "html": "<div role=\"button\" tabindex=\"0\" aria-disabled=\"true\" aria-roledescription=\"draggable\" aria-describedby=\"dnd-home-review\">",
+        "target": [
+         "#home-review-square-h7 > div > div[aria-describedby=\"dnd-home-review\"][role=\"button\"][aria-roledescription=\"draggable\"]"
+        ]
+       },
+       {
+        "html": "<div role=\"button\" tabindex=\"0\" aria-disabled=\"true\" aria-roledescription=\"draggable\" aria-describedby=\"dnd-home-review\">",
+        "target": [
+         "#home-review-square-a6 > div > div[aria-describedby=\"dnd-home-review\"][role=\"button\"][aria-roledescription=\"draggable\"]"
+        ]
+       },
+       {
+        "html": "<div role=\"button\" tabindex=\"0\" aria-disabled=\"true\" aria-roledescription=\"draggable\" aria-describedby=\"dnd-home-review\">",
+        "target": [
+         "#home-review-square-c6 > div > div[aria-describedby=\"dnd-home-review\"][role=\"button\"][aria-roledescription=\"draggable\"]"
+        ]
+       },
+       {
+        "html": "<div role=\"button\" tabindex=\"0\" aria-disabled=\"true\" aria-roledescription=\"draggable\" aria-describedby=\"dnd-home-review\">",
+        "target": [
+         "#home-review-square-e5 > div > div[aria-describedby=\"dnd-home-review\"][role=\"button\"][aria-roledescription=\"draggable\"]"
+        ]
+       },
+       {
+        "html": "<div role=\"button\" tabindex=\"0\" aria-disabled=\"true\" aria-roledescription=\"draggable\" aria-describedby=\"dnd-home-review\">",
+        "target": [
+         "#home-review-square-e4 > div > div[aria-describedby=\"dnd-home-review\"][role=\"button\"][aria-roledescription=\"draggable\"]"
+        ]
+       },
+       {
+        "html": "<div role=\"button\" tabindex=\"0\" aria-disabled=\"true\" aria-roledescription=\"draggable\" aria-describedby=\"dnd-home-review\">",
+        "target": [
+         "#home-review-square-f3 > div > div[aria-describedby=\"dnd-home-review\"][role=\"button\"][aria-roledescription=\"draggable\"]"
+        ]
+       },
+       {
+        "html": "<div role=\"button\" tabindex=\"0\" aria-disabled=\"true\" aria-roledescription=\"draggable\" aria-describedby=\"dnd-home-review\">",
+        "target": [
+         "#home-review-square-a2 > div > div[aria-describedby=\"dnd-home-review\"][role=\"button\"][aria-roledescription=\"draggable\"]"
+        ]
+       },
+       {
+        "html": "<div role=\"button\" tabindex=\"0\" aria-disabled=\"true\" aria-roledescription=\"draggable\" aria-describedby=\"dnd-home-review\">",
+        "target": [
+         "#home-review-square-b2 > div > div[aria-describedby=\"dnd-home-review\"][role=\"button\"][aria-roledescription=\"draggable\"]"
+        ]
+       },
+       {
+        "html": "<div role=\"button\" tabindex=\"0\" aria-disabled=\"true\" aria-roledescription=\"draggable\" aria-describedby=\"dnd-home-review\">",
+        "target": [
+         "#home-review-square-c2 > div > div[aria-describedby=\"dnd-home-review\"][role=\"button\"][aria-roledescription=\"draggable\"]"
+        ]
+       },
+       {
+        "html": "<div role=\"button\" tabindex=\"0\" aria-disabled=\"true\" aria-roledescription=\"draggable\" aria-describedby=\"dnd-home-review\">",
+        "target": [
+         "#home-review-square-d2 > div > div[aria-describedby=\"dnd-home-review\"][role=\"button\"][aria-roledescription=\"draggable\"]"
+        ]
+       },
+       {
+        "html": "<div role=\"button\" tabindex=\"0\" aria-disabled=\"true\" aria-roledescription=\"draggable\" aria-describedby=\"dnd-home-review\">",
+        "target": [
+         "#home-review-square-f2 > div > div[aria-describedby=\"dnd-home-review\"][role=\"button\"][aria-roledescription=\"draggable\"]"
+        ]
+       },
+       {
+        "html": "<div role=\"button\" tabindex=\"0\" aria-disabled=\"true\" aria-roledescription=\"draggable\" aria-describedby=\"dnd-home-review\">",
+        "target": [
+         "#home-review-square-g2 > div > div[aria-describedby=\"dnd-home-review\"][role=\"button\"][aria-roledescription=\"draggable\"]"
+        ]
+       },
+       {
+        "html": "<div role=\"button\" tabindex=\"0\" aria-disabled=\"true\" aria-roledescription=\"draggable\" aria-describedby=\"dnd-home-review\">",
+        "target": [
+         "#home-review-square-h2 > div > div[aria-describedby=\"dnd-home-review\"][role=\"button\"][aria-roledescription=\"draggable\"]"
+        ]
+       },
+       {
+        "html": "<div role=\"button\" tabindex=\"0\" aria-disabled=\"true\" aria-roledescription=\"draggable\" aria-describedby=\"dnd-home-review\">",
+        "target": [
+         "#home-review-square-a1 > div > div[aria-describedby=\"dnd-home-review\"][role=\"button\"][aria-roledescription=\"draggable\"]"
+        ]
+       },
+       {
+        "html": "<div role=\"button\" tabindex=\"0\" aria-disabled=\"true\" aria-roledescription=\"draggable\" aria-describedby=\"dnd-home-review\">",
+        "target": [
+         "#home-review-square-b1 > div > div[aria-describedby=\"dnd-home-review\"][role=\"button\"][aria-roledescription=\"draggable\"]"
+        ]
+       },
+       {
+        "html": "<div role=\"button\" tabindex=\"0\" aria-disabled=\"true\" aria-roledescription=\"draggable\" aria-describedby=\"dnd-home-review\">",
+        "target": [
+         "#home-review-square-c1 > div > div[aria-describedby=\"dnd-home-review\"][role=\"button\"][aria-roledescription=\"draggable\"]"
+        ]
+       },
+       {
+        "html": "<div role=\"button\" tabindex=\"0\" aria-disabled=\"true\" aria-roledescription=\"draggable\" aria-describedby=\"dnd-home-review\">",
+        "target": [
+         "#home-review-square-d1 > div > div[aria-describedby=\"dnd-home-review\"][role=\"button\"][aria-roledescription=\"draggable\"]"
+        ]
+       },
+       {
+        "html": "<div role=\"button\" tabindex=\"0\" aria-disabled=\"true\" aria-roledescription=\"draggable\" aria-describedby=\"dnd-home-review\">",
+        "target": [
+         "#home-review-square-e1 > div > div[aria-describedby=\"dnd-home-review\"][role=\"button\"][aria-roledescription=\"draggable\"]"
+        ]
+       },
+       {
+        "html": "<div role=\"button\" tabindex=\"0\" aria-disabled=\"true\" aria-roledescription=\"draggable\" aria-describedby=\"dnd-home-review\">",
+        "target": [
+         "#home-review-square-h1 > div > div[aria-describedby=\"dnd-home-review\"][role=\"button\"][aria-roledescription=\"draggable\"]"
+        ]
+       }
+      ],
+      "impact": "serious",
+      "message": "Focusable content should have tabindex=\"-1\", be removed from the DOM, or not be hidden with aria-hidden"
+     }
+    ],
+    "none": [],
+    "impact": "serious",
+    "html": "<div class=\"ui-preview ui-dark\" aria-hidden=\"true\">",
+    "target": [
+     ".tall > .ui-preview.ui-dark[aria-hidden=\"true\"]"
+    ],
+    "failureSummary": "Fix all of the following:\n  Focusable content should have tabindex=\"-1\", be removed from the DOM, or not be hidden with aria-hidden"
+   }
+  ]
+ },
+ {
+  "id": "color-contrast",
+  "impact": "serious",
+  "tags": [
+   "cat.color",
+   "wcag2aa",
+   "wcag143",
+   "TTv5",
+   "TT13.c",
+   "EN-301-549",
+   "EN-9.1.4.3",
+   "ACT",
+   "RGAAv4",
+   "RGAA-3.2.1"
+  ],
+  "description": "Ensure the contrast between foreground and background colors meets WCAG 2 AA minimum contrast ratio thresholds",
+  "help": "Elements must meet minimum color contrast ratio thresholds",
+  "helpUrl": "https://dequeuniversity.com/rules/axe/4.14/color-contrast?application=axeAPI",
+  "nodes": [
+   {
+    "any": [
+     {
+      "id": "color-contrast",
+      "data": {
+       "fgColor": "#f8f5ef",
+       "bgColor": "#597d5b",
+       "contrastRatio": 4.27,
+       "fontSize": "12.0pt (16px)",
+       "fontWeight": "normal",
+       "messageKey": null,
+       "expectedContrastRatio": "4.5:1"
+      },
+      "relatedNodes": [
+       {
+        "html": "<span class=\"ui-play-btn\">Play</span>",
+        "target": [
+         ".ui-play-btn"
+        ]
+       }
+      ],
+      "impact": "serious",
+      "message": "Element has insufficient color contrast of 4.27 (foreground color: #f8f5ef, background color: #597d5b, font size: 12.0pt (16px), font weight: normal). Expected contrast ratio of 4.5:1"
+     }
+    ],
+    "all": [],
+    "none": [],
+    "impact": "serious",
+    "html": "<span class=\"ui-play-btn\">Play</span>",
+    "target": [
+     ".ui-play-btn"
+    ],
+    "failureSummary": "Fix any of the following:\n  Element has insufficient color contrast of 4.27 (foreground color: #f8f5ef, background color: #597d5b, font size: 12.0pt (16px), font weight: normal). Expected contrast ratio of 4.5:1"
+   }
+  ]
+ }
+]
