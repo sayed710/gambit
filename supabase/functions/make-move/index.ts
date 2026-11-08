@@ -54,13 +54,18 @@ if (req.method !== 'POST') return fail('method', 'POST only', 405);
 
   // authoritative clock — the shared policy decides expiry, the result
   // (win vs insufficient-material draw) and persists it under CAS
-  const out = expiryOutcome(replay(game), game, Date.now());
+  // ONE clock reading for the whole request: the expiry check and the
+  // debit share it, so a deadline crossed mid-processing is still caught
+  const now = Date.now();
+  const out = expiryOutcome(replay(game), game, now);
   if (out) {
     const { data } = await saveGame(admin, game, {
       status: 'completed',
       result: out.result,
       result_reason: 'timeout',
       pgn: replay(game).pgn(),
+      white_ms_remaining: out.flagged === 'w' ? 0 : game.white_ms_remaining,
+      black_ms_remaining: out.flagged === 'b' ? 0 : game.black_ms_remaining,
       version: game.version + 1,
     }, game.version);
     return json({
@@ -91,7 +96,7 @@ if (req.method !== 'POST') return fail('method', 'POST only', 405);
 
   // the mover's clock: remaining minus the server-measured elapsed time
   const moverRemaining = seat === 'w' ? game.white_ms_remaining : game.black_ms_remaining;
-  const elapsed = game.turn_started_at ? Math.max(0, Date.now() - new Date(game.turn_started_at).getTime()) : 0;
+  const elapsed = game.turn_started_at ? Math.max(0, now - new Date(game.turn_started_at).getTime()) : 0;
   const remainingAfter = Math.max(0, moverRemaining - elapsed + (finished ? 0 : game.increment_ms));
   const patch: Record<string, unknown> = {
     moves,

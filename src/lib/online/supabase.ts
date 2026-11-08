@@ -13,19 +13,31 @@ const LOCAL_ANON_KEY = 'sb_publishable_ACJWlzQHlZjBrEguHvfOxg_3BJgxAaH';
 const url = import.meta.env.VITE_SUPABASE_URL ?? LOCAL_URL;
 const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY ?? LOCAL_ANON_KEY;
 
-/** True when a HOSTED backend is configured via env vars. In development
+/** True when the build has an explicit backend to talk to. In development
     the local stack (127.0.0.1:54321) is the intended target; a PRODUCTION
-    build without explicit env configuration is not — falling back to
-    localhost there would silently point visitors at their own machine. */
+    build needs VITE_SUPABASE_URL/ANON_KEY set at build time — falling
+    back to localhost there would silently point visitors at their own
+    machine. Set both to the LOCAL stack values to build for local E2E. */
+const buildTimeUrl = import.meta.env.VITE_SUPABASE_URL as string | undefined;
+const buildTimeKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined;
 export const onlineConfigured = (): boolean => {
   if (import.meta.env.DEV) return true; // dev always targets the local stack
-  return url !== LOCAL_URL && anonKey !== LOCAL_ANON_KEY;
+  return Boolean(buildTimeUrl && buildTimeKey);
 };
 
 // publishable keys are safe client-side; SECRET keys must never ship to
 // the browser bundle — reject them loudly at startup
 if (anonKey.startsWith('sb_secret_')) {
   throw new Error('[online] VITE_SUPABASE_ANON_KEY is a SECRET key — service-role keys must never be exposed to the browser.');
+}
+// legacy service-role JWTs carry the service_role claim — same rule
+try {
+  const payload = JSON.parse(atob(anonKey.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')));
+  if (payload.role === 'service_role') {
+    throw new Error('[online] VITE_SUPABASE_ANON_KEY is a legacy service_role JWT — it must never be exposed to the browser.');
+  }
+} catch {
+  /* not a decodable JWT (publishable key or garbage) — nothing to guard */
 }
 
 let client: SupabaseClient | null = null;

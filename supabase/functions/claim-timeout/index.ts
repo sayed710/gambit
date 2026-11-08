@@ -36,7 +36,7 @@ if (req.method !== 'POST') return fail('method', 'POST only', 405);
 
   // the shared policy decides expiry AND the result (a win becomes a
   // draw when the claimer lacks any mating material — FIDE 6.9)
-  const out = expiryOutcome(replay(game), game, Date.now());
+  const out = expiryOutcome(replay(game), game, Date.now()); // single reading — fine here
   if (!out || out.flagged === seat) {
     return fail('not-expired', 'the opponent\'s clock has not expired', 409);
   }
@@ -46,6 +46,8 @@ if (req.method !== 'POST') return fail('method', 'POST only', 405);
     result: out.result,
     result_reason: 'timeout',
     pgn: replay(game).pgn(),
+    white_ms_remaining: out.flagged === 'w' ? 0 : game.white_ms_remaining,
+    black_ms_remaining: out.flagged === 'b' ? 0 : game.black_ms_remaining,
     version: game.version + 1,
   }, game.version);
   if (error || !data) return json({ ok: false, versionConflict: true, game: project(game) }, 409);

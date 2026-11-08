@@ -9,6 +9,7 @@ import {
   api,
   currentGuestId,
   ensureGuestSession,
+  onlineConfigured,
   makeInviteLink,
   OnlineError,
   type OnlineGame,
@@ -224,7 +225,9 @@ function LiveGame({
           const res = await api.claimTimeout(game.id);
           setBackendOk(true);
           applyAuthoritative(res.game);
-          toast('Won on time — the opponent\'s clock flagged.');
+          toast(res.game.result === 'draw'
+            ? 'Flag fall — insufficient mating material: draw.'
+            : 'Won on time — the opponent\'s clock flagged.');
         } catch (e) {
           if (e instanceof OnlineError) {
             setBackendOk(true); // the backend answered — only the claim was refused
@@ -257,7 +260,7 @@ function LiveGame({
         }
       } catch (e) {
         if (e instanceof OnlineError && e.code === 'timeout') {
-          toast('Your clock ran out — the opponent wins on time.');
+          toast(e.message); // the server already words the draw/win distinction
           await refetch();
         } else if (e instanceof OnlineError && e.code === 'illegal') {
           playSound('illegal');
@@ -787,36 +790,60 @@ function OnlineInner() {
         </nav>
       </div>
 
-      {guestError && (
+      {!onlineConfigured() && (
         <div className="status-banner check" role="alert">
-          Guest sign-in failed: {guestError}. The local backend must run with anonymous auth enabled ({'`npx supabase start`'}).
+          Online Play is not configured on this deployment — no Supabase backend was provided.
+          <span className="note" style={{ display: 'block', fontWeight: 400 }}>
+            Developers: run the local stack with <code>npx supabase start</code>. For a hosted deployment, set
+            VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY (publishable key only) before building. Offline and
+            engine play are unaffected.
+          </span>
         </div>
       )}
 
-      {phase.kind === 'create' && <CreateForm onCreate={create} />}
-      {phase.kind === 'create' && <OnlineHistory />}
-      {phase.kind === 'waiting' && (
-        <Waiting
-          gameId={phase.gameId}
-          token={phase.token}
-          color={phase.color}
-          onCancel={cancelWaiting}
-          onSeated={(g) => setPhase({ kind: 'live', game: g })}
-        />
-      )}
-      {phase.kind === 'joining' && <JoinGate gameId={phase.gameId} token={phase.token} />}
-      {phase.kind === 'failed' && (
-        <div className="panel panel-pad online-waiting">
-          <div className="status-banner check" role="alert">
-            {phase.message} <span className="muted">({phase.code})</span>
-          </div>
-          <button className="btn btn-ghost btn-sm" onClick={() => setPhase({ kind: 'create' })}>
-            Back to Online Play
-          </button>
+      {!onlineConfigured() ? (
+        <div className="status-banner check" role="alert">
+          Online Play is not configured on this deployment — no Supabase backend was provided.
+          <span className="note" style={{ display: 'block', fontWeight: 400 }}>
+            Developers: run the local stack with <code>npx supabase start</code>. For a hosted deployment, set
+            VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY (publishable key only) before building. Offline and
+            engine play are unaffected.
+          </span>
         </div>
-      )}
-      {phase.kind === 'live' && (
-        <LiveGame key={phase.game.id} game={phase.game} me={me ?? ''} onExit={exitToLobby} />
+      ) : (
+        <>
+          {guestError && (
+            <div className="status-banner check" role="alert">
+              Guest sign-in failed: {guestError}. The local backend must run with anonymous auth enabled ({'`npx supabase start`'}).
+            </div>
+          )}
+
+          {phase.kind === 'create' && <CreateForm onCreate={create} />}
+          {phase.kind === 'create' && <OnlineHistory />}
+          {phase.kind === 'waiting' && (
+            <Waiting
+              gameId={phase.gameId}
+              token={phase.token}
+              color={phase.color}
+              onCancel={cancelWaiting}
+              onSeated={(g) => setPhase({ kind: 'live', game: g })}
+            />
+          )}
+          {phase.kind === 'joining' && <JoinGate gameId={phase.gameId} token={phase.token} />}
+          {phase.kind === 'failed' && (
+            <div className="panel panel-pad online-waiting">
+              <div className="status-banner check" role="alert">
+                {phase.message} <span className="muted">({phase.code})</span>
+              </div>
+              <button className="btn btn-ghost btn-sm" onClick={() => setPhase({ kind: 'create' })}>
+                Back to Online Play
+              </button>
+            </div>
+          )}
+          {phase.kind === 'live' && (
+            <LiveGame key={phase.game.id} game={phase.game} me={me ?? ''} onExit={exitToLobby} />
+          )}
+        </>
       )}
     </div>
   );

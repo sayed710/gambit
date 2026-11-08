@@ -157,6 +157,10 @@ if (LONG) {
     ids.push(j.payload.game.id);
     await fn(A.token, 'make-move', { gameId: j.payload.game.id, moveId: crypto.randomUUID(), from: 'e2', to: 'e4' }); // starts black's clock
   }
+  // T3's draw offer is placed NOW (pre-expiry) and stays pending into
+  // the expiry window — the acceptance must not override the flag fall
+  const preExpiryOffer = await fn(A.token, 'draw', { gameId: ids[3], action: 'offer' });
+  check('pre-expiry draw offer accepted while clock alive', preExpiryOffer.status === 200 && preExpiryOffer.payload.game?.draw_offer_by === A.id);
   // a legal black move BEFORE expiry is accepted normally (g0 — white
   // becomes the flagged side there; used only for this positive check)
   const earlyMove = await fn(B.token, 'make-move', { gameId: ids[0], moveId: crypto.randomUUID(), from: 'e7', to: 'e5' });
@@ -174,15 +178,16 @@ if (LONG) {
   check('expired player\'s draw offer → timeout adjudication (white wins)',
     expiredOffer.status === 200 && expiredOffer.payload.adjudicated === true && expiredOffer.payload.game?.result === 'white' && expiredOffer.payload.game?.result_reason === 'timeout');
 
-  // T3 — opponent accepts a draw after the deadline (offer pending pre-expiry)
-  // the OFFER itself reconciles the expired clock (any draw action does):
-  // the honest outcome is a timeout adjudication, not a pending offer
-  const lateOffer = await fn(A.token, 'draw', { gameId: ids[3], action: 'offer' });
-  check('draw offer after deadline → timeout adjudication (white wins)',
-    lateOffer.status === 200 && lateOffer.payload.adjudicated === true && lateOffer.payload.game?.result === 'white' && lateOffer.payload.game?.result_reason === 'timeout');
+  // T3 — accepting a draw offer that was pending BEFORE the deadline:
+  // the expiry reconciliation must win over the stale acceptance
+  // (the pending offer was placed pre-expiry in the setup loop below)
   const lateAccept = await fn(B.token, 'draw', { gameId: ids[3], action: 'accept' });
-  check('draw accept on the adjudicated game is rejected (state)',
-    lateAccept.status === 409 && lateAccept.payload.error?.code === 'state');
+  check('draw acceptance after deadline → timeout adjudication (white wins)',
+    lateAccept.status === 200 && lateAccept.payload.adjudicated === true && lateAccept.payload.game?.result === 'white' && lateAccept.payload.game?.result_reason === 'timeout');
+  // and a fresh post-expiry offer cannot resurrect a completed game
+  const lateOffer = await fn(A.token, 'draw', { gameId: ids[3], action: 'offer' });
+  check('draw offer on the adjudicated game is rejected (state)',
+    lateOffer.status === 409 && lateOffer.payload.error?.code === 'state');
 
   // T4 — flagged player resigns after the deadline
   const lateResign = await fn(B.token, 'resign', { gameId: ids[4] });
