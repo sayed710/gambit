@@ -133,9 +133,8 @@ jobs:
       - name: Start the local Supabase stack (exclusions verified against v3.0.0)
         run: npx supabase start -x studio,imgproxy,storage-api,vector,pooler
 
-      - name: Apply migrations (db reset)
-        run: npx supabase db reset
-
+      # `supabase start` already applies all migrations on the fresh stack —
+      # no redundant db reset
       - name: Run the online integration suite (RLS, commands, clocks, timeout)
         env:
           ONLINE_LONG: '1' # includes the 62s real-time timeout claim test
