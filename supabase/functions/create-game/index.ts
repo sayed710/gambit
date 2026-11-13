@@ -55,8 +55,9 @@ if (req.method !== 'POST') return fail('method', 'POST only', 405);
     p_creator: user.id,
     p_white_id: colorPick === 'white' ? user.id : null,
     p_black_id: colorPick === 'black' ? user.id : null,
-    p_white_name: colorPick === 'white' ? name : 'Black',
-    p_black_name: colorPick === 'black' ? name : 'White',
+    // empty seats carry their OWN color label (never the other side's)
+    p_white_name: colorPick === 'white' ? name : 'White',
+    p_black_name: colorPick === 'black' ? name : 'Black',
     p_invite_hash: hash,
     p_base_ms: baseMs,
     p_increment_ms: incrementMs,

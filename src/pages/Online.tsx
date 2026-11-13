@@ -303,7 +303,7 @@ function LiveGame({
         const res = await api.makeMove(game.id, moveId, from, to, promotion);
         applyAuthoritative(res.game); // authoritative regardless of applied/conflict/replay
         if (res.game.status === 'completed') {
-          toast(gameEndToast(res.game, mySeat)); // authoritative reason wins over the intent
+          toast(gameEndToast(res.game, me)); // the id, not the seat letter
         } else if (res.applied) {
           playSound('move');
         }
