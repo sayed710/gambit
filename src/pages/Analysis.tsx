@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
+import { usePageTitle } from '../hooks/usePageTitle';
 import { Chess } from 'chess.js';
 import EvalBar from '../components/EvalBar';
 import TreeWorkspace from '../components/TreeWorkspace';
@@ -11,6 +12,7 @@ import type { EvalResult } from '../lib/engine/engine';
 import { sfStop, type SFLine } from '../lib/engine/stockfish';
 
 export default function Analysis() {
+  usePageTitle('Review & Analysis — Gambit');
   const location = useLocation();
   const engine = useEngine();
   const { toast } = useToast();

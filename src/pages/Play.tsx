@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
+import { usePageTitle } from '../hooks/usePageTitle';
 import type { Square } from 'chess.js';
 import GameBoard from '../components/GameBoard';
 import MoveList from '../components/MoveList';
@@ -844,6 +845,7 @@ function GameScreen({
 const LAST_CONFIG_KEY = 'lastConfig';
 
 export default function Play() {
+  usePageTitle('Play — Gambit');
   const location = useLocation();
   const navigate = useNavigate();
   const [config, setConfig] = useState<GameConfig | null>(() => {

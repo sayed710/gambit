@@ -33,6 +33,7 @@ async function axeScan(name, route, opts = {}) {
      exception; aria-command-name stays ENABLED for every other element
      on the page, so genuine nameless-control defects outside the board
      still fail this check. */
+  titles[name] = await page.title();
   const results = await page.evaluate(() =>
     // axe.run(context, options): the exclude targets ONLY the react-
     // chessboard piece buttons inside square cells (the known third-party
@@ -59,13 +60,15 @@ function fsSyncWrite(name, violations) {
   writeFileSync(`a11y-${name}.json`, JSON.stringify(violations, null, 1));
 }
 
+const titles = {}; // page name -> document.title, filled by axeScan
+
 /* 1 — document basics */
 await page.goto(`${BASE}/#/`, { waitUntil: 'load' });
 await page.waitForTimeout(1500);
 check('html has a lang attribute', await page.evaluate(() => Boolean(document.documentElement.getAttribute('lang'))));
-check('every page has a unique title', (await page.title()).length > 0);
+check('every page has a nonempty title', Object.values(titles).every((t) => t.length > 0), JSON.stringify(titles));
 
-/* 2 — axe scans on the critical pages */
+/* 2 — axe scans on the critical pages (each records its title) */
 await axeScan('home', '/');
 await axeScan('play', '/play', { settle: 2500 });
 await axeScan('analysis', '/analysis', { settle: 3500 });
@@ -92,6 +95,14 @@ const landmarks = await page.evaluate(() => ({
   main: Boolean(document.querySelector('main, [role="main"]')),
 }));
 check('landmarks: header + nav + main present', landmarks.banner && landmarks.nav && landmarks.main, JSON.stringify(landmarks));
+
+check('every page has a UNIQUE title (actual per-page comparison)',
+  (() => {
+    const vals = Object.values(titles);
+    return new Set(vals).size === vals.length;
+  })(),
+  JSON.stringify(titles),
+);
 
 /* 4b — board keyboard navigation: start a timed game, focus the board,
    move the cursor with the arrow keys, verify the board's own aria-label

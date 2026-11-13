@@ -1,4 +1,5 @@
 import { Link } from 'react-router-dom';
+import { usePageTitle } from '../hooks/usePageTitle';
 import { Chess } from 'chess.js';
 import { Chessboard } from 'react-chessboard';
 import { ArrowRight } from '../components/Icons';
@@ -230,6 +231,7 @@ function TrainPreview() {
 /* ---------------- page ---------------- */
 
 export default function Home() {
+  usePageTitle('Gambit — Play Chess'); // distinct per-page titles (a11y)
   const exploreFeatures = () => {
     const reduce = typeof window !== 'undefined' && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
     document.getElementById('features')?.scrollIntoView({ behavior: reduce ? 'auto' : 'smooth', block: 'start' });

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
+import { usePageTitle } from '../hooks/usePageTitle';
 import { Chess, type Square } from 'chess.js';
 import { ArrowRight, CopyIcon } from '../components/Icons';
 import GameBoard from '../components/GameBoard';
@@ -783,6 +784,7 @@ function JoinGate({ gameId, token }: { gameId: string; token: string }) {
 /* ------------------------------------------------ page shell ---- */
 
 function OnlineInner() {
+  usePageTitle('Online — Gambit');
   const { toast } = useToast();
   const location = useLocation();
   const navigate = useNavigate();
@@ -791,6 +793,8 @@ function OnlineInner() {
   const [me, setMe] = useState<string | null>(null);
   const [guestReady, setGuestReady] = useState(false);
   const bootedRef = useRef(false);
+  const phaseRef = useRef<Phase | null>(null);
+  phaseRef.current = phase;
 
   /* join deep link: /online/join?game=…&token=… (HashRouter puts the
      query in location.search — location.hash is empty inside the router) */
@@ -800,6 +804,9 @@ function OnlineInner() {
       const game = q.get('game');
       const token = q.get('token');
       if (game && token) setPhase({ kind: 'joining', gameId: game, token });
+    } else if (location.pathname.endsWith('/online') && phaseRef.current?.kind === 'joining') {
+      // navigating away from the invite link clears the join gate
+      setPhase({ kind: 'create' });
     }
   }, [location.pathname, location.search]);
 
@@ -911,9 +918,12 @@ function OnlineInner() {
           if (res.game.status === 'waiting') {
             // the creator reopened their own invitation — the room is
             // still unseated: back to the waiting view (invite + cancel
-            // controls stay), not a frozen live board
+            // controls stay), not a frozen live board. The seat color
+            // comes from the LIVE identity against the row (the saved
+            // record dropped `color` by design — the row is the truth).
             const joinedToken = liveFromJoin.joinedToken!;
-            setPhase({ kind: 'waiting', gameId: res.game.id, token: joinedToken, color: res.game.white_id === me ? 'white' : 'black' });
+            const meNow = (await currentGuestId()) ?? '';
+            setPhase({ kind: 'waiting', gameId: res.game.id, token: joinedToken, color: res.game.white_id === meNow ? 'white' : 'black' });
           } else {
             setPhase({ kind: 'live', game: res.game });
           }
