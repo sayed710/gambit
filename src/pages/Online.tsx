@@ -251,6 +251,12 @@ function LiveGame({
   useEffect(() => {
     if (!finished) setClaimAttempts(0);
   }, [finished, game.id]);
+  // a new turn is a fresh claim window: attempts spent on a premature
+  // projection must not starve a later, real flag fall
+  const turnKey = `${game.turn}:${game.turn_started_at}`;
+  useEffect(() => {
+    setClaimAttempts(0);
+  }, [turnKey]);
   useEffect(() => {
     if (finished || !mySeat || !backendOk) return;
     const flagged = clocks.flagged;
@@ -888,7 +894,15 @@ function OnlineInner() {
           await ensureGuestSession();
           const res = await api.joinGame(liveFromJoin.joinedToken!, localStorage.getItem('gambit.onlineName')?.trim() || 'Player');
           localStorage.setItem('gambit.onlineGame', JSON.stringify({ id: res.game.id, token: liveFromJoin.joinedToken }));
-          setPhase({ kind: 'live', game: res.game });
+          if (res.game.status === 'waiting') {
+            // the creator reopened their own invitation — the room is
+            // still unseated: back to the waiting view (invite + cancel
+            // controls stay), not a frozen live board
+            const joinedToken = liveFromJoin.joinedToken!;
+            setPhase({ kind: 'waiting', gameId: res.game.id, token: joinedToken, color: res.game.white_id === me ? 'white' : 'black' });
+          } else {
+            setPhase({ kind: 'live', game: res.game });
+          }
         } catch (e) {
           if (e instanceof OnlineError) setPhase({ kind: 'failed', code: e.code, message: e.message });
           else setPhase({ kind: 'failed', code: 'backend', message: 'could not reach the local backend — run `npx supabase start`' });
