@@ -683,7 +683,17 @@ function CreateForm({ onCreate }: { onCreate: (name: string, base: number, inc: 
 
 function Waiting({ gameId, token, color, onCancel, onSeated, onEnded }: { gameId: string; token: string; color: 'white' | 'black'; onCancel: () => void; onSeated: (game: OnlineGame) => void; onEnded: (status: 'abandoned' | 'completed') => void }) {
   const [copied, setCopied] = useState(false);
+  const [cancelling, setCancelling] = useState(false);
   const link = makeInviteLink(gameId, token);
+  const doCancel = async () => {
+    if (cancelling) return;
+    setCancelling(true);
+    try {
+      await onCancel();
+    } finally {
+      setCancelling(false);
+    }
+  };
   /* poll authoritative state — the join flips waiting->ready; terminal
      states (abandoned from another tab, or expired) end the waiting view
      instead of polling forever */
@@ -726,8 +736,8 @@ function Waiting({ gameId, token, color, onCancel, onSeated, onEnded }: { gameId
         </button>
       </div>
       <div className="online-pulse" aria-hidden="true" />
-      <button className="btn btn-ghost btn-sm" onClick={onCancel}>
-        Cancel room
+      <button className="btn btn-ghost btn-sm" disabled={cancelling} onClick={() => void doCancel()}>
+        {cancelling ? 'Cancelling…' : 'Cancel room'}
       </button>
     </div>
   );
@@ -825,7 +835,11 @@ function OnlineInner() {
       // already-seated: the opponent joined between the click and the
       // request — the authoritative game came back; go LIVE with it
       // instead of dropping the creator to the lobby
-      if (e instanceof OnlineError && e.code === 'already-seated' && e.game && me && (e.game.white_id === me || e.game.black_id === me)) {
+      if (
+        e instanceof OnlineError && e.code === 'already-seated' && e.game && me
+        && (e.game.white_id === me || e.game.black_id === me)
+        && ['ready', 'active'].includes(e.game.status) // an abandoned response is NOT a live seat
+      ) {
         localStorage.setItem('gambit.onlineGame', JSON.stringify({ id: e.game.id, token: p.token }));
         setPhase({ kind: 'live', game: e.game });
         return;

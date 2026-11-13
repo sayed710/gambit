@@ -33,7 +33,13 @@ if (!process.env.E2E_SKIP_SERVE) {
   while (Date.now() < deadline) {
     try {
       const res = await fetch(`${BASE}/`);
-      if (res.ok) break;
+      if (res.ok) {
+        const html = await res.text();
+        // a squatter on 5199 could satisfy any 200 — assert OUR app
+        if (html.includes('<title>Gambit')) break;
+        console.error('port 5199 is served by something that is NOT Gambit — refusing');
+        process.exit(1);
+      }
     } catch { /* not ready yet */ }
     await new Promise((r) => setTimeout(r, 500));
   }
