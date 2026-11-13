@@ -54,4 +54,13 @@ console.log('move:', mv.status, mv.payload.applied);
 for (let i = 0; i < 20 && received.length === 0; i++) await new Promise((r) => setTimeout(r, 250));
 console.log('events received:', JSON.stringify(received), 'latency:', received.length ? Date.now() - t0 + 'ms' : 'NONE');
 await B.sb.removeChannel(ch);
+
+// the probe is a health check: exit non-zero when it failed its own job
+const moveApplied = mv.status === 200 && mv.payload.applied === true;
+const gotEvents = received.some((r) => (r.moves ?? 0) > 0);
+if (!subscribed || !moveApplied || !gotEvents) {
+  console.error(`PROBE FAILED: subscribed=${subscribed} moveApplied=${moveApplied} gotEvents=${gotEvents}`);
+  process.exit(1);
+}
+console.log('PROBE OK');
 process.exit(0);
