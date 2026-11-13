@@ -8,6 +8,7 @@
 import fs from 'node:fs';
 import { execSync } from 'node:child_process';
 import path from 'node:path';
+import { scanTextForSecretKeys, validateClientKey } from './bundle-security-scan.mjs';
 
 let failures = 0;
 const check = (name, ok, detail = '') => {
@@ -85,18 +86,30 @@ check('client uses a publishable key constant', onlineSrc.includes('sb_publishab
 check('client does not ASSIGN a service_role key', !/[:=]\s*['\"]ey[A-Za-z0-9_-]+['\"].*service_role/.test(onlineSrc));
 check('client guard rejects service_role (validatePublishableKey present)', onlineSrc.includes('validatePublishableKey') && onlineSrc.includes("role === 'service_role'"));
 
-/* 6b — build validation: the DISTRIBUTED bundle carries no secret keys
-   (fails before any secret could reach visitors, not just at runtime) */
+/* 6b — build validation: the DISTRIBUTED bundle carries no secret keys.
+   The per-JWT decoded scan is independent of guard strings elsewhere in
+   the same file, and runs against the real built bundle. */
 if (fs.existsSync('dist/assets')) {
   let bundleHits = [];
   for (const f of fs.readdirSync('dist/assets').filter((n) => n.endsWith('.js'))) {
     const text = fs.readFileSync(path.join('dist/assets', f), 'utf8');
-    if (/sb_secret_[A-Za-z0-9_-]{10,}/.test(text)) bundleHits.push(f + ': sb_secret_');
-    if (/service_role/.test(text) && !/validatePublishableKey|service_role JWT|service_role claim/.test(text)) {
-      bundleHits.push(f + ': service_role outside the guard');
+    for (const hit of scanTextForSecretKeys(text)) {
+      bundleHits.push(`${f}: ${hit}`);
     }
   }
   check('distributed bundle carries no secret keys', bundleHits.length === 0, bundleHits.join(', ').slice(0, 160));
+}
+
+/* 6c — build-time validation of the CONFIGURED key: if the environment
+   provided a client key, reject SECRET/service_role forms before any
+   build could embed them into frontend assets */
+if (process.env.VITE_SUPABASE_ANON_KEY) {
+  try {
+    validateClientKey(process.env.VITE_SUPABASE_ANON_KEY);
+    check('configured VITE_SUPABASE_ANON_KEY is a safe client key', true);
+  } catch (e) {
+    check('configured VITE_SUPABASE_ANON_KEY is a safe client key', false, String(e).slice(0, 140));
+  }
 }
 
 console.log(failures === 0 ? 'SECURITY & LICENSING: ALL PASS' : `SECURITY & LICENSING: ${failures} FAILURES`);
