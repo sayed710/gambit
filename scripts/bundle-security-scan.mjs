@@ -12,10 +12,20 @@
 
 import { Buffer } from 'node:buffer';
 
-/** Markers embedded in FABRICATED test tokens (clearly fake values).
-    The tracked-file security scan exempts lines containing these — the
-    tokens exist only in negative-regression tests, never in bundles. */
-export const FABRICATED_MARKERS = ['f4k3s1gn4tur3', 'sb_secret_TOPSECRETVALUE_1234567890'];
+/** The EXACT fabricated sb_secret_ token used by negative-regression
+    tests. Only this exact token is exempt in the tracked-file scan —
+    a real credential glued with a marker string does NOT match. */
+export const FABRICATED_SB_SECRET = 'sb_secret_TOPSECRETVALUE_1234567890-f4k3s1gn4tur3';
+
+/** Payload field carried by every FABRICATED test JWT. A tracked-file
+    line mentioning service_role is exempt ONLY when its JWT payloads
+    carry this exact fabricated marker field. */
+export const FABRICATED_JWT_MARKER = 'f4k3s1gn4tur3';
+
+export function isFabricatedJwt(jwt) {
+  const payload = decodeJwtPayload(jwt);
+  return payload?.marker === FABRICATED_JWT_MARKER;
+}
 
 /** Base64url-decode a JWT payload segment (no signature verification —
     this is a credential-shape scan, not an auth check). */

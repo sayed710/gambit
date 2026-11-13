@@ -7,8 +7,9 @@
    Exits 1 on any failure. */
 import fs from 'node:fs';
 import { execSync } from 'node:child_process';
+import { Buffer } from 'node:buffer';
 import path from 'node:path';
-import { FABRICATED_MARKERS, scanTextForSecretKeys, validateClientKey } from './bundle-security-scan.mjs';
+import { FABRICATED_JWT_MARKER, FABRICATED_SB_SECRET, isFabricatedJwt, scanTextForSecretKeys, validateClientKey } from './bundle-security-scan.mjs';
 
 let failures = 0;
 const check = (name, ok, detail = '') => {
@@ -26,10 +27,6 @@ const readTracked = (p) => {
 };
 
 /* 1 — no secret-shaped strings in tracked text files */
-const secretPatterns = [
-  [/sb_secret_[A-Za-z0-9_-]{10,}/, 'supabase SECRET key'],
-  [/-----BEGIN (RSA |EC |OPENSSH )?PRIVATE KEY-----/, 'private key block'],
-];
 let secretHits = [];
 for (const f of tracked) {
   // SQL migrations are a classic credential-leak vector — scan them too
@@ -39,16 +36,25 @@ for (const f of tracked) {
     // skip comment lines — the security GUARD code legitimately names
     // what it rejects (SQL -- comments and JS // and block * comments)
     if (line.trim().startsWith('//') || line.trim().startsWith('*') || line.trim().startsWith('--')) return;
-    // test files legitimately contain FABRICATED tokens (clearly fake
-    // values carrying the markers exported by the scanner module) for
-    // negative regressions — those exact lines are exempt; any OTHER
-    // secret-shaped string in ANY file still fails the scan
-    const fabricated = FABRICATED_MARKERS.some((m) => line.includes(m));
-    for (const [re, label] of secretPatterns) {
-      if (re.test(line) && !fabricated) secretHits.push(`${f}:${i + 1}: ${label}`);
+    // secret detection is TOKEN-level: negative-regression tests
+    // legitimately carry the EXACT fabricated sb_secret_ constant — any
+    // other sb_secret_ token (including a real key glued with a marker
+    // string) is a leak. Private-key blocks are NEVER exempt.
+    const secretTokens = line.match(/sb_secret_[A-Za-z0-9_-]{10,}/g) ?? [];
+    const realSecret = secretTokens.some((t) => t !== FABRICATED_SB_SECRET);
+    if (realSecret) secretHits.push(`${f}:${i + 1}: supabase SECRET key`);
+    if (/-----BEGIN (RSA |EC |OPENSSH )?PRIVATE KEY-----/.test(line)) {
+      secretHits.push(`${f}:${i + 1}: private key block`);
     }
-    // a legacy service_role JWT assigned to a KEY variable is a real leak
-    if (/(KEY|key)[a-zA-Z_]*\s*[:=][^\n]*service_role/.test(line) && !line.includes('payload.role') && !fabricated) {
+    // a service_role mention on a KEY-assignment line is a real leak
+    // UNLESS the line's JWTs are fabricated (decoded payload carries the
+    // exact FABRICATED_JWT_MARKER field — a real credential would not)
+    const jwts = line.match(/eyJ[A-Za-z0-9_-]+\.eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]*/g) ?? [];
+    const allJwtsFabricated = jwts.length > 0 && jwts.every(isFabricatedJwt);
+    const fabricatedCall = line.includes(`marker: '${FABRICATED_JWT_MARKER}'`);
+    const serviceRoleAssigned =
+      /(KEY|key)[a-zA-Z_]*\s*[:=][^\n]*service_role/.test(line) && !line.includes('payload.role');
+    if (serviceRoleAssigned && !allJwtsFabricated && !fabricatedCall) {
       secretHits.push(`${f}:${i + 1}: service_role JWT assigned to a key variable`);
     }
   });
@@ -111,6 +117,26 @@ if (process.env.VITE_SUPABASE_ANON_KEY) {
   } catch (e) {
     check('configured VITE_SUPABASE_ANON_KEY is a safe client key', false, String(e).slice(0, 140));
   }
+}
+
+/* 6d — the prebuild gate itself: `npm run build` validates the key
+   BEFORE vite embeds it. Deterministic fabricated-token process checks. */
+{
+  const runGate = (key) =>
+    execSync('node scripts/validate-configured-key.mjs', {
+      env: key ? { ...process.env, VITE_SUPABASE_ANON_KEY: key } : { ...process.env },
+      stdio: 'pipe',
+    }).toString();
+  try {
+    runGate('eyJhbGciOiJIUzI1NiJ9.' +
+      Buffer.from(JSON.stringify({ role: 'service_role' })).toString('base64url') +
+      '.f4k3s1gn4tur3');
+    check('prebuild gate rejects a fabricated service_role key', false, 'accepted');
+  } catch {
+    check('prebuild gate rejects a fabricated service_role key', true);
+  }
+  check('prebuild gate accepts a publishable key', runGate('sb_publishable_ABCdef123_xYz').includes('safe client key'));
+  check('prebuild gate passes silently when unconfigured', runGate() === '');
 }
 
 console.log(failures === 0 ? 'SECURITY & LICENSING: ALL PASS' : `SECURITY & LICENSING: ${failures} FAILURES`);

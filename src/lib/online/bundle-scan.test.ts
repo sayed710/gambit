@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { scanTextForSecretKeys, validateClientKey } from '../../../scripts/bundle-security-scan.mjs';
+import { FABRICATED_SB_SECRET, scanTextForSecretKeys, validateClientKey } from '../../../scripts/bundle-security-scan.mjs';
 
 // jsdom-provided btoa + base64url conversion (no node Buffer in this tsconfig)
 const b64url = (obj: object) => btoa(JSON.stringify(obj)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
@@ -30,7 +30,7 @@ describe('scanTextForSecretKeys', () => {
   });
 
   it('a modern sb_secret_ key fails the scan', () => {
-    const hits = scanTextForSecretKeys(`key = 'sb_secret_TOPSECRETVALUE_1234567890'`);
+    const hits = scanTextForSecretKeys(`key = '${FABRICATED_SB_SECRET}'`);
     expect(hits.length).toBe(1);
     expect(hits[0]).toContain('sb_secret_');
   });
@@ -79,7 +79,7 @@ describe('validateClientKey (build/security-gate validation)', () => {
   });
 
   it('a modern sb_secret_ key throws', () => {
-    expect(() => validateClientKey('sb_secret_TOPSECRETVALUE_1234567890')).toThrow(/SECRET key/);
+    expect(() => validateClientKey(FABRICATED_SB_SECRET)).toThrow(/SECRET key/);
   });
 
   it('a legacy service_role JWT throws', () => {
