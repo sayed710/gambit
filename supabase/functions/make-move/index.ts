@@ -27,14 +27,16 @@ if (req.method !== 'POST') return fail('method', 'POST only', 405);
   const moveId = asUuid(b.moveId);
   const from = asStr(b.from, 4);
   const to = asStr(b.to, 4);
+  // promotion: strict type+shape validation BEFORE any normalization —
+  // a non-string or multi-char value is rejected, never defaulted
+  if (b.promotion !== undefined && (typeof b.promotion !== 'string' || !/^[qrbn]$/.test(b.promotion.toLowerCase()))) {
+    return fail('payload', 'promotion must be a single q, r, b or n');
+  }
   const promotion = asStr(b.promotion, 1);
   if (!gameId) return fail('payload', 'gameId must be a uuid');
   if (!moveId) return fail('payload', 'moveId must be a uuid');
   if (!from || !to) return fail('payload', 'from and to are required');
   if (!/^[a-h][1-8]$/.test(from) || !/^[a-h][1-8]$/.test(to)) return fail('payload', 'from/to must be squares');
-  if (promotion !== null && promotion !== undefined && !/^[qrbn]$/.test(promotion.toLowerCase())) {
-    return fail('payload', 'promotion must be q, r, b or n');
-  }
   const promotionNorm = promotion ? promotion.toLowerCase() : undefined;
 
   const admin = adminClient();
