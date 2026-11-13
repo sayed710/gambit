@@ -8,6 +8,7 @@
 import fs from 'node:fs';
 import { execSync } from 'node:child_process';
 import { Buffer } from 'node:buffer';
+import os from 'node:os';
 import path from 'node:path';
 import { FABRICATED_JWT_MARKER, FABRICATED_SB_SECRET, isFabricatedJwt, scanTextForSecretKeys, validateClientKey } from './bundle-security-scan.mjs';
 
@@ -137,6 +138,27 @@ if (process.env.VITE_SUPABASE_ANON_KEY) {
   }
   check('prebuild gate accepts a publishable key', runGate('sb_publishable_ABCdef123_xYz').includes('safe client key'));
   check('prebuild gate passes silently when unconfigured', runGate() === '');
+  // vite ALSO loads .env files — a service key supplied only through
+  // .env.production must fail the gate (temp-dir fixture, fabricated key)
+  {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'gate-env-'));
+    fs.writeFileSync(
+      path.join(tmp, '.env.production'),
+      `VITE_SUPABASE_ANON_KEY=eyJhbGciOiJIUzI1NiJ9.${Buffer.from(JSON.stringify({ role: 'service_role', marker: 'f4k3s1gn4tur3' })).toString('base64url')}.f4k3s1gn4tur3
+`,
+    );
+    let envRejected = false;
+    try {
+      execSync('node scripts/validate-configured-key.mjs', { cwd: tmp, stdio: 'pipe' });
+    } catch {
+      envRejected = true;
+    }
+    check('prebuild gate rejects a service key supplied via .env.production', envRejected);
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+  // env files never enter version control
+  const gitignoreText = fs.existsSync('.gitignore') ? fs.readFileSync('.gitignore', 'utf8') : '';
+  check('.env files are gitignored (hosted keys live only in CI env)', /^.[w*]/m.test(gitignoreText))
 }
 
 console.log(failures === 0 ? 'SECURITY & LICENSING: ALL PASS' : `SECURITY & LICENSING: ${failures} FAILURES`);
