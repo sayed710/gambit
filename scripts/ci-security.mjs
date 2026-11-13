@@ -8,7 +8,7 @@
 import fs from 'node:fs';
 import { execSync } from 'node:child_process';
 import path from 'node:path';
-import { scanTextForSecretKeys, validateClientKey } from './bundle-security-scan.mjs';
+import { FABRICATED_MARKERS, scanTextForSecretKeys, validateClientKey } from './bundle-security-scan.mjs';
 
 let failures = 0;
 const check = (name, ok, detail = '') => {
@@ -39,15 +39,16 @@ for (const f of tracked) {
     // skip comment lines — the security GUARD code legitimately names
     // what it rejects (SQL -- comments and JS // and block * comments)
     if (line.trim().startsWith('//') || line.trim().startsWith('*') || line.trim().startsWith('--')) return;
-    // the dedicated guard-test file legitimately contains FABRICATED
-    // tokens for its negative regressions — exempt that exact path;
-    // every OTHER file (test-named or not) is fully scanned
-    const guardTestFile = f === 'src/lib/online/config.test.ts';
+    // test files legitimately contain FABRICATED tokens (clearly fake
+    // values carrying the markers exported by the scanner module) for
+    // negative regressions — those exact lines are exempt; any OTHER
+    // secret-shaped string in ANY file still fails the scan
+    const fabricated = FABRICATED_MARKERS.some((m) => line.includes(m));
     for (const [re, label] of secretPatterns) {
-      if (re.test(line) && !guardTestFile) secretHits.push(`${f}:${i + 1}: ${label}`);
+      if (re.test(line) && !fabricated) secretHits.push(`${f}:${i + 1}: ${label}`);
     }
     // a legacy service_role JWT assigned to a KEY variable is a real leak
-    if (/(KEY|key)[a-zA-Z_]*\s*[:=][^\n]*service_role/.test(line) && !line.includes('payload.role') && !guardTestFile) {
+    if (/(KEY|key)[a-zA-Z_]*\s*[:=][^\n]*service_role/.test(line) && !line.includes('payload.role') && !fabricated) {
       secretHits.push(`${f}:${i + 1}: service_role JWT assigned to a key variable`);
     }
   });
