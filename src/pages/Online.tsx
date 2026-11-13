@@ -283,17 +283,21 @@ function LiveGame({
   const submitMove = useCallback(
     async (from: Square, to: Square, promotion?: string) => {
       if (!mySeat || busy || finished) return;
-      const moveId = crypto.randomUUID();
-      moveIdRef.current = moveId;
       setBusy(true);
       try {
+        // crypto.randomUUID exists only on secure contexts — fall back to
+        // getRandomValues on plain-HTTP origins instead of crashing
+        const moveId =
+          typeof crypto.randomUUID === 'function'
+            ? crypto.randomUUID()
+            : Array.from(crypto.getRandomValues(new Uint8Array(16)), (b) => b.toString(16).padStart(2, '0')).join('');
+        moveIdRef.current = moveId;
         const res = await api.makeMove(game.id, moveId, from, to, promotion);
         applyAuthoritative(res.game); // authoritative regardless of applied/conflict/replay
-        if (res.applied) {
+        if (res.game.status === 'completed') {
+          toast(gameEndToast(res.game, mySeat)); // authoritative reason wins over the intent
+        } else if (res.applied) {
           playSound('move');
-          if (res.game.status === 'completed') toast(gameEndToast(res.game, mySeat));
-        } else if (res.game.status === 'completed') {
-          toast(gameEndToast(res.game, mySeat));
         }
       } catch (e) {
         if (e instanceof OnlineError && e.code === 'timeout') {
@@ -364,7 +368,10 @@ function LiveGame({
       const res = await api.resign(game.id);
       applyAuthoritative(res.game);
       setConfirmResign(false);
-      toast('You resigned.');
+      // a raced flag fall completes the game on time — the authoritative
+      // reason wins over the resign intent
+      if (res.game.result_reason === 'timeout') toast('The clock flagged — decided on time.');
+      else toast('You resigned.');
     } catch (e) {
       toast(e instanceof Error ? e.message : 'resign failed');
     } finally {
@@ -377,8 +384,9 @@ function LiveGame({
     try {
       const res = await api.draw(game.id, action);
       applyAuthoritative(res.game);
-      if (action === 'offer') toast('Draw offered.');
-      if (action === 'decline') toast('Draw declined.');
+      if (res.game.status === 'completed') toast(gameEndToast(res.game, me));
+      else if (action === 'offer') toast('Draw offered.');
+      else if (action === 'decline') toast('Draw declined.');
     } catch (e) {
       toast(e instanceof Error ? e.message : 'draw command failed');
     } finally {
@@ -395,7 +403,7 @@ function LiveGame({
   const drawPending = game.draw_offer_by && game.draw_offer_by !== me;
 
   const downloadPgn = () => {
-    if (!game.pgn) return;
+    if (game.pgn == null) return; // null = never persisted; '' = a valid header-only PGN
     const blob = new Blob([game.pgn], { type: 'application/x-chess-pgn' });
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
@@ -569,7 +577,7 @@ function LiveGame({
                 Analyze in Review
                 <ArrowRight />
               </button>
-              <button className="btn btn-ghost" onClick={downloadPgn} disabled={!game.pgn}>
+              <button className="btn btn-ghost" onClick={downloadPgn} disabled={game.pgn == null}>
                 Download PGN
               </button>
               <button className="btn btn-ghost" onClick={onExit}>

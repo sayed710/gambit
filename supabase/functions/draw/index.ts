@@ -1,6 +1,8 @@
 /* draw — offer / accept / decline. The offer lives on the row
-   (draw_offer_by); only the OPPONENT can accept; either side can
-   decline. Accepting ends the game as an agreed draw. */
+   (draw_offer_by). Only the OPPONENT (the intended recipient) can
+   accept or decline; the offer STANDS until they act on it or decline
+   it implicitly by moving (the offerer cannot withdraw it). Accepting
+   ends the game as an agreed draw. */
 import { adminClient, asEnum, asUuid, corsPreflight, fail, isParticipant, json, loadGame, project, replay, requireUser, saveGame } from '../_shared/game.ts';
 import { expiryOutcome } from '../_shared/serverRules.ts';
 

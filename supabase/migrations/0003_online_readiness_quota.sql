@@ -76,3 +76,7 @@ begin
 end $$;
 
 revoke all on function public.create_online_game from public, anon, authenticated;
+-- the Edge Functions call this through the service role: keep EXECUTE
+-- explicit after the PUBLIC revoke (a plain revoke-from-public would
+-- otherwise strip the only grant the functions rely on)
+grant execute on function public.create_online_game(uuid, uuid, uuid, text, text, text, integer, integer) to service_role;

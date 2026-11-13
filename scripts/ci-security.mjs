@@ -30,8 +30,9 @@ const readTracked = (p) => {
 /* 1 — no secret-shaped strings in tracked text files */
 let secretHits = [];
 for (const f of tracked) {
-  // SQL migrations are a classic credential-leak vector — scan them too
-  if (!/\.(ts|tsx|mjs|js|json|html|css|toml|ya?ml|md|svg|sql)$/.test(f)) continue;
+  const isTextLike = /\.(ts|tsx|mjs|js|json|html|css|toml|ya?ml|md|svg|sql)$/.test(f);
+  const isKeyLike = /\.(pem|key|p12|pfx|crt|cer|der)$|^id_[rd]sa|^private|^\.(pem|key)/.test(f) || !/\.[A-Za-z0-9]+$/.test(f);
+  if (!isTextLike && !isKeyLike) continue;
   const lines = readTracked(f).split('\n');
   lines.forEach((line, i) => {
     // skip comment lines — the security GUARD code legitimately names

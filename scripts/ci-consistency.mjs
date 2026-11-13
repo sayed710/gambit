@@ -17,6 +17,10 @@ const check = (name, ok, detail = '') => {
 const exists = (p) => fs.existsSync(p);
 
 const mode = process.argv[2] ?? 'repo';
+if (!['workflows', 'repo', 'dist'].includes(mode)) {
+  console.error(`FAIL  unknown consistency mode "${mode}" (workflows | repo | dist)`);
+  process.exit(1);
+}
 
 if (mode === 'workflows') {
   const YAML = (await import('yaml')).default;
