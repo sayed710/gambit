@@ -1,7 +1,7 @@
 /* draw — offer / accept / decline. The offer lives on the row
    (draw_offer_by); only the OPPONENT can accept; either side can
    decline. Accepting ends the game as an agreed draw. */
-import { adminClient, corsPreflight, fail, isParticipant, json, loadGame, project, replay, requireUser, saveGame } from '../_shared/game.ts';
+import { adminClient, asEnum, asUuid, corsPreflight, fail, isParticipant, json, loadGame, project, replay, requireUser, saveGame } from '../_shared/game.ts';
 import { expiryOutcome } from '../_shared/serverRules.ts';
 
 Deno.serve(async (req) => {
@@ -10,16 +10,20 @@ if (req.method !== 'POST') return fail('method', 'POST only', 405);
   const user = await requireUser(req);
   if (!user) return fail('auth', 'authentication required', 401);
 
-  let body: { gameId?: string; action?: string };
+  let body: unknown;
   try {
     body = await req.json();
   } catch {
     return fail('payload', 'invalid JSON body');
   }
-  const gameId = body.gameId ?? '';
-  const action = body.action ?? '';
-  if (!gameId) return fail('payload', 'gameId required');
-  if (!['offer', 'accept', 'decline'].includes(action)) return fail('action', "action must be offer, accept or decline");
+  if (body === null || typeof body !== 'object' || Array.isArray(body)) {
+    return fail('payload', 'body must be a JSON object');
+  }
+  const b = body as Record<string, unknown>;
+  const gameId = asUuid(b.gameId);
+  const action = asEnum(b.action, ['offer', 'accept', 'decline']);
+  if (!gameId) return fail('payload', 'gameId must be a uuid');
+  if (!action) return fail('action', "action must be offer, accept or decline");
 
   const admin = adminClient();
   const game = await loadGame(admin, gameId);

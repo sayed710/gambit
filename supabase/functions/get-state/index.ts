@@ -1,22 +1,22 @@
 /* get-state — participants read authoritative state through RLS.
    Realtime events are only bells: clients refetch here and reconcile
    by version. */
-import { corsPreflight, fail, json, userClient } from '../_shared/game.ts';
+import { asUuid, corsPreflight, fail, json, userClient } from '../_shared/game.ts';
 
 Deno.serve(async (req) => {
     if (req.method === 'OPTIONS') return corsPreflight();
 if (req.method !== 'GET' && req.method !== 'POST') return fail('method', 'GET/POST only', 405);
   // gameId arrives as a query param (GET) or JSON body (POST)
-  let gameId = new URL(req.url).searchParams.get('gameId') ?? '';
+  let gameId = asUuid(new URL(req.url).searchParams.get('gameId'));
   if (!gameId && req.method === 'POST') {
     try {
-      const body = (await req.json()) as { gameId?: string };
-      gameId = body.gameId ?? '';
+      const body = await req.json();
+      gameId = asUuid((body as Record<string, unknown>)?.gameId);
     } catch {
       /* handled below */
     }
   }
-  if (!gameId) return fail('payload', 'gameId required');
+  if (!gameId) return fail('payload', 'gameId must be a uuid');
 
   const uClient = userClient(req);
   const { data, error } = await uClient.from('online_games').select('*').eq('id', gameId).maybeSingle();

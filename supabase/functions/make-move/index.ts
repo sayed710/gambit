@@ -4,16 +4,8 @@
    authoritative position), promotion, then an optimistic-concurrency
    CAS write (version). Idempotent via (id, last_move_id). Rejected
    after-deadline moves adjudicate a timeout instead. */
-import { adminClient, corsPreflight, detectEnd, fail, isParticipant, json, loadGame, project, replay, requireUser, saveGame } from '../_shared/game.ts';
+import { adminClient, asEnum, asStr, asUuid, corsPreflight, detectEnd, fail, isParticipant, json, loadGame, project, replay, requireUser, saveGame } from '../_shared/game.ts';
 import { expiryOutcome } from '../_shared/serverRules.ts';
-
-interface MoveBody {
-  gameId?: string;
-  moveId?: string;
-  from?: string;
-  to?: string;
-  promotion?: string;
-}
 
 Deno.serve(async (req) => {
     if (req.method === 'OPTIONS') return corsPreflight();
@@ -21,20 +13,29 @@ if (req.method !== 'POST') return fail('method', 'POST only', 405);
   const user = await requireUser(req);
   if (!user) return fail('auth', 'authentication required', 401);
 
-  let body: MoveBody;
+  let body: unknown;
   try {
     body = await req.json();
   } catch {
     return fail('payload', 'invalid JSON body');
   }
-  const gameId = body.gameId ?? '';
-  const moveId = body.moveId ?? '';
-  const from = body.from ?? '';
-  const to = body.to ?? '';
-  const promotion = body.promotion;
-  if (!gameId || !moveId || !from || !to) return fail('payload', 'gameId, moveId, from and to are required');
+  if (body === null || typeof body !== 'object' || Array.isArray(body)) {
+    return fail('payload', 'body must be a JSON object');
+  }
+  const b = body as Record<string, unknown>;
+  const gameId = asUuid(b.gameId);
+  const moveId = asUuid(b.moveId);
+  const from = asStr(b.from, 4);
+  const to = asStr(b.to, 4);
+  const promotion = asStr(b.promotion, 1);
+  if (!gameId) return fail('payload', 'gameId must be a uuid');
+  if (!moveId) return fail('payload', 'moveId must be a uuid');
+  if (!from || !to) return fail('payload', 'from and to are required');
   if (!/^[a-h][1-8]$/.test(from) || !/^[a-h][1-8]$/.test(to)) return fail('payload', 'from/to must be squares');
-  if (promotion !== undefined && !/^[qrbn]$/.test(promotion.toLowerCase())) return fail('payload', 'promotion must be q, r, b or n');
+  if (promotion !== null && promotion !== undefined && !/^[qrbn]$/.test(promotion.toLowerCase())) {
+    return fail('payload', 'promotion must be q, r, b or n');
+  }
+  const promotionNorm = promotion ? promotion.toLowerCase() : undefined;
 
   const admin = adminClient();
   const game = await loadGame(admin, gameId);
@@ -80,7 +81,7 @@ if (req.method !== 'POST') return fail('method', 'POST only', 405);
   const c = replay(game);
   let move;
   try {
-    move = c.move({ from, to, promotion: (promotion ?? 'q').toLowerCase() });
+    move = c.move({ from, to, promotion: promotionNorm ?? 'q' });
   } catch {
     return fail('illegal', 'illegal move', 409);
   }
@@ -105,8 +106,12 @@ if (req.method !== 'POST') return fail('method', 'POST only', 405);
     last_move_id: moveId,
     turn_started_at: finished ? game.turn_started_at : new Date().toISOString(),
   };
-  // a standing draw offer dies when its offerer moves (standard chess behavior)
-  if (game.draw_offer_by === user.id) patch.draw_offer_by = null;
+  // DRAW-OFFER POLICY (documented): an offer stands until the OPPONENT
+  // (the intended recipient) accepts it, declines it explicitly, or
+  // declines it implicitly BY MOVING. The OFFERER's own move does NOT
+  // withdraw it — the recipient may still act on it. A move by anyone
+  // other than the offerer therefore clears the standing offer.
+  if (game.draw_offer_by && game.draw_offer_by !== user.id) patch.draw_offer_by = null;
   if (seat === 'w') patch.white_ms_remaining = remainingAfter;
   else patch.black_ms_remaining = remainingAfter;
   if (end.over) {

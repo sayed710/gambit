@@ -1,9 +1,11 @@
 /* join-game — a second guest reserves the empty seat via the invite
-   token. Atomic: a single CAS UPDATE flips waiting->active and takes the
+   token. Atomic: a single CAS UPDATE flips waiting->READY and takes the
    empty seat, so a third participant or a double-join can never corrupt
-   the game. Body: { token, name } */
+   the game. The clock does NOT start here (F8): it starts only when
+   BOTH players have acknowledged readiness via the `ready` function.
+   Body: { token, name } — untrusted, bounded. */
 import { createHash } from 'node:crypto';
-import { adminClient, corsPreflight, fail, json, loadGame, project, requireUser } from '../_shared/game.ts';
+import { adminClient, asNonEmptyStr, corsPreflight, expireIfStale, fail, json, loadGame, project, requireUser } from '../_shared/game.ts';
 
 Deno.serve(async (req) => {
     if (req.method === 'OPTIONS') return corsPreflight();
@@ -11,15 +13,21 @@ if (req.method !== 'POST') return fail('method', 'POST only', 405);
   const user = await requireUser(req);
   if (!user) return fail('auth', 'authentication required', 401);
 
-  let body: { token?: string; name?: string };
+  let body: unknown;
   try {
     body = await req.json();
   } catch {
     return fail('payload', 'invalid JSON body');
   }
-  const token = (body.token ?? '').trim();
-  const name = (body.name ?? '').trim().slice(0, 24) || 'Player';
+  if (body === null || typeof body !== 'object' || Array.isArray(body)) {
+    return fail('payload', 'body must be a JSON object');
+  }
+  const b = body as Record<string, unknown>;
+  const token = asNonEmptyStr(b.token, 200);
   if (!token) return fail('token', 'invitation token required');
+  const rawName = b.name === undefined ? null : asNonEmptyStr(b.name, 64);
+  if (b.name !== undefined && typeof b.name !== 'string') return fail('payload', 'name must be a string');
+  const name = rawName ? rawName.slice(0, 24) : 'Player';
 
   const hash = createHash('sha256').update(token).digest('hex');
   const admin = adminClient();
@@ -28,8 +36,9 @@ if (req.method !== 'POST') return fail('method', 'POST only', 405);
   const { data: byHash, error } = await admin.from('online_games').select('id').eq('invite_code_hash', hash).maybeSingle();
   if (error || !byHash) return fail('invalid-invite', 'this invitation is not valid', 404);
 
-  const game = await loadGame(admin, byHash.id);
-  if (!game) return fail('invalid-invite', 'this invitation is not valid', 404);
+  const loaded = await loadGame(admin, byHash.id);
+  if (!loaded) return fail('invalid-invite', 'this invitation is not valid', 404);
+  const game = await expireIfStale(admin, loaded); // 24h expiry reconciliation (documented policy)
   if (game.status === 'abandoned' || game.status === 'completed') {
     return fail('expired', 'this game is already finished', 409);
   }
@@ -44,15 +53,17 @@ if (req.method !== 'POST') return fail('method', 'POST only', 405);
 
   const emptySeat = game.white_id ? 'black' : 'white';
   const now = new Date().toISOString();
+  // waiting -> READY. No clock starts; the `ready` function starts the
+  // clocks from the SERVER clock once both players acknowledged.
   const patch =
     emptySeat === 'black'
-      ? { black_id: user.id, black_name: name, status: 'active' }
-      : { white_id: user.id, white_name: name, status: 'active' };
+      ? { black_id: user.id, black_name: name, status: 'ready', ready_started_at: now }
+      : { white_id: user.id, white_name: name, status: 'ready', ready_started_at: now };
 
-  // CAS: only one joiner can flip waiting->active and take the empty seat
+  // CAS: only one joiner can flip waiting->ready and take the empty seat
   const { data, error: updateError } = await admin
     .from('online_games')
-    .update({ ...patch, turn_started_at: now, updated_at: now, version: game.version + 1 })
+    .update({ ...patch, updated_at: now, version: game.version + 1 })
     .eq('id', game.id)
     .eq('version', game.version)
     .eq('status', 'waiting')

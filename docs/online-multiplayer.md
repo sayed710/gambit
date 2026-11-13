@@ -8,22 +8,31 @@ Runtime); hosted deployment is a later, owner-authorized step.
 ## State machine — `online_games.status`
 
 ```
-waiting ──(opponent joins: join-game)──▶ ready ──(both seated: the join
-transaction flips straight to active when a start timestamp is set)──▶ active
+waiting ──(opponent joins: join-game)──▶ ready
+ready ──(BOTH players acknowledge: ready function, one CAS write)──▶ active
 active ──(checkmate/stalemate/draw rules/resign/timeout/accepted draw)──▶ completed
-waiting|ready ──(expiry sweep / abandon)──▶ abandoned
+waiting|ready ──(creator cancel-game, or the 24h expiry)──▶ abandoned
+ready ──(readiness stall >60s, either participant claims)──▶ abandoned
 ```
 
-`ready` is used only if a game can be seated but not started; in this
-milestone the join transaction starts the clock immediately, so
-`waiting → active` is the normal transition and `ready` stays reserved.
+`ready` is a REAL state (readiness protocol): the join does NOT start
+any clock. Each client acknowledges with the `ready` command; when both
+`white_ready`/`black_ready` are true, the SAME atomic write flips the
+room to active and stamps `turn_started_at` from the SERVER clock —
+White's clock can never start before both players can see the game,
+for either creator color. A room stuck in `ready` for over 60 seconds
+may be abandoned by either participant (bounded pre-game stall), and
+the creator can cancel a waiting/ready room at any time via
+`cancel-game` — a room whose opponent already seated CANNOT be
+cancelled (the command refuses with the authoritative game, so a stale
+cancel click never resigns a live game).
 
 ## Trust boundaries
 
 | Trust level | Component | Authority |
 |---|---|---|
 | **Untrusted** | browser client (both players AND observers) | renders state, sends commands |
-| **Authoritative** | Edge Functions (`create-game`, `join-game`, `get-state`, `make-move`, `claim-timeout`, `resign`, `draw-*`) | validate JWT + membership + legality + clocks, own every write |
+| **Authoritative** | Edge Functions (`create-game`, `join-game`, `get-state`, `make-move`, `ready`, `cancel-game`, `claim-timeout`, `resign`, `draw`) | validate JWT + members + bounded untrusted payloadship + legality + clocks, own every write |
 | **Durable truth** | Postgres `online_games` | FEN, SAN history, version, clocks, result |
 
 - Clients **never** write game rows. Postgres grants for `authenticated`
@@ -75,3 +84,24 @@ Final SAN move list + PGN are persisted on the row; the client offers
 PGN download and "open in Review" via the existing Review deep-link
 (`location.state.pgn`) — the offline local profile/ratings are never
 modified by online games.
+
+## Policies (server-authoritative, documented)
+
+- **Draw offers**: an offer stands until the OPPONENT (the intended
+  recipient) accepts it, declines it explicitly, or declines it
+  implicitly BY MOVING. The offerer's own move does not withdraw it.
+  Offer/accept/move races resolve through the row's version CAS —
+  exactly one writer wins and the losers re-read the authoritative row.
+- **Open-room quota**: a creator may hold at most 8 open rooms
+  (waiting/ready/active, regardless of age). Enforced ATOMICALLY by the
+  `create_online_game()` database function: a per-creator transaction
+  advisory lock (`pg_advisory_xact_lock`) serializes concurrent creates
+  by the same identity and the count+insert share one transaction —
+  a flood cannot exceed the quota and old open rooms cannot escape it.
+- **Stale rooms**: a room left waiting/ready for over 24 hours is
+  abandoned by the expiry reconciliation on the next join attempt; the
+  creator can cancel an unused room at any time. A readiness stall
+  longer than 60 seconds can be abandoned by either participant.
+- **Cancellation vs resignation**: `cancel-game` touches only
+  waiting/ready rooms; `resign` touches only active games. The two
+  semantics can never overlap.

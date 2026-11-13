@@ -37,6 +37,22 @@ const B = await guest();
 const C = await guest();
 console.log('guests:', A.id.slice(0, 8), B.id.slice(0, 8), C.id.slice(0, 8));
 
+/** join + BOTH readiness acknowledgments — the game becomes active with
+    the server-stamped turn_started_at (F8). Returns the active game. */
+async function seatUp(creatorToken, joinerToken, token, joinerName = 'Bob') {
+  const j = await fn(joinerToken, 'join-game', { token, name: joinerName });
+  if (j.status !== 200 || !j.payload.game) throw new Error(`join failed: ${j.status} ${JSON.stringify(j.payload).slice(0, 200)}`);
+  const g = j.payload.game;
+  if (g.status !== 'ready') throw new Error(`join did not reach ready: ${g.status}`);
+  const r1 = await fn(creatorToken, 'ready', { gameId: g.id });
+  if (r1.status !== 200) throw new Error(`creator ready failed: ${r1.status} ${JSON.stringify(r1.payload).slice(0, 200)}`);
+  const r2 = await fn(joinerToken, 'ready', { gameId: g.id });
+  if (r2.status !== 200) throw new Error(`joiner ready failed: ${r2.status} ${JSON.stringify(r2.payload).slice(0, 200)}`);
+  const active = r2.payload.game.status === 'active' ? r2.payload.game : (r1.payload.game.status === 'active' ? r1.payload.game : null);
+  if (!active) throw new Error(`readiness did not activate: ${JSON.stringify({ r1: r1.payload.game?.status, r2: r2.payload.game?.status })}`);
+  return active;
+}
+
 /* 1 — create */
 const create = await fn(A.token, 'create-game', { name: 'Alice', baseMs: 600000, incrementMs: 0, color: 'white' });
 check('create-game returns token + id', create.status === 200 && create.payload.gameId && create.payload.token && create.payload.color === 'white');
@@ -57,9 +73,27 @@ check('RLS: direct INSERT rejected', rlsInsert.error !== null);
 const earlyMove = await fn(B.token, 'make-move', { gameId, moveId: crypto.randomUUID(), from: 'e7', to: 'e5' });
 check('non-participant move rejected', earlyMove.status === 403 && earlyMove.payload.error?.code === 'forbidden');
 
-/* 5 — B joins with the token */
+/* 5 — B joins with the token -> READY (the clock does NOT start yet, F8) */
 const join = await fn(B.token, 'join-game', { token, name: 'Bob' });
-check('join-game seats B as black + activates', join.status === 200 && join.payload.game?.black_id === B.id && join.payload.game?.status === 'active' && join.payload.game?.turn_started_at !== null);
+check('join-game seats B as black and reaches READY', join.status === 200 && join.payload.game?.black_id === B.id && join.payload.game?.status === 'ready');
+check('F8: the clock has NOT started at join', join.payload.game?.turn_started_at === null && join.payload.game?.white_ms_remaining === 600000 && join.payload.game?.black_ms_remaining === 600000);
+
+/* 5b — moves are refused while pregame; readiness activates the game */
+const pregameMove = await fn(A.token, 'make-move', { gameId, moveId: crypto.randomUUID(), from: 'e2', to: 'e4' });
+check('moves refused while the room is ready (pregame)', pregameMove.status === 409 && pregameMove.payload.error?.code === 'state');
+const readyA = await fn(A.token, 'ready', { gameId });
+check('creator readiness recorded, game still ready', readyA.status === 200 && readyA.payload.game?.white_ready === true && readyA.payload.game?.status === 'ready');
+const readyB = await fn(B.token, 'ready', { gameId });
+check('F8: second readiness ACTIVATES with a server-stamped clock',
+  readyB.status === 200 && readyB.payload.activated === true && readyB.payload.game?.status === 'active'
+  && typeof readyB.payload.game?.turn_started_at === 'string' && readyB.payload.game?.turn_started_at !== null);
+const startedAt = new Date(readyB.payload.game.turn_started_at).getTime();
+check('F8: turn_started_at is fresh (server clock, both present)', Math.abs(Date.now() - startedAt) < 30000, `delta=${Date.now() - startedAt}ms`);
+
+/* 5c — duplicate readiness is idempotent; a ready command after
+   activation reconciles instead of crashing */
+const readyDup = await fn(A.token, 'ready', { gameId });
+check('duplicate readiness after activation reconciles', readyDup.status === 200 && readyDup.payload.game?.status === 'active');
 
 /* 6 — B re-joining their own link is idempotent */
 const rejoin = await fn(B.token, 'join-game', { token, name: 'Bob' });
@@ -120,8 +154,7 @@ check('resign after completion rejected', resignAgain.status === 409);
 
 /* 17 — the second game: draw AGREED end (offer by A, accepted by B) */
 const create2 = await fn(A.token, 'create-game', { name: 'Alice', baseMs: 600000, incrementMs: 2000, color: 'random' });
-const join2 = await fn(B.token, 'join-game', { token: create2.payload.token, name: 'Bob' });
-const g2 = join2.payload.game;
+const g2 = await seatUp(A.token, B.token, create2.payload.token);
 const white = g2.white_id === A.id ? A : B;
 const black = g2.white_id === A.id ? B : A;
 const mv = async (who, from, to, moveId) => fn(who.token, 'make-move', { gameId: g2.id, moveId, from, to });
@@ -139,6 +172,184 @@ check('invitation reuse after completion rejected', lateJoin.status === 409);
 const badJoin = await fn(C.token, 'join-game', { token: 'nonsense-token', name: 'Eve' });
 check('unknown token rejected', badJoin.status === 404);
 
+const openRoomsFromRaces = [];
+/* ============ F1 — cancel-versus-join race (deterministic) ============
+   The creator's cancel and the opponent's join are fired CONCURRENTLY.
+   Exactly one wins; in NO outcome does the room end up completed by
+   resignation: the creator is never forfeited by a stale cancel click. */
+{
+  for (let round = 0; round < 4; round++) {
+    const c = await fn(A.token, 'create-game', { name: 'Alice', baseMs: 600000, incrementMs: 0, color: 'random' });
+    if (c.status !== 200) { check(`cancel-vs-join round ${round}: create`, false, JSON.stringify(c.payload).slice(0, 120)); break; }
+    openRoomsFromRaces.push(c.payload.gameId);
+    const [cancelRes, joinRes] = await Promise.all([
+      fn(A.token, 'cancel-game', { gameId: c.payload.gameId }),
+      fn(B.token, 'join-game', { token: c.payload.token, name: 'Bob' }),
+    ]);
+    // read the AUTHORITATIVE outcome
+    const final = await fn(A.token, 'get-state', { gameId: c.payload.gameId });
+    const g = final.payload.game;
+    const cancelWon = cancelRes.status === 200;
+    const joinWon = joinRes.status === 200;
+    check(`cancel-vs-join round ${round}: exactly one side won`, cancelWon !== joinWon, `cancel=${cancelRes.status} join=${joinRes.status}`);
+    if (cancelWon) {
+      check(`cancel-vs-join round ${round}: room abandoned, B's join refused`,
+        g?.status === 'abandoned' && !joinWon && joinRes.status >= 400, `status=${g?.status} join=${joinRes.status}`);
+    } else {
+      check(`cancel-vs-join round ${round}: room is LIVE with both seats — never forfeited`,
+        (g?.status === 'active' || g?.status === 'ready')
+        && g?.white_id !== null && g?.black_id !== null
+        && g?.result === null && g?.result_reason === null,
+        `status=${g?.status} reason=${g?.result_reason}`);
+      check(`cancel-vs-join round ${round}: cancel refused with the authoritative game`,
+        cancelRes.status === 409 && cancelRes.payload.error?.code === 'already-seated' && Boolean(cancelRes.payload.game));
+      // both players acknowledge and play on — the creator was not dropped
+      if (g?.status === 'ready') {
+        const rA = await fn(A.token, 'ready', { gameId: g.id });
+        const rB = await fn(B.token, 'ready', { gameId: g.id });
+        check(`cancel-vs-join round ${round}: game activates after the refusal`, rA.status === 200 && rB.status === 200 && (rA.payload.game?.status === 'active' || rB.payload.game?.status === 'active'));
+      }
+    }
+  }
+}
+
+/* ============ F2 — draw-offer lifecycle (documented policy) ============
+   An offer stands until the OPPONENT accepts, declines, or declines
+   implicitly BY MOVING. The offerer's own move does NOT withdraw it. */
+{
+  // game 1: A (white) offers on their turn; BLACK's move declines it
+  const c1 = await fn(A.token, 'create-game', { name: 'Alice', baseMs: 600000, incrementMs: 0, color: 'white' });
+  const g1 = await seatUp(A.token, B.token, c1.payload.token);
+  const offer1 = await fn(A.token, 'draw', { gameId: g1.id, action: 'offer' });
+  check('F2: white offers on their turn', offer1.status === 200 && offer1.payload.game?.draw_offer_by === A.id);
+  // the OFFERER moves — per the documented policy the offer STANDS
+  const offererMove = await fn(A.token, 'make-move', { gameId: g1.id, moveId: crypto.randomUUID(), from: 'e2', to: 'e4' });
+  check('F2: the offerer\'s own move does NOT withdraw the offer',
+    offererMove.status === 200 && offererMove.payload.game?.draw_offer_by === A.id, `offer=${offererMove.payload.game?.draw_offer_by}`);
+  const oppMove = await fn(B.token, 'make-move', { gameId: g1.id, moveId: crypto.randomUUID(), from: 'e7', to: 'e5' });
+  check('F2: the recipient\'s move DECLINES the standing offer',
+    oppMove.status === 200 && oppMove.payload.game?.draw_offer_by === null, `offer=${oppMove.payload.game?.draw_offer_by}`);
+  await fn(A.token, 'cancel-game', { gameId: g1.id }).catch(() => {}); // not cancellable (active) — B resigns instead
+  await fn(B.token, 'resign', { gameId: g1.id });
+
+  // game 2: full accept path BOTH colors (offer by black, accepted by white)
+  const c3 = await fn(B.token, 'create-game', { name: 'Bob', baseMs: 600000, incrementMs: 0, color: 'black' });
+  const g3b = await seatUp(B.token, A.token, c3.payload.token, 'Alice');
+  const blackG = g3b.black_id === B.id ? B : A;
+  const whiteGuest2 = g3b.white_id === A.id ? A : B;
+  await fn(whiteGuest2.token, 'make-move', { gameId: g3b.id, moveId: crypto.randomUUID(), from: 'e2', to: 'e4' });
+  const offer3 = await fn(B.token, 'draw', { gameId: g3b.id, action: 'offer' });
+  check('F2: black offers — the offer stands for white', offer3.status === 200 && offer3.payload.game?.draw_offer_by === B.id);
+  const accept3 = await fn(A.token, 'draw', { gameId: g3b.id, action: 'accept' });
+  check('F2: white accepts black\'s offer — draw-agreed both colors',
+    accept3.status === 200 && accept3.payload.game?.status === 'completed' && accept3.payload.game?.result === 'draw' && accept3.payload.game?.result_reason === 'draw-agreed');
+
+  // race: offer and accept fired concurrently by opposite sides
+  const c4 = await fn(A.token, 'create-game', { name: 'Alice', baseMs: 600000, incrementMs: 0, color: 'white' });
+  const g4 = await seatUp(A.token, B.token, c4.payload.token);
+  await fn(A.token, 'make-move', { gameId: g4.id, moveId: crypto.randomUUID(), from: 'e2', to: 'e4' });
+  const [offer4, accept4] = await Promise.all([
+    fn(A.token, 'draw', { gameId: g4.id, action: 'offer' }),
+    fn(B.token, 'draw', { gameId: g4.id, action: 'accept' }),
+  ]);
+  const final4 = await fn(A.token, 'get-state', { gameId: g4.id });
+  const g4f = final4.payload.game;
+  check('F2 race: coherent outcome (draw-agreed OR a standing offer)',
+    (g4f?.status === 'completed' && g4f?.result === 'draw' && g4f?.result_reason === 'draw-agreed')
+    || (g4f?.status === 'active' && (g4f?.draw_offer_by === A.id || g4f?.draw_offer_by === null)),
+    `status=${g4f?.status} offer=${g4f?.draw_offer_by ? 'set' : 'none'}`);
+  if (g4f?.status !== 'completed') {
+    await fn(B.token, 'resign', { gameId: g4.id });
+  }
+}
+
+/* ============ F3 — malformed payloads get 4xx, never 5xx ============ */
+{
+  const mk = await fn(A.token, 'create-game', { name: 'Alice', baseMs: 600000, incrementMs: 0, color: 'white' });
+  const gid = mk.payload.gameId;
+  const bad = async (name, body, token = A.token) => {
+    const res = await fetch(`${URL}/functions/v1/${name}`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` },
+      body: typeof body === 'string' ? body : JSON.stringify(body),
+    });
+    const payload = await res.json().catch(() => ({}));
+    return { status: res.status, payload };
+  };
+  const cases = [
+    ['create-game: name is a number', 'create-game', { name: 5, baseMs: 600000, incrementMs: 0 }],
+    ['create-game: name is an array', 'create-game', { name: ['x'], baseMs: 600000, incrementMs: 0 }],
+    ['create-game: baseMs is a string', 'create-game', { baseMs: '600000', incrementMs: 0 }],
+    ['create-game: baseMs is null', 'create-game', { baseMs: null, incrementMs: 0 }],
+    ['create-game: color is a number', 'create-game', { baseMs: 600000, incrementMs: 0, color: 7 }],
+    ['create-game: body is an array', 'create-game', [1, 2, 3]],
+    ['create-game: body is null', 'create-game', 'null'],
+    ['create-game: name 10000 chars', 'create-game', { name: 'x'.repeat(10000), baseMs: 600000, incrementMs: 0 }],
+    ['join-game: token is a number', 'join-game', { token: 5, name: 'Bob' }],
+    ['join-game: token is an object', 'join-game', { token: { a: 1 }, name: 'Bob' }],
+    ['join-game: token 10000 chars', 'join-game', { token: 'x'.repeat(10000), name: 'Bob' }],
+    ['join-game: name is a number', 'join-game', { token: 'anything-here', name: 9 }],
+    ['make-move: gameId is not a uuid', 'make-move', { gameId: 'not-a-uuid', moveId: crypto.randomUUID(), from: 'e2', to: 'e4' }],
+    ['make-move: moveId is a number', 'make-move', { gameId: gid, moveId: 5, from: 'e2', to: 'e4' }],
+    ['make-move: from is a number', 'make-move', { gameId: gid, moveId: crypto.randomUUID(), from: 7, to: 'e4' }],
+    ['make-move: promotion invalid', 'make-move', { gameId: gid, moveId: crypto.randomUUID(), from: 'e2', to: 'e4', promotion: 'x' }],
+    ['make-move: promotion is a number', 'make-move', { gameId: gid, moveId: crypto.randomUUID(), from: 'e2', to: 'e4', promotion: 5 }],
+    ['resign: gameId is not a uuid', 'resign', { gameId: 'abc' }],
+    ['resign: gameId is a number', 'resign', { gameId: 12 }],
+    ['cancel-game: gameId is not a uuid', 'cancel-game', { gameId: 'xyz' }],
+    ['draw: action is a number', 'draw', { gameId: gid, action: 5 }],
+    ['draw: action is unknown', 'draw', { gameId: gid, action: 'resign' }],
+    ['claim-timeout: gameId missing', 'claim-timeout', {}],
+    ['get-state: gameId is not a uuid', 'get-state', { gameId: 'zzz' }],
+    ['ready: gameId is not a uuid', 'ready', { gameId: 'qqq' }],
+  ];
+  let badFailures = 0;
+  for (const [name, fnName, body] of cases) {
+    const r = await bad(fnName, body);
+    const ok = r.status >= 400 && r.status < 500;
+    if (!ok) badFailures++;
+    check(`F3: ${name} -> 4xx`, ok, `status=${r.status} code=${r.payload?.error?.code}`);
+  }
+  check('F3: every malformed payload rejected as a client error', badFailures === 0, `${badFailures} wrong`);
+  const stillOk = await fn(A.token, 'get-state', { gameId: gid });
+  check('F3: valid commands unaffected by the battery', stillOk.status === 200);
+  await fn(A.token, 'cancel-game', { gameId: gid });
+}
+
+/* ============ F4 — the open-room quota is atomic ============ */
+{
+  // close every room the earlier suites left open (F1 rounds that the
+  // join won are ACTIVE — the creator resigns their seat) so the flood
+  // starts from a clean quota
+  for (const gid of openRoomsFromRaces) {
+    const st = await fn(A.token, 'get-state', { gameId: gid });
+    const g = st.payload.game;
+    if (!g) continue;
+    if (g.status === 'waiting' || g.status === 'ready') {
+      if (g.creator_id === A.id) await fn(A.token, 'cancel-game', { gameId: gid }).catch(() => {});
+    } else if (g.status === 'active') {
+      const seat = g.white_id === A.id ? A : B;
+      await fn(seat.token, 'resign', { gameId: gid }).catch(() => {});
+    }
+  }
+  // fire 10 concurrent creates with ONE identity — at most 8 may succeed
+  const results = await Promise.all(
+    Array.from({ length: 10 }, () => fn(A.token, 'create-game', { name: 'Flood', baseMs: 600000, incrementMs: 0, color: 'white' })),
+  );
+  const okCount = results.filter((r) => r.status === 200).length;
+  const refused = results.filter((r) => r.status === 429);
+  check('F4: concurrent flood admits at most 8', okCount <= 8, `admitted=${okCount}`);
+  check('F4: the overflow is refused with rate-limit', refused.length === 10 - okCount && refused.every((r) => r.payload.error?.code === 'rate-limit'));
+  let cancelled = 0;
+  for (const r of results) {
+    if (r.status === 200) {
+      const c = await fn(A.token, 'cancel-game', { gameId: r.payload.gameId });
+      if (c.status === 200) cancelled++;
+    }
+  }
+  check('F4: the creator can cancel every admitted room afterwards', cancelled === okCount, `cancelled=${cancelled}/${okCount}`);
+}
+
 /* 20 — expiry adjudication policy (63s real wait — the honest path).
    All expiry scenarios share ONE wait: five games start, the clocks run
    down together, and every command shape is then asserted against the
@@ -151,13 +362,20 @@ if (LONG) {
   const ids = [];
   for (let i = 0; i < 7; i++) {
     // B creates (A's open-room quota is spent by the earlier checks);
-    // B takes Black, A joins into the White seat
+    // B takes Black, A joins into the White seat, both acknowledge ready
     const c = await fn(B.token, 'create-game', { name: 'Bob', baseMs: 60000, incrementMs: 0, color: 'black' });
     if (c.status !== 200 || !c.payload.gameId) { console.log('CREATE FAIL:', c.status, JSON.stringify(c.payload).slice(0, 160)); break; }
-    const j = await fn(A.token, 'join-game', { token: c.payload.token, name: 'Alice' });
-    if (j.status !== 200 || !j.payload.game) { console.log('JOIN FAIL:', j.status, JSON.stringify(j.payload).slice(0, 160)); break; }
-    ids.push(j.payload.game.id);
-    await fn(A.token, 'make-move', { gameId: j.payload.game.id, moveId: crypto.randomUUID(), from: 'e2', to: 'e4' }); // starts black's clock
+    let g;
+    try {
+      g = await seatUp(B.token, A.token, c.payload.token, 'Alice');
+    } catch (e) {
+      console.log('SEATUP FAIL:', String(e).slice(0, 200));
+      break;
+    }
+    ids.push(g.id);
+    // white's first move starts black's clock
+    const whiteGuest = g.white_id === A.id ? A : B;
+    await fn(whiteGuest.token, 'make-move', { gameId: g.id, moveId: crypto.randomUUID(), from: 'e2', to: 'e4' });
   }
   // T3's draw offer is placed NOW (pre-expiry) and stays pending into
   // the expiry window — the acceptance must not override the flag fall
@@ -196,29 +414,40 @@ if (LONG) {
   check('flagged player\'s resignation → timeout adjudication (white wins)',
     lateResign.status === 200 && lateResign.payload.adjudicated === true && lateResign.payload.game?.result === 'white' && lateResign.payload.game?.result_reason === 'timeout');
 
-  // T5 — concurrent claim (A) + resignation (B)
+  // T5 — concurrent claim (A) + resignation (B): the outcome is read
+  // from the AUTHORITATIVE state, never from a racing response body
   const [claimX, resignX] = await Promise.all([
     fn(A.token, 'claim-timeout', { gameId: ids[5] }),
     fn(B.token, 'resign', { gameId: ids[5] }),
   ]);
-  const winner = claimX.payload.game ?? resignX.payload.game;
-  console.log('T5 DIAG:', 'claim', claimX.status, JSON.stringify(claimX.payload).slice(0, 160), '| resign', resignX.status, JSON.stringify(resignX.payload).slice(0, 160));
-  check('concurrent claim+resign: exactly one adjudication, white wins on time',
-    winner?.status === 'completed' && winner?.result === 'white' && winner?.result_reason === 'timeout');
+  const t5 = await fn(A.token, 'get-state', { gameId: ids[5] });
+  const t5g = t5.payload.game;
+  check('F5/T5 claim+resign: ONE committed outcome — timeout, white wins',
+    t5g?.status === 'completed' && t5g?.result === 'white' && t5g?.result_reason === 'timeout',
+    `status=${t5g?.status} result=${t5g?.result}/${t5g?.result_reason}`);
+  check('F5/T5: the losing resignation did NOT overwrite the adjudication',
+    t5g?.result_reason !== 'resignation');
+  const preT5Ply = 1; // white's e4 from the setup
+  check('F5/T5: the flagged side\'s resignation added no moves',
+    (t5g?.moves?.length ?? 0) === preT5Ply, `plies=${t5g?.moves?.length}`);
 
-  // T6 — concurrent claim (A) + move (B) on the flagged g6
+  // T6 — concurrent claim (A) + move (B): same authoritative read
   const [claim2, moveB] = await Promise.all([
     fn(A.token, 'claim-timeout', { gameId: ids[6] }),
     fn(B.token, 'make-move', { gameId: ids[6], moveId: crypto.randomUUID(), from: 'e7', to: 'e5' }),
   ]);
-  const finalG = moveB.payload.game ?? claim2.payload.game;
-  check('concurrent claim+move: consistent single outcome (flagged side never applies)',
-    finalG?.status === 'completed' && finalG?.result === 'white' && finalG?.result_reason === 'timeout');
+  const t6 = await fn(A.token, 'get-state', { gameId: ids[6] });
+  const t6g = t6.payload.game;
+  check('F5/T6 claim+move: ONE committed outcome — timeout, white wins',
+    t6g?.status === 'completed' && t6g?.result === 'white' && t6g?.result_reason === 'timeout',
+    `status=${t6g?.status} result=${t6g?.result}/${t6g?.result_reason}`);
+  check('F5/T6: the flagged side\'s late move never applied',
+    (t6g?.moves?.length ?? 0) === preT5Ply, `plies=${t6g?.moves?.length}`);
+
 
   /* 20b — timeout claim end-to-end (fresh game, honest 63s path) */
   const create3 = await fn(A.token, 'create-game', { name: 'Alice', baseMs: 60000, incrementMs: 0, color: 'white' });
-  const join3 = await fn(B.token, 'join-game', { token: create3.payload.token, name: 'Bob' });
-  const g3 = join3.payload.game;
+  const g3 = await seatUp(A.token, B.token, create3.payload.token);
   const early = await fn(A.token, 'claim-timeout', { gameId: g3.id });
   check('timeout claim rejected while clock alive', early.status === 409 && early.payload.error?.code === 'not-expired');
   await fn(A.token, 'make-move', { gameId: g3.id, moveId: crypto.randomUUID(), from: 'e2', to: 'e4' });

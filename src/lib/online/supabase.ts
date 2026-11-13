@@ -97,24 +97,35 @@ async function command<T = Record<string, unknown>>(fn: string, body: Record<str
     },
     body: JSON.stringify(body),
   });
-  const payload = (await res.json().catch(() => ({}))) as { ok?: boolean; error?: { code: string; message: string } };
+  const payload = (await res.json().catch(() => ({}))) as {
+    ok?: boolean;
+    error?: { code: string; message: string };
+    game?: OnlineGame;
+  };
   if (!res.ok || payload.ok === false) {
-    throw new OnlineError(payload.error?.code ?? `http-${res.status}`, payload.error?.message ?? res.statusText);
+    throw new OnlineError(payload.error?.code ?? `http-${res.status}`, payload.error?.message ?? res.statusText, payload.game);
   }
   return payload as T;
 }
 
 export class OnlineError extends Error {
   code: string;
-  constructor(code: string, message: string) {
+  /** the authoritative game when the server returned one with the error
+      (e.g. cancel-game's already-seated refusal) — used to reconcile */
+  game?: OnlineGame;
+  constructor(code: string, message: string, game?: OnlineGame) {
     super(message);
     this.code = code;
+    this.game = game;
   }
 }
 
 export interface OnlineGame {
   id: string;
   status: 'waiting' | 'ready' | 'active' | 'completed' | 'abandoned';
+  white_ready?: boolean;
+  black_ready?: boolean;
+  ready_started_at?: string | null;
   white_id: string | null;
   black_id: string | null;
   white_name: string;
@@ -155,6 +166,12 @@ export const api = {
   claimTimeout: (gameId: string) =>
     command<{ ok: true; game: OnlineGame }>('claim-timeout', { gameId }),
   resign: (gameId: string) => command<{ ok: true; game: OnlineGame }>('resign', { gameId }),
+  /** the creator cancels an unused room (waiting/ready) — never a resignation */
+  cancelGame: (gameId: string) =>
+    command<{ ok: true; cancelled: boolean; game: OnlineGame }>('cancel-game', { gameId }),
+  /** acknowledge readiness — clocks start only when BOTH players have */
+  ready: (gameId: string) =>
+    command<{ ok: true; activated?: boolean; alreadyReady?: boolean; alreadyActive?: boolean; game: OnlineGame }>('ready', { gameId }),
   draw: (gameId: string, action: 'offer' | 'accept' | 'decline') =>
     command<{ ok: true; game: OnlineGame }>('draw', { gameId, action }),
 };

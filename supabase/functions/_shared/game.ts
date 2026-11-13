@@ -24,6 +24,9 @@ export interface GameRow {
   white_ms_remaining: number;
   black_ms_remaining: number;
   turn_started_at: string | null;
+  white_ready: boolean;
+  black_ready: boolean;
+  ready_started_at: string | null;
   result: 'white' | 'black' | 'draw' | null;
   result_reason: string | null;
   draw_offer_by: string | null;
@@ -71,6 +74,66 @@ export function adminClient(): SupabaseClient {
 export async function requireUser(req: Request): Promise<{ id: string } | null> {
   const { data } = await userClient(req).auth.getUser();
   return data.user ? { id: data.user.id } : null;
+}
+
+/* ---- payload validation (F3): decoded JSON is UNTRUSTED `unknown`.
+   Every field passes through these guards; wrong shapes return
+   predictable 4xx responses instead of crashing on string methods. */
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** A bounded plain string, or null when the value is not a string. */
+export function asStr(v: unknown, maxLen: number): string | null {
+  if (typeof v !== 'string') return null;
+  return v.slice(0, maxLen);
+}
+
+/** A bounded, trimmed, non-empty string, or null. */
+export function asNonEmptyStr(v: unknown, maxLen: number): string | null {
+  const s = asStr(v, maxLen)?.trim();
+  return s ? s : null;
+}
+
+/** A UUID string, or null. */
+export function asUuid(v: unknown): string | null {
+  return typeof v === 'string' && UUID_RE.test(v) ? v : null;
+}
+
+/** An integer within [lo, hi], or null. */
+export function asIntIn(v: unknown, lo: number, hi: number): number | null {
+  if (typeof v !== 'number' || !Number.isInteger(v) || v < lo || v > hi) return null;
+  return v;
+}
+
+/** One of the allowed string literals, or null. */
+export function asEnum<T extends string>(v: unknown, allowed: readonly T[]): T | null {
+  return typeof v === 'string' && (allowed as readonly string[]).includes(v) ? (v as T) : null;
+}
+
+/** One of the allowed string literals OR undefined (optional field), or null. */
+export function asOptionalEnum<T extends string>(v: unknown, allowed: readonly T[]): T | null | undefined {
+  if (v === undefined) return undefined;
+  return asEnum(v, allowed);
+}
+
+/* ---- stale-room expiry policy (documented): a room left waiting or
+   ready for over 24 hours is abandoned on the next join attempt, so
+   stale invitations cannot be joined and cannot occupy the open-room
+   quota forever. The creator can cancel an unused room at any time. */
+export const ROOM_EXPIRY_MS = 24 * 60 * 60 * 1000;
+
+export async function expireIfStale(admin: SupabaseClient, game: GameRow): Promise<GameRow> {
+  if (game.status !== 'waiting' && game.status !== 'ready') return game;
+  if (Date.now() - new Date(game.created_at).getTime() < ROOM_EXPIRY_MS) return game;
+  const { data } = await admin
+    .from('online_games')
+    .update({ status: 'abandoned', version: game.version + 1, updated_at: new Date().toISOString() })
+    .eq('id', game.id)
+    .eq('version', game.version)
+    .eq('status', game.status)
+    .select('*')
+    .single();
+  return (data as GameRow) ?? game;
 }
 
 export async function loadGame(admin: SupabaseClient, gameId: string): Promise<GameRow | null> {

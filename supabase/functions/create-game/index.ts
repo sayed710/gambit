@@ -1,12 +1,17 @@
 /* create-game — authenticated guest creates a private challenge.
-   Body: { name, baseMs, incrementMs, color: 'white'|'black'|'random' }
+   Body: { name?, baseMs, incrementMs, color? } — decoded JSON is treated
+   as UNTRUSTED and passes through bounded validators; wrong shapes get
+   predictable 4xx responses.
    Returns: { gameId, token } — the token is in the response ONCE; the
-   database stores only its SHA-256 hash. */
+   database stores only its SHA-256 hash.
+   The open-room quota (max 8 waiting/ready/active rooms per creator,
+   regardless of age) is enforced ATOMICALLY by the create_online_game()
+   database function: a per-creator transaction advisory lock serializes
+   concurrent creates and the count+insert share one transaction. Stale
+   rooms are reclaimed by the 24-hour expiry reconciliation (see
+   _shared/game.ts). */
 import { createHash } from 'node:crypto';
-import { adminClient, corsPreflight, fail, json, requireUser } from '../_shared/game.ts';
-
-const ABUSE_WINDOW_MS = 10 * 60 * 1000;
-const ABUSE_MAX_OPEN = 8; // open (waiting/active) rooms per creator
+import { adminClient, asEnum, asIntIn, asOptionalEnum, asStr, corsPreflight, fail, json, requireUser } from '../_shared/game.ts';
 
 Deno.serve(async (req) => {
     if (req.method === 'OPTIONS') return corsPreflight();
@@ -14,39 +19,30 @@ if (req.method !== 'POST') return fail('method', 'POST only', 405);
   const user = await requireUser(req);
   if (!user) return fail('auth', 'authentication required', 401);
 
-  let body: { name?: string; baseMs?: number; incrementMs?: number; color?: string };
+  let body: unknown;
   try {
     body = await req.json();
   } catch {
     return fail('payload', 'invalid JSON body');
   }
+  if (body === null || typeof body !== 'object' || Array.isArray(body)) {
+    return fail('payload', 'body must be a JSON object');
+  }
+  const b = body as Record<string, unknown>;
 
-  const name = (body.name ?? '').trim().slice(0, 24) || 'Player';
-  const baseMs = Number(body.baseMs);
-  const incrementMs = Number(body.incrementMs);
-  if (!Number.isInteger(baseMs) || baseMs < 60000 || baseMs > 3600000) {
-    return fail('time-control', 'baseMs must be an integer between 60000 and 3600000');
-  }
-  if (!Number.isInteger(incrementMs) || incrementMs < 0 || incrementMs > 60000) {
-    return fail('time-control', 'incrementMs must be an integer between 0 and 60000');
-  }
-  const colorPick = body.color === 'random' || body.color === undefined ? (Math.random() < 0.5 ? 'white' : 'black') : body.color;
-  if (colorPick !== 'white' && colorPick !== 'black') return fail('color', "color must be 'white', 'black' or 'random'");
+  if (b.name !== undefined && typeof b.name !== 'string') return fail('payload', 'name must be a string');
+  if (typeof b.name === 'string' && b.name.length > 64) return fail('payload', 'name too long (max 64 chars)');
+  const rawName = asStr(b.name, 64);
+  const name = rawName ? rawName.trim().slice(0, 24) || 'Player' : 'Player';
+  const baseMs = asIntIn(b.baseMs, 60000, 3600000);
+  if (baseMs === null) return fail('time-control', 'baseMs must be an integer between 60000 and 3600000');
+  const incrementMs = asIntIn(b.incrementMs, 0, 60000);
+  if (incrementMs === null) return fail('time-control', 'incrementMs must be an integer between 0 and 60000');
+  const picked = asOptionalEnum(b.color, ['white', 'black', 'random']);
+  if (picked === null) return fail('color', "color must be 'white', 'black' or 'random'");
+  const colorPick = (picked ?? 'random') === 'random' ? (Math.random() < 0.5 ? 'white' : 'black') : (picked as 'white' | 'black');
 
   const admin = adminClient();
-
-  // abuse guard: bound the number of concurrently open rooms per creator
-  const cutoff = new Date(Date.now() - ABUSE_WINDOW_MS).toISOString();
-  const { count, error: countError } = await admin
-    .from('online_games')
-    .select('id', { count: 'exact', head: true })
-    .eq('creator_id', user.id)
-    .in('status', ['waiting', 'ready', 'active'])
-    .gte('created_at', cutoff);
-  if (countError) return fail('server', 'lookup failed', 500);
-  if ((count ?? 0) >= ABUSE_MAX_OPEN) {
-    return fail('rate-limit', 'too many open rooms — finish or let them expire first', 429);
-  }
 
   // 32 random bytes, base64url (~192 bits) — stored as sha-256 only
   const raw = new Uint8Array(32);
@@ -54,25 +50,23 @@ if (req.method !== 'POST') return fail('method', 'POST only', 405);
   const token = btoa(String.fromCharCode(...raw)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
   const hash = createHash('sha256').update(token).digest('hex');
 
-  const { data, error } = await admin
-    .from('online_games')
-    .insert({
-      creator_id: user.id,
-      white_id: colorPick === 'white' ? user.id : null,
-      black_id: colorPick === 'black' ? user.id : null,
-      white_name: colorPick === 'white' ? name : 'Black',
-      black_name: colorPick === 'black' ? name : 'White',
-      invite_code_hash: hash,
-      status: 'waiting',
-      base_ms: baseMs,
-      increment_ms: incrementMs,
-      white_ms_remaining: baseMs,
-      black_ms_remaining: baseMs,
-      turn: 'w',
-    })
-    .select('id')
-    .single();
-  if (error) return fail('server', 'insert failed', 500);
+  // atomic quota + insert (advisory-lock transaction inside the database)
+  const { data: newId, error } = await admin.rpc('create_online_game', {
+    p_creator: user.id,
+    p_white_id: colorPick === 'white' ? user.id : null,
+    p_black_id: colorPick === 'black' ? user.id : null,
+    p_white_name: colorPick === 'white' ? name : 'Black',
+    p_black_name: colorPick === 'black' ? name : 'White',
+    p_invite_hash: hash,
+    p_base_ms: baseMs,
+    p_increment_ms: incrementMs,
+  });
+  if (error) {
+    if (String(error.message).includes('QUOTA_EXCEEDED')) {
+      return fail('rate-limit', 'too many open rooms — finish or cancel them first', 429);
+    }
+    return fail('server', 'insert failed', 500);
+  }
 
-  return json({ ok: true, gameId: data!.id, token, color: colorPick });
+  return json({ ok: true, gameId: newId as string, token, color: colorPick });
 });

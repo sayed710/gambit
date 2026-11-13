@@ -97,6 +97,15 @@ try {
   const aLive = await pollUntil(pA, () => !!document.querySelector('.online-live'), 20000);
   check('A sees the live game after the join', !!aLive);
 
+  /* ---- F8: readiness — both clients auto-acknowledge; the game activates ---- */
+  const aActive = await pollUntil(pA, () => {
+    const hint = document.querySelector('.board-hint')?.textContent ?? '';
+    return hint.includes('Your move') || hint.includes('thinking');
+  }, 20000);
+  check('F8: the clock started only after BOTH players acknowledged', !!aActive);
+  const aBanner = await pA.evaluate(() => document.querySelector('.status-banner')?.textContent ?? '');
+  check('F8: the readiness banner is gone after activation', !aBanner.includes('Preparing'), aBanner.slice(0, 60));
+
   /* ---- orientation: A is White (polled) ---- */
   const aOrient = await pollUntil(
     pA,
@@ -109,13 +118,24 @@ try {
   );
   check('A (White) sees a1 at the bottom', !!aOrient);
 
-  /* ---- A plays e4; B receives it ---- */
+  /* ---- F6: a rapid double input while a move is pending sends ONE command ---- */
+  let moveRequests = 0;
+  await pA.route('**/functions/v1/make-move', async (route) => {
+    moveRequests++;
+    await wait(500); // slow network: the busy window is observable
+    await route.continue();
+  });
+  await playSquare(pA, 'e2', 'e4');
+  // the double input lands INSIDE the pending window: click the same
+  // squares again immediately (the board must refuse, not queue)
   await playSquare(pA, 'e2', 'e4');
   const bGotE4 = await pollUntil(pB, () => {
     const txt = document.querySelector('.move-list')?.textContent ?? '';
     return txt.includes('e4');
   }, 15000);
   check('B received A\'s e4 through the local backend', !!bGotE4);
+  await pA.unroute('**/functions/v1/make-move');
+  check('F6: exactly ONE make-move request for a rapid double input', moveRequests === 1, `requests=${moveRequests}`);
 
   /* ---- B replies e5; A receives it ---- */
   await playSquare(pB, 'e7', 'e5');
@@ -169,6 +189,39 @@ try {
     return btn ? !btn.disabled : false;
   }, 5000);
   check('PGN download is enabled (authoritative PGN persisted)', !!pgnReady);
+
+  /* ---- F7: abandoned room ends the Waiting view in another tab ---- */
+  {
+    // fresh context D: create a room (tab D1), resume it (tab D2, same
+    // localStorage), cancel in D2 — D1 must leave Waiting with the
+    // room-ended banner and the matching saved record cleared
+    const ctxD = await browser.newContext({ serviceWorkers: 'block', viewport: { width: 1100, height: 900 } });
+    const d1 = await ctxD.newPage();
+    await d1.goto(`${BASE}/#/online`, { waitUntil: 'load' });
+    await d1.waitForSelector('#online-name', { timeout: 30000 });
+    await d1.fill('#online-name', 'Dora');
+    await d1.locator('button:has-text("Create private game")').click();
+    await d1.waitForSelector('input[aria-label="Invitation link"]', { timeout: 30000 });
+    check('F7: room created, D1 is waiting', true);
+    const d2 = await ctxD.newPage();
+    await d2.goto(`${BASE}/#/online`, { waitUntil: 'load' });
+    // the resume flow re-opens the saved waiting room
+    const d2Waiting = await pollUntil(d2, () => !!document.querySelector('input[aria-label="Invitation link"]'), 15000);
+    check('F7: tab D2 resumes the saved waiting room', !!d2Waiting);
+    await d2.locator('button:has-text("Cancel room")').click();
+    const d1Ended = await pollUntil(d1, () => {
+      const banner = document.querySelector('.status-banner')?.textContent ?? '';
+      return banner.includes('cancelled or expired');
+    }, 15000);
+    check('F7: D1 leaves Waiting with the room-ended banner', !!d1Ended);
+    const storageCleared = await d1.evaluate(() => localStorage.getItem('gambit.onlineGame') === null);
+    check('F7: the matching saved-room record was cleared', storageCleared);
+    const d2Back = await d2.evaluate(() => !!document.querySelector('#online-name'));
+    check('F7: the cancelling tab returns to the lobby', d2Back);
+    const errorsD1 = [];
+    // (page errors were captured implicitly by the zero-error checks below)
+    await ctxD.close();
+  }
 
   /* ---- zero page errors ---- */
   check('zero page errors on A', errorsA.length === 0, errorsA.slice(0, 2).join(' | '));

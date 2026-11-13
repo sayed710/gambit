@@ -78,6 +78,31 @@ function LiveGame({
   const mySeat: 'w' | 'b' | null = game.white_id === me ? 'w' : game.black_id === me ? 'b' : null;
   const orientation = mySeat === 'b' ? 'black' : 'white';
   const finished = game.status === 'completed';
+  const pregame = game.status === 'ready'; // both seated — clocks start when BOTH acknowledge
+
+  /* F8 — acknowledge readiness while the room is `ready`. Re-fires on
+     every authoritative update until the server records MY flag, so a
+     refresh, a missed response or a duplicate request is harmless (the
+     server-side command is idempotent and version-CAS'd). The clock
+     starts ONLY from the server's ready->active transition. */
+  const readyAckRef = useRef('');
+  useEffect(() => {
+    if (!pregame || !mySeat) return;
+    const myFlag = mySeat === 'w' ? game.white_ready : game.black_ready;
+    if (myFlag) return;
+    if (readyAckRef.current === String(game.version)) return; // one attempt per version
+    readyAckRef.current = String(game.version);
+    void (async () => {
+      try {
+        const res = await api.ready(game.id);
+        applyAuthoritative(res.game);
+      } catch (e) {
+        if (e instanceof OnlineError && e.code === 'alreadyActive' && e.game) applyAuthoritative(e.game);
+        // transport failures retry via the next authoritative poll
+        void refetch();
+      }
+    })();
+  }, [pregame, mySeat, game.white_ready, game.black_ready, game.version, game.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const chess = useMemo(() => {
     try {
@@ -277,7 +302,10 @@ function LiveGame({
 
   const tryMove = useCallback(
     (from: Square, to: Square): 'ok' | 'illegal' | 'promote' => {
-      if (!mySeat || finished || game.turn !== mySeat) return 'illegal';
+      // a pending command owns the board: drag, click and promotion are
+      // all refused until it resolves (F6 — the UI can never accept a
+      // move the command layer would silently discard)
+      if (!mySeat || busy || finished || game.status !== 'active' || game.turn !== mySeat) return 'illegal';
       let probe;
       try {
         probe = new Chess(fen);
@@ -292,16 +320,21 @@ function LiveGame({
       }
       if (!move) return 'illegal';
       if (move.promotion) {
+        if (busy) return 'illegal';
         setPendingPromotion({ from, to, color: mySeat });
         return 'promote';
       }
       void submitMove(from, to);
       return 'ok';
     },
-    [fen, finished, game.turn, mySeat, submitMove],
+    [busy, fen, finished, game.status, game.turn, mySeat, submitMove],
   );
 
-  const click = useClickToMove({ fen, movableColor: mySeat && !finished && game.turn === mySeat ? mySeat : null, tryMove });
+  const click = useClickToMove({
+    fen,
+    movableColor: mySeat && !finished && game.status === 'active' && game.turn === mySeat && !busy ? mySeat : null,
+    tryMove,
+  });
 
   const onDrop = useCallback(
     (from: Square, to: Square): boolean => {
@@ -372,9 +405,21 @@ function LiveGame({
         <span className="small muted">{formatTimeControl(game.base_ms, game.increment_ms)} · unrated · private</span>
       </div>
 
+      {pregame && (
+        <div className="status-banner" role="status">
+          {(() => {
+            const myFlag = mySeat === 'w' ? game.white_ready : game.black_ready;
+            const oppFlag = mySeat === 'w' ? game.black_ready : game.white_ready;
+            if (!myFlag) return `Preparing — confirm you are at the board (${opponentName} is also getting ready). The clock starts for both when everyone is ready.`;
+            if (!oppFlag) return `You are ready — waiting for ${opponentName} to confirm…`;
+            return 'Both players ready — starting the clocks…';
+          })()}
+        </div>
+      )}
+
       {drawPending && !finished && (
         <div className="status-banner" role="status">
-          {opponentName} offers a draw.
+          {opponentName} offers a draw — a move by you declines the offer.
           <button className="btn btn-ghost btn-sm" disabled={busy} onClick={() => drawAction('accept')}>
             Accept
           </button>
@@ -398,7 +443,7 @@ function LiveGame({
             boardId="online"
             fen={fen}
             orientation={orientation}
-            movableColor={mySeat && !finished && game.turn === mySeat ? mySeat : null}
+            movableColor={mySeat && !finished && game.status === 'active' && game.turn === mySeat && !busy ? mySeat : null}
             lastMove={lastMove}
             checkSquare={checkSquare}
             selected={click.selected}
@@ -407,7 +452,7 @@ function LiveGame({
             onDrop={onDrop}
             pendingPromotion={pendingPromotion}
             onChoosePromotion={(piece) => {
-              if (pendingPromotion) {
+              if (pendingPromotion && !busy) {
                 void submitMove(pendingPromotion.from, pendingPromotion.to, piece);
                 setPendingPromotion(null);
               }
@@ -425,11 +470,11 @@ function LiveGame({
             </span>
           </div>
           <div className="board-under">
-            <span className="board-hint mono">{finished ? 'Game over' : myTurn ? 'Your move' : `${opponentName} is thinking…`}</span>
-            {!finished && mySeat && (
+            <span className="board-hint mono">{finished ? 'Game over' : pregame ? 'Clocks start when both players are ready' : myTurn ? 'Your move' : `${opponentName} is thinking…`}</span>
+            {!finished && mySeat && !pregame && (
               <span className="row" style={{ gap: '0.4rem' }}>
                 {game.draw_offer_by === me ? (
-                  <span className="small muted">draw offer pending…</span>
+                  <span className="small muted">draw offer pending — a move by your opponent declines it</span>
                 ) : (
                   <button className="btn btn-ghost btn-sm" disabled={busy} onClick={() => drawAction('offer')}>
                     Offer draw
@@ -573,21 +618,24 @@ function CreateForm({ onCreate }: { onCreate: (name: string, base: number, inc: 
   );
 }
 
-function Waiting({ gameId, token, color, onCancel, onSeated }: { gameId: string; token: string; color: 'white' | 'black'; onCancel: () => void; onSeated: (game: OnlineGame) => void }) {
+function Waiting({ gameId, token, color, onCancel, onSeated, onEnded }: { gameId: string; token: string; color: 'white' | 'black'; onCancel: () => void; onSeated: (game: OnlineGame) => void; onEnded: (status: 'abandoned' | 'completed') => void }) {
   const [copied, setCopied] = useState(false);
   const link = makeInviteLink(gameId, token);
-  /* poll authoritative state — the join flips waiting->active */
+  /* poll authoritative state — the join flips waiting->ready; terminal
+     states (abandoned from another tab, or expired) end the waiting view
+     instead of polling forever */
   useEffect(() => {
     const t = window.setInterval(async () => {
       try {
         const res = await api.getState(gameId);
-        if (res.game.status === 'active') onSeated(res.game);
+        if (res.game.status === 'active' || res.game.status === 'ready') onSeated(res.game);
+        else if (res.game.status === 'abandoned' || res.game.status === 'completed') onEnded(res.game.status);
       } catch {
         /* transient — keep polling */
       }
     }, 2000);
     return () => window.clearInterval(t);
-  }, [gameId, onSeated]);
+  }, [gameId, onSeated, onEnded]);
   return (
     <div className="panel panel-pad online-waiting">
       <p className="closing-eyebrow">Waiting for opponent</p>
@@ -709,11 +757,26 @@ function OnlineInner() {
     const p = phase;
     if (p.kind !== 'waiting') return;
     try {
-      await api.resign(p.gameId); // creator abandoning a waiting room
-    } catch {
-      /* the room may already be seated — ignore */
+      await api.cancelGame(p.gameId); // waiting/ready rooms only — never a resignation
+    } catch (e) {
+      // already-seated: the opponent joined between the click and the
+      // request — the authoritative game came back; go LIVE with it
+      // instead of dropping the creator to the lobby
+      if (e instanceof OnlineError && e.code === 'already-seated' && e.game && me && (e.game.white_id === me || e.game.black_id === me)) {
+        localStorage.setItem('gambit.onlineGame', JSON.stringify({ id: e.game.id, token: p.token }));
+        setPhase({ kind: 'live', game: e.game });
+        return;
+      }
+      /* otherwise the room is gone — fall through to the lobby */
     }
-    localStorage.removeItem('gambit.onlineGame');
+    if (localStorage.getItem('gambit.onlineGame')) {
+      try {
+        const saved = JSON.parse(localStorage.getItem('gambit.onlineGame')!) as { id: string };
+        if (saved.id === p.gameId) localStorage.removeItem('gambit.onlineGame'); // clear only the MATCHING record
+      } catch {
+        localStorage.removeItem('gambit.onlineGame');
+      }
+    }
     setPhase({ kind: 'create' });
   };
 
@@ -736,7 +799,9 @@ function OnlineInner() {
         if (res.game.status === 'waiting') {
           // the seat was chosen at creation — never derived from which id is filled
           setPhase({ kind: 'waiting', gameId: parsedSaved.id, token: parsedSaved.token, color: parsedSaved.color ?? 'white' });
-        } else if (res.game.status === 'active' || res.game.status === 'completed') {
+        } else if (['ready', 'active', 'completed'].includes(res.game.status)) {
+          // a room whose opponent already joined (ready) resumes to the
+          // live view — LiveGame handles the readiness acknowledgment
           const me = await currentGuestId();
           if (me && (res.game.white_id === me || res.game.black_id === me)) setPhase({ kind: 'live', game: res.game });
         }
@@ -816,6 +881,24 @@ function OnlineInner() {
               color={phase.color}
               onCancel={cancelWaiting}
               onSeated={(g) => setPhase({ kind: 'live', game: g })}
+              onEnded={(status) => {
+                // F7 — the room ended elsewhere (cancelled in another tab
+                // or expired): clear ONLY the matching saved record — a
+                // room created since must survive — and show the state
+                try {
+                  const saved = JSON.parse(localStorage.getItem('gambit.onlineGame') ?? 'null') as { id: string } | null;
+                  if (saved && saved.id === phase.gameId) localStorage.removeItem('gambit.onlineGame');
+                } catch {
+                  /* malformed record — leave it; the resume guard re-checks */
+                }
+                setPhase({
+                  kind: 'failed',
+                  code: 'room-ended',
+                  message: status === 'abandoned'
+                    ? 'This room was cancelled or expired before the game started.'
+                    : 'This room was already finished.',
+                });
+              }}
             />
           )}
           {phase.kind === 'joining' && <JoinGate gameId={phase.gameId} token={phase.token} />}
