@@ -149,7 +149,9 @@ if (process.env.VITE_SUPABASE_ANON_KEY) {
     );
     let envRejected = false;
     try {
-      execSync('node scripts/validate-configured-key.mjs', { cwd: tmp, stdio: 'pipe' });
+      // the SCRIPT is addressed absolutely; only its cwd is the fixture
+      // dir — a missing-script error must NOT count as a rejection
+      execSync(`node ${path.resolve('scripts/validate-configured-key.mjs')}`, { cwd: tmp, stdio: 'pipe' });
     } catch {
       envRejected = true;
     }
@@ -158,7 +160,7 @@ if (process.env.VITE_SUPABASE_ANON_KEY) {
   }
   // env files never enter version control
   const gitignoreText = fs.existsSync('.gitignore') ? fs.readFileSync('.gitignore', 'utf8') : '';
-  check('.env files are gitignored (hosted keys live only in CI env)', /^.[w*]/m.test(gitignoreText))
+  check('.env files are gitignored (hosted keys live only in CI env)', /^\.env/m.test(gitignoreText));
 }
 
 console.log(failures === 0 ? 'SECURITY & LICENSING: ALL PASS' : `SECURITY & LICENSING: ${failures} FAILURES`);
