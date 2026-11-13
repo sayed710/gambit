@@ -64,8 +64,8 @@ check('result + result_reason columns exist', cols.includes('result') && cols.in
 
 /* 6 — the unique (id, last_move_id) partial index exists */
 check(
-  'unique id+last_move_id index exists',
-  Number(psql("select count(*) from pg_indexes where tablename = 'online_games' and indexdef like '%last_move_id%'")) >= 1,
+  'the UNIQUE partial (id, last_move_id) index exists — exact shape',
+  Number(psql("select count(*) from pg_indexes where tablename = 'online_games' and indexdef like 'CREATE UNIQUE INDEX%last_move_id%' and indexdef like '%WHERE%'")) === 1,
 );
 
 /* 7 — status CHECK constraint covers the full state machine */

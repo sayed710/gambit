@@ -107,7 +107,9 @@ if (req.method !== 'POST') return fail('method', 'POST only', 405);
     version: game.version + 1,
     turn: c.turn(),
     last_move_id: moveId,
-    turn_started_at: finished ? game.turn_started_at : new Date().toISOString(),
+    // the handoff stamps the SAME single clock reading the debit used —
+    // processing time after it belongs to no one's clock, consistently
+    turn_started_at: finished ? game.turn_started_at : new Date(now).toISOString(),
   };
   // DRAW-OFFER POLICY (documented): an offer stands until the OPPONENT
   // (the intended recipient) accepts it, declines it explicitly, or

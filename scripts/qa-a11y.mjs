@@ -39,7 +39,10 @@ async function axeScan(name, route, opts = {}) {
     // gap — GameBoard provides its own keyboard layer for them);
     // aria-command-name stays enabled for every other element on the page
     window.axe.run(
-      { exclude: ['[data-square] [role="button"]'] },
+      // the react-chessboard piece-button signature ONLY: role=button +
+      // aria-roledescription=draggable inside a square cell — any OTHER
+      // interactive control inside a square stays under the scan
+      { exclude: ['[data-square] [role="button"][aria-roledescription="draggable"]'] },
       { resultTypes: ['violations'] },
     ),
   );
