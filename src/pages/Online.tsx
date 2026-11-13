@@ -77,32 +77,44 @@ function LiveGame({
 
   const mySeat: 'w' | 'b' | null = game.white_id === me ? 'w' : game.black_id === me ? 'b' : null;
   const orientation = mySeat === 'b' ? 'black' : 'white';
-  const finished = game.status === 'completed';
+  const finished = game.status === 'completed' || game.status === 'abandoned';
   const pregame = game.status === 'ready'; // both seated — clocks start when BOTH acknowledge
 
-  /* F8 — acknowledge readiness while the room is `ready`. Re-fires on
-     every authoritative update until the server records MY flag, so a
-     refresh, a missed response or a duplicate request is harmless (the
-     server-side command is idempotent and version-CAS'd). The clock
-     starts ONLY from the server's ready->active transition. */
-  const readyAckRef = useRef('');
+  /* F8 — acknowledge readiness while the room is `ready`. A bounded
+     retry interval (3s) instead of a once-per-version attempt: a failed
+     or lost request is retried until the server records MY flag (the
+     command is idempotent and version-CAS'd, so duplicates are free).
+     The clock starts ONLY from the server's ready->active transition. */
+  const myReadyFlag = mySeat ? (mySeat === 'w' ? game.white_ready : game.black_ready) : true;
   useEffect(() => {
-    if (!pregame || !mySeat) return;
-    const myFlag = mySeat === 'w' ? game.white_ready : game.black_ready;
-    if (myFlag) return;
-    if (readyAckRef.current === String(game.version)) return; // one attempt per version
-    readyAckRef.current = String(game.version);
+    if (!pregame || !mySeat || myReadyFlag) return;
+    const t = window.setInterval(() => {
+      void (async () => {
+        try {
+          const res = await api.ready(game.id);
+          applyAuthoritative(res.game);
+        } catch (e) {
+          if (e instanceof OnlineError && e.code === 'alreadyActive' && e.game) applyAuthoritative(e.game);
+          // other failures simply retry on the next tick
+        }
+      })();
+    }, 3000);
     void (async () => {
       try {
         const res = await api.ready(game.id);
         applyAuthoritative(res.game);
       } catch (e) {
         if (e instanceof OnlineError && e.code === 'alreadyActive' && e.game) applyAuthoritative(e.game);
-        // transport failures retry via the next authoritative poll
-        void refetch();
       }
     })();
-  }, [pregame, mySeat, game.white_ready, game.black_ready, game.version, game.id]); // eslint-disable-line react-hooks/exhaustive-deps
+    return () => window.clearInterval(t);
+  }, [pregame, mySeat, myReadyFlag, game.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  /* F2-of-round2 — a readiness stall older than 60s (SERVER timestamp,
+     display-only) offers the bounded abandonment path */
+  const readyStalled = pregame
+    && Boolean(game.ready_started_at)
+    && now - new Date(game.ready_started_at!).getTime() > 60000;
 
   const chess = useMemo(() => {
     try {
@@ -414,6 +426,29 @@ function LiveGame({
             if (!oppFlag) return `You are ready — waiting for ${opponentName} to confirm…`;
             return 'Both players ready — starting the clocks…';
           })()}
+          {readyStalled && (
+            <>
+              {' '}— no confirmation for over a minute.
+              <button
+                className="btn btn-ghost btn-sm"
+                disabled={busy}
+                onClick={async () => {
+                  setBusy(true);
+                  try {
+                    const res = await api.claimTimeout(game.id); // server validates the 60s window
+                    applyAuthoritative(res.game);
+                    toast('The stalled room was abandoned.');
+                  } catch (e) {
+                    toast(e instanceof Error ? e.message : 'could not abandon the room');
+                  } finally {
+                    setBusy(false);
+                  }
+                }}
+              >
+                Abandon room
+              </button>
+            </>
+          )}
         </div>
       )}
 
@@ -473,8 +508,12 @@ function LiveGame({
             <span className="board-hint mono">{finished ? 'Game over' : pregame ? 'Clocks start when both players are ready' : myTurn ? 'Your move' : `${opponentName} is thinking…`}</span>
             {!finished && mySeat && !pregame && (
               <span className="row" style={{ gap: '0.4rem' }}>
-                {game.draw_offer_by === me ? (
-                  <span className="small muted">draw offer pending — a move by your opponent declines it</span>
+                {game.draw_offer_by ? (
+                  <span className="small muted">
+                    {game.draw_offer_by === me
+                      ? 'draw offer pending — a move by your opponent declines it'
+                      : `${opponentName}\'s offer is waiting for your answer`}
+                  </span>
                 ) : (
                   <button className="btn btn-ghost btn-sm" disabled={busy} onClick={() => drawAction('offer')}>
                     Offer draw
@@ -966,6 +1005,7 @@ function gameEndToast(g: OnlineGame, me: string): string {
 }
 
 function resultText(g: OnlineGame, me: string): string {
+  if (g.status === 'abandoned') return 'Room abandoned';
   if (g.result === 'draw') return 'Draw';
   if (!g.result) return 'Game over';
   const winner = g.result === 'white' ? g.white_id : g.black_id;

@@ -11,7 +11,7 @@
    rooms are reclaimed by the 24-hour expiry reconciliation (see
    _shared/game.ts). */
 import { createHash } from 'node:crypto';
-import { adminClient, asEnum, asIntIn, asOptionalEnum, asStr, corsPreflight, fail, json, requireUser } from '../_shared/game.ts';
+import { ROOM_EXPIRY_MS, adminClient, asEnum, asIntIn, asOptionalEnum, asStr, corsPreflight, fail, json, requireUser } from '../_shared/game.ts';
 
 Deno.serve(async (req) => {
     if (req.method === 'OPTIONS') return corsPreflight();
@@ -43,6 +43,18 @@ if (req.method !== 'POST') return fail('method', 'POST only', 405);
   const colorPick = (picked ?? 'random') === 'random' ? (Math.random() < 0.5 ? 'white' : 'black') : (picked as 'white' | 'black');
 
   const admin = adminClient();
+
+  // reclaim the creator's OWN stale rooms first (the 24h expiry policy —
+  // the documented sweep point includes the creator's create attempt),
+  // so forgotten invitations cannot lock the guest out of the quota
+  // forever. The expiry CAS-races cleanly with a concurrent join.
+  const staleCutoff = new Date(Date.now() - ROOM_EXPIRY_MS).toISOString();
+  await admin
+    .from('online_games')
+    .update({ status: 'abandoned', updated_at: new Date().toISOString() })
+    .eq('creator_id', user.id)
+    .in('status', ['waiting', 'ready'])
+    .lt('created_at', staleCutoff);
 
   // 32 random bytes, base64url (~192 bits) — stored as sha-256 only
   const raw = new Uint8Array(32);
