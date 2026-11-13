@@ -796,7 +796,7 @@ function OnlineInner() {
     const p = phase;
     if (p.kind !== 'waiting') return;
     try {
-      await api.cancelGame(p.gameId); // waiting/ready rooms only — never a resignation
+      await api.cancelGame(p.gameId); // waiting rooms only — never a resignation
     } catch (e) {
       // already-seated: the opponent joined between the click and the
       // request — the authoritative game came back; go LIVE with it
@@ -806,7 +806,15 @@ function OnlineInner() {
         setPhase({ kind: 'live', game: e.game });
         return;
       }
-      /* otherwise the room is gone — fall through to the lobby */
+      if (e instanceof OnlineError && e.code === 'not-found') {
+        // the room is gone server-side — the record is stale, clear it
+      } else {
+        // transport failure or an unexpected refusal: the room may still
+        // be open — KEEP the saved record so the creator can resume;
+        // the waiting poll keeps reconciling the real state
+        toast(e instanceof Error ? e.message : 'could not cancel the room — it is kept and can be resumed');
+        return;
+      }
     }
     if (localStorage.getItem('gambit.onlineGame')) {
       try {

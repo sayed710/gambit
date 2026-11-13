@@ -43,6 +43,16 @@ begin
   -- serialize concurrent creates by the SAME creator (cross-instance safe)
   perform pg_advisory_xact_lock(hashtextextended(p_creator::text, 0));
 
+  -- reclaim the creator's OWN stale rooms first (24h expiry policy — the
+  -- documented sweep point includes the creator's create attempt), so
+  -- forgotten invitations cannot lock the guest out of the quota forever.
+  -- version is bumped so any seated client reconciles the abandonment.
+  update public.online_games
+  set status = 'abandoned', version = version + 1, updated_at = now()
+  where creator_id = p_creator
+    and status in ('waiting', 'ready')
+    and created_at < now() - interval '24 hours';
+
   select count(*) into open_count
   from public.online_games
   where creator_id = p_creator
