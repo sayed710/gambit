@@ -149,6 +149,12 @@ check('PGN persisted on completion', typeof resign.payload.game?.pgn === 'string
 /* 16 — completed game rejects further commands */
 const afterEnd = await fn(A.token, 'make-move', { gameId, moveId: crypto.randomUUID(), from: 'd2', to: 'd4' });
 check('moves after completion rejected', afterEnd.status === 409 && afterEnd.payload.error?.code === 'state');
+/* F1 — a finishing move whose response was LOST retries safely: the
+   replayed moveId returns the authoritative completed game */
+const safeRetry = await fn(A.token, 'make-move', { gameId, moveId: m1, from: 'e2', to: 'e4' });
+check('F1: a replayed finishing move returns the authoritative completed game',
+  safeRetry.status === 200 && safeRetry.payload.replay === true && safeRetry.payload.game?.status === 'completed',
+  `status=${safeRetry.status} game=${safeRetry.payload.game?.status}`);
 const resignAgain = await fn(B.token, 'resign', { gameId });
 check('resign after completion rejected', resignAgain.status === 409);
 

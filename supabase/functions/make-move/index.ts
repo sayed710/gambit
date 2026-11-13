@@ -42,14 +42,15 @@ if (req.method !== 'POST') return fail('method', 'POST only', 405);
   if (!game) return fail('not-found', 'game not found', 404);
   const seat = isParticipant(game, user.id);
   if (!seat) return fail('forbidden', 'you are not a player in this game', 403);
-  if (game.status !== 'active') return fail('state', `game is ${game.status}, not active`, 409);
 
-  // idempotency: a moveId already present ANYWHERE in the history is a
-  // no-op (a retried stale command must never apply twice, even if the
-  // position later repeats and the same move becomes legal again)
+  // idempotency FIRST (even before the status check): a finishing move
+  // whose response was lost must retry into the authoritative completed
+  // game — a replayed moveId is a no-op that returns the current state
   if (game.last_move_id === moveId || game.moves.some((m) => m.moveId === moveId)) {
     return json({ ok: true, applied: false, replay: true, game: project(game) });
   }
+
+  if (game.status !== 'active') return fail('state', `game is ${game.status}, not active`, 409);
 
   if (game.turn !== seat) return fail('turn', 'not your turn', 409, { turn: game.turn });
 

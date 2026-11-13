@@ -105,3 +105,11 @@ modified by online games.
 - **Cancellation vs resignation**: `cancel-game` touches only
   waiting/ready rooms; `resign` touches only active games. The two
   semantics can never overlap.
+- **Quota scope (known limitation)**: the 8-room quota is per guest
+  identity. Anonymous sign-in mints fresh identities at will, so a
+  determined caller can rotate identities to exceed it. Identity
+  fluidity is inherent to the guest-auth milestone; a hosted
+  deployment should rate-limit at the gateway (per-IP) or upgrade the
+  auth requirement before going public. The quota still bounds
+  accidental accumulation (the common case) and is enforced
+  atomically.

@@ -581,10 +581,12 @@ function LiveGame({
             <h2 className="online-result-title">{resultText(game, me)}</h2>
             <p className="small muted">{reasonText(game.result_reason)} · {game.moves.length} plies</p>
             <div className="row mt-2" style={{ gap: '0.5rem', flexWrap: 'wrap' }}>
-              <button className="btn btn-gold" onClick={() => navigate('/analysis', { state: { pgn: game.pgn ?? undefined } })}>
-                Analyze in Review
-                <ArrowRight />
-              </button>
+              {game.pgn != null && (
+                <button className="btn btn-gold" onClick={() => navigate('/analysis', { state: { pgn: game.pgn ?? undefined } })}>
+                  Analyze in Review
+                  <ArrowRight />
+                </button>
+              )}
               <button className="btn btn-ghost" onClick={downloadPgn} disabled={game.pgn == null}>
                 Download PGN
               </button>
