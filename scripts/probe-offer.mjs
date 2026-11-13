@@ -22,5 +22,9 @@ const create = await fn(A.token, 'create-game', { name: 'Alice', baseMs: 600000,
 console.log('create:', create.status, JSON.stringify(create.payload).slice(0, 120));
 const join = await fn(B.token, 'join-game', { token: create.payload.token, name: 'Bob' });
 console.log('join:', join.status, join.payload.game?.status, 'v' + join.payload.game?.version);
-const offer = await fn(A.token, 'draw', { gameId: join.payload.game.id, action: 'offer' });
+// the readiness protocol: both players acknowledge before the game activates
+const rA = await fn(A.token, 'ready', { gameId: (rB.payload.game ?? rA.payload.game ?? join.payload.game).id });
+const rB = await fn(B.token, 'ready', { gameId: (rB.payload.game ?? rA.payload.game ?? join.payload.game).id });
+console.log('ready:', rA.status, rA.payload.game?.status, '->', rB.status, rB.payload.game?.status);
+const offer = await fn(A.token, 'draw', { gameId: (rB.payload.game ?? rA.payload.game ?? join.payload.game).id, action: 'offer' });
 console.log('offer:', offer.status, JSON.stringify(offer.payload).slice(0, 300));

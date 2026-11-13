@@ -27,6 +27,10 @@ const create = await fn(A.token, 'create-game', { name: 'Alice', baseMs: 600000,
 const gameId = create.payload.gameId;
 const join = await fn(B.token, 'join-game', { token: create.payload.token, name: 'Bob' });
 console.log('game', gameId, 'status', join.payload.game?.status);
+// the readiness protocol: both players acknowledge before activation
+const rA = await fn(A.token, 'ready', { gameId });
+const rB = await fn(B.token, 'ready', { gameId });
+console.log('ready:', rA.status, rA.payload.game?.status, '->', rB.status, rB.payload.game?.status);
 
 // B subscribes WITH B's JWT (RLS-scoped realtime)
 const received = [];

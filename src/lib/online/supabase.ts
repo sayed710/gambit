@@ -69,13 +69,26 @@ export function supabase(): SupabaseClient {
 
 /* ---- guest identity (anonymous auth) ---- */
 
+/* One shared in-flight sign-in: concurrent callers (bootstrap + a
+   create/join action) must never create two different guest identities. */
+let guestSignIn: Promise<Session> | null = null;
+
 export async function ensureGuestSession(): Promise<Session> {
   const sb = supabase();
   const { data: existing } = await sb.auth.getSession();
   if (existing.session) return existing.session;
-  const { data, error } = await sb.auth.signInAnonymously();
-  if (error || !data.session) throw new Error(`guest sign-in failed: ${error?.message ?? 'no session'}`);
-  return data.session;
+  if (!guestSignIn) {
+    guestSignIn = (async () => {
+      const { data, error } = await sb.auth.signInAnonymously();
+      if (error || !data.session) throw new Error(`guest sign-in failed: ${error?.message ?? 'no session'}`);
+      return data.session;
+    })();
+  }
+  try {
+    return await guestSignIn;
+  } finally {
+    guestSignIn = null; // the session now lives in the client
+  }
 }
 
 export async function currentGuestId(): Promise<string | null> {
