@@ -72,10 +72,38 @@ export function insufficientMaterialForAnyMate(c: ChessLike, winnerColor: 'w' | 
   // bishop's missing color; KBN help-mates vs a bare king exist):
   // always sufficient
   if (winnerBishopColors.length >= 1 && winnerKnights >= 1) return false;
-  // a single minor can mate only when the defender still owns a piece
-  // that can self-block; vs a bare king no mate exists
-  if (winnerMinors >= 1) return defenderPieces === 0;
-  return true; // bare winner can never deliver mate
+  if (winnerBishopColors.length >= 1) {
+    // the winner owns ONLY bishops, all on ONE square color: checkmate
+    // is possible only if the defender can self-block or occupy the
+    // opposite color — i.e. the defender owns ANY piece that is not a
+    // bishop of that same color (FIDE 6.9: KB vs KB on the same color
+    // can never produce mate; a defender pawn/rook/knight/queen or an
+    // opposite-colored bishop restores the help-mate)
+    const winnerColor0 = winnerBishopColors[0];
+    let defenderUsable = 0;
+    const board2 = c.board();
+    for (const row of board2) {
+      for (const sq of row) {
+        if (!sq || sq.type === 'k' || sq.color === winnerColor) continue;
+        if (sq.type === 'b') {
+          const dark = (sq.square.charCodeAt(0) + sq.square.charCodeAt(1)) % 2 === 0;
+          if ((dark ? 'dark' : 'light') === winnerColor0) continue; // stuck — cannot help mate
+          defenderUsable += 1;
+        } else {
+          defenderUsable += 1;
+        }
+      }
+    }
+    return defenderUsable === 0; // no mate exists -> draw
+  }
+  // a BARE claimer (no minors, no heavy pieces) can never deliver a
+  // check at all — no mate exists regardless of what the flagged side
+  // still owns (its pieces could only self-block a check that cannot
+  // be given)
+  if (winnerMinors === 0) return true;
+  // a single knight checks both colors: mate exists when the defender
+  // still owns a piece that can self-block; vs a bare king none does
+  return defenderPieces === 0;
 }
 
 /**

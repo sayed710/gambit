@@ -116,7 +116,10 @@ if (req.method !== 'POST') return fail('method', 'POST only', 405);
   else patch.black_ms_remaining = remainingAfter;
   if (end.over) {
     patch.status = 'completed';
-    patch.result = end.winner;
+    // a rule-driven draw (stalemate / insufficient / repetition /
+    // fifty-move) has winner=null — store the explicit 'draw' result so
+    // both clients report the draw instead of a generic 'Game over'
+    patch.result = end.winner ?? 'draw';
     patch.result_reason = end.reason;
     patch.pgn = c.pgn();
   }

@@ -66,6 +66,26 @@ describe('insufficientMaterialForAnyMate (FIDE 6.9 draw-on-time)', () => {
   });
 });
 
+describe('timeoutResult — FIDE 6.9 same-color edge cases', () => {
+  it('KB vs KB on the SAME square color can never mate — the timeout is a draw', () => {
+    // white light-squared bishop (d1); black light-squared bishop... use
+    // a position where the claimer owns one bishop and the flagged side
+    // owns a bishop of the SAME color — no mate can ever be delivered
+    const c = new Chess('k7/8/2b5/8/8/8/8/1K1B4 w - - 0 1');
+    expect(timeoutResult(c, 'w').result).toBe('draw');
+  });
+  it('KB vs an opposite-colored bishop restores the help-mate — win on time', () => {
+    // black bishop on c7 (a DARK square) vs the white light-squared d1
+    // bishop — WHITE is flagged, so BLACK wins on time (help-mate exists)
+    const c = new Chess('k7/2b5/8/8/8/8/8/1K1B4 w - - 0 1');
+    expect(timeoutResult(c, 'w').result).toBe('black');
+  });
+  it('a bare claimer can never check — the timeout is a draw even vs pieces', () => {
+    const c = new Chess('k7/8/8/8/8/5n2/8/K7 w - - 0 1');
+    expect(timeoutResult(c, 'w').result).toBe('draw');
+  });
+});
+
 describe('timeoutResult', () => {
   it('flagged white loses to black when mating material exists', () => {
     const c2 = new Chess('k7/7R/8/8/8/8/8/K7 w - - 0 1'); // white has the rook

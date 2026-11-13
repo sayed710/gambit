@@ -350,6 +350,27 @@ const openRoomsFromRaces = [];
   check('F4: the creator can cancel every admitted room afterwards', cancelled === okCount, `cancelled=${cancelled}/${okCount}`);
 }
 
+
+/* ============ F1r — rule-driven draws store an explicit result ============ */
+{
+  const c = await fn(A.token, 'create-game', { name: 'Alice', baseMs: 600000, incrementMs: 0, color: 'white' });
+  const g = await seatUp(A.token, B.token, c.payload.token);
+  // knight shuffle: the starting position occurs a third time -> threefold
+  const squares = [
+    ['g1', 'f3'], ['g8', 'f6'], ['f3', 'g1'], ['f6', 'g8'],
+    ['g1', 'f3'], ['g8', 'f6'], ['f3', 'g1'], ['f6', 'g8'],
+  ];
+  for (let i = 0; i < squares.length; i++) {
+    const who = i % 2 === 0 ? A : B;
+    await fn(who.token, 'make-move', { gameId: g.id, moveId: crypto.randomUUID(), from: squares[i][0], to: squares[i][1] });
+  }
+  const final = await fn(A.token, 'get-state', { gameId: g.id });
+  const gf = final.payload.game;
+  check('F1r: threefold repetition completes the game as a DRAW',
+    gf?.status === 'completed' && gf?.result === 'draw' && gf?.result_reason === 'threefold',
+    `result=${gf?.result}/${gf?.result_reason}`);
+}
+
 /* 20 — expiry adjudication policy (63s real wait — the honest path).
    All expiry scenarios share ONE wait: five games start, the clocks run
    down together, and every command shape is then asserted against the
