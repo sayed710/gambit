@@ -863,8 +863,8 @@ function OnlineInner() {
         setPhase({ kind: 'live', game: e.game });
         return;
       }
-      if (e instanceof OnlineError && e.code === 'not-found') {
-        // the room is gone server-side — the record is stale, clear it
+      if (e instanceof OnlineError && (e.code === 'not-found' || e.code === 'already-ended')) {
+        // the room is gone or already ended — the record is stale, clear it
       } else {
         // transport failure or an unexpected refusal: the room may still
         // be open — KEEP the saved record so the creator can resume;

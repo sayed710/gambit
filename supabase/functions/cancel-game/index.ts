@@ -36,6 +36,19 @@ if (req.method !== 'POST') return fail('method', 'POST only', 405);
   // no longer be cancelled — the 60s readiness-stall claim or the 24h
   // expiry reclaims an unacknowledged ready room instead
   if (game.status !== 'waiting') {
+    // a room already abandoned (expired, stalled, or cancelled in
+    // another tab) is a DIFFERENT refusal than a seated one — the
+    // client treats it as a confirmed cancellation
+    if (game.status === 'abandoned' || game.status === 'completed') {
+      return json(
+        {
+          ok: false,
+          error: { code: 'already-ended', message: 'this room has already ended' },
+          game: project(game),
+        },
+        409,
+      );
+    }
     // the opponent already joined — never a resignation; the client
     // receives the authoritative state to transition to the live game
     return json(

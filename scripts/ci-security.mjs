@@ -135,11 +135,12 @@ if (process.env.VITE_SUPABASE_ANON_KEY) {
 /* 6d — the prebuild gate itself: `npm run build` validates the key
    BEFORE vite embeds it. Deterministic fabricated-token process checks. */
 {
-  const runGate = (key) =>
-    execSync('node scripts/validate-configured-key.mjs', {
-      env: key ? { ...process.env, VITE_SUPABASE_ANON_KEY: key } : { ...process.env },
-      stdio: 'pipe',
-    }).toString();
+  const runGate = (key) => {
+    const env = { ...process.env };
+    if (key) env.VITE_SUPABASE_ANON_KEY = key;
+    else delete env.VITE_SUPABASE_ANON_KEY; // truly unconfigured, even if the outer env has one
+    return execSync('node scripts/validate-configured-key.mjs', { env, stdio: 'pipe' }).toString();
+  };
   try {
     runGate('eyJhbGciOiJIUzI1NiJ9.' +
       Buffer.from(JSON.stringify({ role: 'service_role' })).toString('base64url') +

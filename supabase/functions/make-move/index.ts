@@ -131,9 +131,15 @@ if (req.method !== 'POST') return fail('method', 'POST only', 405);
 
   const { data, error } = await saveGame(admin, game, patch, game.version);
   if (error || !data) {
-    // lost the CAS race (opponent moved / adjudication raced) — the
-    // client reconciles from authoritative state; the move is NOT applied
+    // lost the CAS race — but if the winner committed THIS SAME move
+    // (a concurrent duplicate), the honest response is the replay: the
+    // move IS in the authoritative history
     const current = await loadGame(admin, game.id);
+    if (current && (current.last_move_id === moveId || current.moves.some((m) => m.moveId === moveId))) {
+      return json({ ok: true, applied: false, replay: true, game: project(current) });
+    }
+    // otherwise: opponent moved / adjudication raced — the client
+    // reconciles from authoritative state; the move is NOT applied
     return json({ ok: false, applied: false, versionConflict: true, error: { code: 'version-conflict', message: 'another command landed first — reconciling to the authoritative state' }, game: current ? project(current) : null }, 409);
   }
 
