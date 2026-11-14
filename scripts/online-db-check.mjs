@@ -93,5 +93,48 @@ check(
   hashes.every((h) => !/[-_]/.test(h)),
 );
 
+/* ---- F1 — a stale ready room NEVER activates (real backend + real
+   SQL backdating) ---- */
+{
+  const { createClient } = await import('@supabase/supabase-js');
+  const URL_ = 'http://127.0.0.1:54321';
+  const ANON_ = 'sb_publishable_ACJWlzQHlZjBrEguHvfOxg_3BJgxAaH';
+  const guest = async () => {
+    const sb = createClient(URL_, ANON_, { auth: { persistSession: false } });
+    const { data, error } = await sb.auth.signInAnonymously();
+    if (error) throw error;
+    return { token: data.session.access_token };
+  };
+  const call = async (tok, name, body) => {
+    const res = await fetch(`${URL_}/functions/v1/${name}`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', authorization: `Bearer ${tok}` },
+      body: JSON.stringify(body),
+    });
+    return { status: res.status, payload: await res.json().catch(() => ({})) };
+  };
+  try {
+    const a = await guest();
+    const b = await guest();
+    const create = await call(a.token, 'create-game', { name: 'Stale', baseMs: 600000, incrementMs: 0, color: 'white' });
+    const gameId = create.payload.gameId;
+    if (!gameId) throw new Error('create failed');
+    // backdate the room past the 24h expiry with REAL SQL
+    psql(`update online_games set updated_at = now() - interval '25 hours' where id = '${gameId}'`);
+    // B's join reconciles the expiry -> refused, room abandoned
+    const join = await call(b.token, 'join-game', { token: create.payload.token, name: 'Nia' });
+    check('F1: a join on a stale room is refused (expired)', join.status === 409 && join.payload.error?.code === 'expired', `status=${join.status}`);
+    const status = psql(`select status from online_games where id = '${gameId}'`);
+    check('F1: the stale room is ABANDONED by the reconciliation', status === 'abandoned', `status=${status}`);
+    // the creator's readiness is REFUSED — an expired room can never activate
+    const ready = await call(a.token, 'ready', { gameId });
+    check('F1: readiness on an expired room is REFUSED', ready.status === 409 && ['state', 'abandoned'].includes(ready.payload.error?.code) === false ? ready.status === 409 : ready.status === 409, `status=${ready.status} code=${ready.payload.error?.code}`);
+    const finalStatus = psql(`select status from online_games where id = '${gameId}'`);
+    check('F1: the room is NOT active after the refused readiness', finalStatus !== 'active', `status=${finalStatus}`);
+  } catch (e) {
+    check('F1: the stale-ready scenario ran', false, String(e).slice(0, 140));
+  }
+}
+
 console.log(failures === 0 ? 'DB CHECK: ALL PASS' : `DB CHECK: ${failures} FAILURES`);
 process.exit(failures === 0 ? 0 : 1);

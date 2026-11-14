@@ -4,7 +4,7 @@
    online_games and NO write grants — all mutations go through here with
    the service role AFTER these checks. */
 import { Chess } from 'npm:chess.js@1.4.0';
-import { timeoutResult } from './serverRules.ts';
+import { staleRoomAction, timeoutResult } from './serverRules.ts';
 import { createClient, SupabaseClient } from 'npm:@supabase/supabase-js@2';
 
 export interface GameRow {
@@ -129,32 +129,18 @@ export async function expireIfStale(admin: SupabaseClient, game: GameRow): Promi
   if (game.status !== 'waiting' && game.status !== 'ready' && game.status !== 'active') return game;
   // inactivity = updated_at (every command touches it): a room with no
   // activity for 24h is dead
-  if (Date.now() - new Date(game.updated_at).getTime() < ROOM_EXPIRY_MS) return game;
+  const nowMs = Date.now(); // ONE numeric server reading for the whole decision
+  if (nowMs - new Date(game.updated_at).getTime() < ROOM_EXPIRY_MS) return game;
+  const action = staleRoomAction(game, nowMs);
+  if (action === 'none') return game;
+  const now = new Date(nowMs).toISOString();
 
-  // an ACTIVE room is ADJUDICATED, not just dropped: the honest result
-  // comes from the REAL clock arithmetic — elapsed (24h of silence)
-  // vs that player's remaining balance (a long game with increments
-  // can legally accumulate more than 24h of banked time). Only a truly
-  // exhausted clock produces a timeout result; otherwise the room is
-  // abandoned WITHOUT a result (both players simply left).
-  if (game.status === 'active') {
+  if (action === 'timeout') {
+    // an ACTIVE room is ADJUDICATED, not just dropped: the side to move
+    // has truly flagged (numeric elapsed >= remaining) — the honest
+    // result is the FIDE 6.9 timeout result with the full chess.js
+    // material rules, and the PGN is persisted for history
     const c = replay(game);
-    const now = new Date().toISOString();
-    const elapsed = now - (game.turn_started_at ? new Date(game.turn_started_at).getTime() : now);
-    const remaining = game.turn === 'w' ? game.white_ms_remaining : game.black_ms_remaining;
-    if (elapsed < remaining) {
-      // the clock has NOT actually expired (banked time from increments)
-      // — abandon without a result rather than declaring a fake win
-      const { data: abandoned } = await admin
-        .from('online_games')
-        .update({ status: 'abandoned', version: game.version + 1, updated_at: now })
-        .eq('id', game.id)
-        .eq('version', game.version)
-        .eq('status', 'active')
-        .select('*')
-        .single();
-      return (abandoned as GameRow) ?? game;
-    }
     const flagged = game.turn;
     const out = timeoutResult(c, flagged);
     const { data } = await admin
@@ -174,13 +160,16 @@ export async function expireIfStale(admin: SupabaseClient, game: GameRow): Promi
       .eq('status', 'active')
       .select('*')
       .single();
+    // CAS conflict: a newer writer won — the newer result stands, this
+    // caller returns the stale view without overwriting anything
     return (data as GameRow) ?? game;
   }
 
-  // waiting/ready: nothing decided — plain abandonment
+  // waiting/ready, or an active room with banked-but-unexpired time:
+  // plain abandonment, NO result (both players simply left)
   const { data } = await admin
     .from('online_games')
-    .update({ status: 'abandoned', version: game.version + 1, updated_at: new Date().toISOString() })
+    .update({ status: 'abandoned', version: game.version + 1, updated_at: now })
     .eq('id', game.id)
     .eq('version', game.version)
     .eq('status', game.status)

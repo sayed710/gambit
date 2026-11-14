@@ -6,7 +6,7 @@
    Idempotent: an already-ready player re-acknowledging is a no-op.
    Concurrent acknowledgments: bounded CAS retry (re-read + retry 3×),
    so both flags converge even when both clients fire at once. */
-import { adminClient, asUuid, corsPreflight, fail, isParticipant, json, loadGame, project, requireUser } from '../_shared/game.ts';
+import { adminClient, asUuid, corsPreflight, expireIfStale, fail, isParticipant, json, loadGame, project, requireUser } from '../_shared/game.ts';
 
 Deno.serve(async (req) => {
     if (req.method === 'OPTIONS') return corsPreflight();
@@ -30,13 +30,19 @@ if (req.method !== 'POST') return fail('method', 'POST only', 405);
 
   // bounded CAS retry: concurrent acknowledgments re-read and retry
   for (let attempt = 0; attempt < 3; attempt++) {
-    const game = await loadGame(admin, gameId);
-    if (!game) return fail('not-found', 'game not found', 404);
+    const loaded = await loadGame(admin, gameId);
+    if (!loaded) return fail('not-found', 'game not found', 404);
+    // expiry reconciles BEFORE accepting readiness: an expired ready
+    // room becomes abandoned instead of activating with a stale clock
+    const game = await expireIfStale(admin, loaded);
     const seat = isParticipant(game, user.id);
     if (!seat) return fail('forbidden', 'you are not a player in this game', 403);
     if (game.status === 'active') {
       // already started (the opponent acknowledged first) — reconcile
       return json({ ok: true, alreadyActive: true, game: project(game) });
+    }
+    if (game.status === 'abandoned' || game.status === 'completed') {
+      return fail('state', `game is ${game.status} — it can no longer be readied`, 409);
     }
     if (game.status !== 'ready') return fail('state', `game is ${game.status}, not ready`, 409);
 

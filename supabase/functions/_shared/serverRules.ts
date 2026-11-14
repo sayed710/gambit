@@ -123,6 +123,34 @@ export function timeoutResult(
   };
 }
 
+/**
+ * The honest action for a room that has been inactive past its expiry:
+ * waiting/ready rooms are simply ABANDONED; an ACTIVE room is adjudicated
+ * ONLY when the side to move has truly flagged — elapsed (one numeric
+ * server reading minus turn_started_at) compared against that player's
+ * REMAINING balance (a long game with increments can legally bank more
+ * than the expiry window; banked-but-unexpired time is never a fake win).
+ * completed/abandoned rooms need no action.
+ */
+export function staleRoomAction(
+  room: {
+    status: string;
+    turn: 'w' | 'b';
+    turn_started_at: string | null;
+    white_ms_remaining: number;
+    black_ms_remaining: number;
+  },
+  nowMs: number,
+): 'timeout' | 'abandon' | 'none' {
+  if (room.status === 'waiting' || room.status === 'ready') return 'abandon';
+  if (room.status !== 'active') return 'none';
+  const elapsed = room.turn_started_at
+    ? Math.max(0, nowMs - new Date(room.turn_started_at).getTime())
+    : 0;
+  const remaining = room.turn === 'w' ? room.white_ms_remaining : room.black_ms_remaining;
+  return elapsed >= remaining ? 'timeout' : 'abandon';
+}
+
 /** Reconcile-on-expiry outcome for command handlers. */
 export interface ExpiryOutcome {
   expired: boolean;

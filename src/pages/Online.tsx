@@ -893,13 +893,16 @@ function OnlineInner() {
       try {
         const parsedSaved = JSON.parse(saved) as { id: string; token: string; color?: 'white' | 'black' };
         const res = await api.getState(parsedSaved.id);
-        // a room created while this fetch was in flight wins — the late
-        // completed-game response must not replace it
-        if (phase.kind !== 'create') return;
+        // F3 — a stale resume can NEVER override a newer invitation:
+        // phaseRef.current is the LIVE phase (the closure's phase.kind is
+        // frozen at effect start and is always 'create' here). Re-check
+        // after EVERY await, against the live value.
+        if (phaseRef.current?.kind !== 'create') return;
         const current = localStorage.getItem('gambit.onlineGame');
         if (current !== saved) return;
         if (res.game.status === 'waiting') {
           // the seat was chosen at creation — never derived from which id is filled
+          if (phaseRef.current?.kind !== 'create') return;
           setPhase({ kind: 'waiting', gameId: parsedSaved.id, token: parsedSaved.token, color: parsedSaved.color ?? 'white' });
         } else if (res.game.status === 'abandoned') {
           // a room cancelled/expired elsewhere: clear the matching
@@ -908,7 +911,9 @@ function OnlineInner() {
         } else if (['ready', 'active', 'completed'].includes(res.game.status)) {
           // a room whose opponent already joined (ready) resumes to the
           // live view — LiveGame handles the readiness acknowledgment
+          if (phaseRef.current?.kind !== 'create') return;
           const me = await currentGuestId();
+          if (phaseRef.current?.kind !== 'create') return;
           if (me && (res.game.white_id === me || res.game.black_id === me)) setPhase({ kind: 'live', game: res.game });
         }
       } catch {
@@ -924,11 +929,17 @@ function OnlineInner() {
 
   useEffect(() => {
     if (liveFromJoin?.joinedToken && liveFromJoin.gameId) {
+      // F2 — lifecycle guard: if the user navigates away while the join
+      // request is in flight, NEITHER the saved-room record nor the phase
+      // may change. A join that already reached the server is NOT
+      // cancelled (the seat is safe; the invite link rejoins idempotently).
+      let current = true;
       void (async () => {
         try {
           await ensureGuestSession();
           const meId = await currentGuestId();
           const res = await api.joinGame(liveFromJoin.joinedToken!, localStorage.getItem('gambit.onlineName')?.trim() || 'Player');
+          if (!current) return; // stale: the user navigated away — land nothing
           // the record carries the seat color — a later resume of the
           // same room must not relabel a Black creator as White
           localStorage.setItem('gambit.onlineGame', JSON.stringify({
@@ -944,15 +955,20 @@ function OnlineInner() {
             // record dropped `color` by design — the row is the truth).
             const joinedToken = liveFromJoin.joinedToken!;
             const meNow = (await currentGuestId()) ?? '';
+            if (!current) return;
             setPhase({ kind: 'waiting', gameId: res.game.id, token: joinedToken, color: res.game.white_id === meNow ? 'white' : 'black' });
           } else {
             setPhase({ kind: 'live', game: res.game });
           }
         } catch (e) {
+          if (!current) return;
           if (e instanceof OnlineError) setPhase({ kind: 'failed', code: e.code, message: e.message });
           else setPhase({ kind: 'failed', code: 'backend', message: 'could not reach the local backend — run `npx supabase start`' });
         }
       })();
+      return () => {
+        current = false;
+      };
     }
   }, [liveFromJoin?.joinedToken, liveFromJoin?.gameId]); // eslint-disable-line react-hooks/exhaustive-deps
 
