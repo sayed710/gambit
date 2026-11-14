@@ -95,11 +95,8 @@ function LiveGame({
       submit: async (isCurrent) => {
         try {
           const res = await api.ready(game.id);
-          if (isCurrent()) applyAuthoritative(res.game);
-        } catch (e) {
-          if (e instanceof OnlineError && e.code === 'alreadyActive' && e.game && isCurrent()) {
-            applyAuthoritative(e.game);
-          }
+          if (isCurrent()) applyAuthoritative(res.game); // includes alreadyActive (a 200 success)
+        } catch {
           // other failures simply retry on the next tick
         }
       },
@@ -836,6 +833,12 @@ function OnlineInner() {
     try {
       await ensureGuestSession();
       const res = await api.createGame(name, base, inc, color);
+      // F2 — an invitation opened while the create was pending wins: the
+      // late create response must not overwrite the join record or yank
+      // the phase away from the join gate (the created room stays in the
+      // creator's account; they can cancel it from the lobby resume)
+      // (sync block: no interleaving between the check and the two writes)
+      if (phaseRef.current?.kind === 'joining') return;
       localStorage.setItem('gambit.onlineGame', JSON.stringify({ id: res.gameId, token: res.token, color: res.color }));
       setPhase({ kind: 'waiting', gameId: res.gameId, token: res.token, color: res.color });
     } catch (e) {

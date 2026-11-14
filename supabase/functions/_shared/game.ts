@@ -238,6 +238,3 @@ export async function saveGame(admin: SupabaseClient, game: GameRow, patch: Part
   return { data: (data as GameRow) ?? null, error };
 }
 
-export async function savePgn(admin: SupabaseClient, game: GameRow, c: Chess) {
-  await admin.from('online_games').update({ pgn: c.pgn() }).eq('id', game.id);
-}
