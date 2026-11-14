@@ -1,8 +1,14 @@
 name: CI
 
-# Automated verification for the Gambit PWA. Before this workflow the
-# repository had NO GitHub Actions and every check ran on a developer
-# machine only (see PR #9's local-verification notes).
+# Gambit quality gate. Each visible check is an independently named job
+# with real assertions — failures are isolated, understandable and hard
+# to hide. Inspired by the Rookzen multi-check architecture, adapted to
+# Gambit's React/Vite + PWA + Stockfish + local-Supabase stack.
+#
+# Supabase stack startup is the expensive shared environment; the
+# database and multiplayer jobs each start their own isolated stack on
+# purpose (independent failure isolation beats sharing here, matching
+# the Rocky postgres-integration / analysis-smoke split).
 
 on:
   pull_request:
@@ -19,18 +25,19 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  core:
-    name: typecheck · lint · tests · build
+  # ---------------------------------------------------------------- 1
+  static:
+    name: static / typecheck & lint & consistency
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 10
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
-      - name: Setup Node
-        uses: actions/setup-node@v4
+      - name: Setup Node 24
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
-          node-version: 24 # matches the version all local verification ran on
+          node-version: 24
           cache: npm
 
       - name: Install dependencies (committed lockfile)
@@ -42,27 +49,89 @@ jobs:
       - name: Lint (oxlint)
         run: npm run lint
 
-      - name: Unit/integration tests (vitest, serial files)
-        # --no-file-parallelism keeps execution deterministic on the
-        # 2-core runner: the load-sensitive practiceRunnerLifecycle
-        # timing previously flaked on saturated machines. Assertions
-        # are unchanged — this only stabilizes scheduling.
-        run: npx vitest run --no-file-parallelism
+      - name: Workflow files parse as YAML
+        run: node scripts/ci-consistency.mjs workflows
 
-      - name: Production build (tsc -b && vite build)
-        run: npm run build
+      - name: Repository consistency (licenses, brand, scripts)
+        run: node scripts/ci-consistency.mjs repo
 
-  browser-smoke:
-    name: browser QA (Playwright)
-    needs: core
+  # ---------------------------------------------------------------- 2
+  unit:
+    name: tests / unit & components (Node 24)
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
-      - name: Setup Node
-        uses: actions/setup-node@v4
+      - name: Setup Node 24
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install dependencies (committed lockfile)
+        run: npm ci
+
+      - name: Vitest (serial files — deterministic scheduling)
+        run: npx vitest run --no-file-parallelism
+
+  # ---------------------------------------------------------------- 3
+  compat:
+    name: compat / Node 22 — tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Setup Node 22 (oldest supported LTS)
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies (committed lockfile)
+        run: npm ci
+
+      - name: Vitest (serial files)
+        run: npx vitest run --no-file-parallelism
+
+  # ---------------------------------------------------------------- 4
+  build:
+    name: build / production & PWA
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Setup Node 24
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install dependencies (committed lockfile)
+        run: npm ci
+
+      - name: Production build (tsc -b && vite build)
+        run: npm run build
+
+      - name: PWA & asset assertions
+        run: node scripts/ci-consistency.mjs dist
+
+  # ---------------------------------------------------------------- 5
+  browser:
+    name: browser / desktop & mobile smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Setup Node 24
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 24
           cache: npm
@@ -87,17 +156,206 @@ jobs:
           done
           echo "server never became ready"; exit 1
 
-      - name: Run browser QA (hard assertions)
-        env:
-          QA_BASE: http://localhost:5199
+      - name: Browser QA (hard assertions)
         run: node scripts/qa-ui-final.mjs
 
       - name: Upload failure evidence
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: browser-qa-evidence
           path: |
             ui-*.png
           if-no-files-found: ignore
           retention-days: 7
+
+  # ---------------------------------------------------------------- 6
+  accessibility:
+    name: accessibility / critical pages & keyboard
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Setup Node 24
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install dependencies (committed lockfile)
+        run: npm ci
+
+      - name: Install Playwright chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Build
+        run: npm run build
+
+      - name: Serve the production build
+        run: |
+          npx vite preview --port 5199 --strictPort &
+          for i in $(seq 1 30); do
+            if curl -sf http://localhost:5199/ > /dev/null; then
+              echo "server ready"; exit 0
+            fi
+            sleep 1
+          done
+          echo "server never became ready"; exit 1
+
+      - name: Accessibility assertions (axe + keyboard)
+        run: node scripts/qa-a11y.mjs
+
+      - name: Upload failure evidence
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: a11y-evidence
+          path: |
+            a11y-*.png
+            a11y-*.json
+          if-no-files-found: ignore
+          retention-days: 7
+
+  # ---------------------------------------------------------------- 7
+  database:
+    name: database / migrations & RLS
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Setup Node 24
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install Supabase CLI 3.0.0 (matches the committed config.toml)
+        run: npm install --no-save supabase@3.0.0
+
+      - name: Start the local Supabase stack (exclusions verified against v3.0.0)
+        run: npx supabase start -x studio,imgproxy,storage-api,vector,pooler
+
+      - name: Migrations replay from zero (db reset)
+        run: npx supabase db reset
+
+      # no ONLINE_LONG: this job covers RLS/authorization/move-rejection —
+      # the 62s timeout-adjudication waits live in the multiplayer job
+      - name: Run the online integration suite (RLS, auth, moves — no timeout waits)
+        run: node scripts/online-integration.mjs
+
+      - name: Schema & RLS assertions (against real rows the suite created)
+        run: node scripts/online-db-check.mjs
+
+  # ---------------------------------------------------------------- 8
+  multiplayer:
+    name: multiplayer / server rules & clocks
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Setup Node 24
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install Supabase CLI 3.0.0 (matches the committed config.toml)
+        run: npm install --no-save supabase@3.0.0
+
+      - name: Start the local Supabase stack (exclusions verified against v3.0.0)
+        run: npx supabase start -x studio,imgproxy,storage-api,vector,pooler
+
+      - name: Run the online integration suite (RLS behavior, commands, clocks, timeout)
+        env:
+          ONLINE_LONG: '1'
+        run: node scripts/online-integration.mjs
+
+  # ---------------------------------------------------------------- 9
+  multiplayer-e2e:
+    name: multiplayer / two-player E2E
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Setup Node 24
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install dependencies (committed lockfile)
+        run: npm ci
+
+      - name: Install Supabase CLI 3.0.0 (matches the committed config.toml)
+        run: npm install --no-save supabase@3.0.0
+
+      - name: Install Playwright chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Start the local Supabase stack (exclusions verified against v3.0.0)
+        run: npx supabase start -x studio,imgproxy,storage-api,vector,pooler
+
+      - name: Build (configured for the local stack)
+        env:
+          VITE_SUPABASE_URL: http://127.0.0.1:54321
+          VITE_SUPABASE_ANON_KEY: sb_publishable_ACJWlzQHlZjBrEguHvfOxg_3BJgxAaH
+        run: npm run build
+
+      - name: Serve the production build
+        run: |
+          npx vite preview --port 5199 --strictPort &
+          for i in $(seq 1 30); do
+            if curl -sf http://localhost:5199/ > /dev/null; then
+              echo "server ready"; exit 0
+            fi
+            sleep 1
+          done
+          echo "server never became ready"; exit 1
+
+      - name: Two-browser E2E (invitation, sync, reload, third-context, resign)
+        run: node scripts/online-e2e.mjs
+
+      - name: Upload failure evidence
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: online-e2e-evidence
+          path: |
+            ui-online-*.png
+          if-no-files-found: ignore
+          retention-days: 7
+
+  # --------------------------------------------------------------- 10
+  security:
+    name: security / config & licensing
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Setup Node 24
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install dependencies (committed lockfile)
+        run: npm ci
+
+      - name: Build (so the distributed-bundle scan has a real artifact)
+        run: npm run build
+
+      - name: Security & licensing assertions (incl. the built bundle)
+        run: node scripts/ci-security.mjs
+
+      - name: Dependency vulnerabilities (production deps)
+        run: npm audit --omit=dev --audit-level=high

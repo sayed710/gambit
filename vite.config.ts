@@ -43,4 +43,13 @@ export default defineConfig({
     environment: 'jsdom',
     include: ['src/**/*.test.{ts,tsx}'],
   },
+  // the shared edge-function modules use Deno's npm: specifier —
+  // resolve them to the same packages under vitest so the shared server
+  // rules stay unit-testable in one place
+  resolve: {
+    alias: [
+      { find: /^npm:chess\.js@[\d.]+$/, replacement: 'chess.js' },
+      { find: /^npm:@supabase\/supabase-js@[\d.]+$/, replacement: '@supabase/supabase-js' },
+    ],
+  },
 })

@@ -505,13 +505,24 @@ describe('flag fall adjudicated before a late move (final pass #1)', () => {
 });
 
 describe('white clock runs from game start (final pass #3)', () => {
+  const T0 = 1_700_000_000_000;
   it('white clock visibly decreases before the first move in a timed game', async () => {
+    // pin BOTH clocks BEFORE setup (the clock bills via performance.now;
+    // a Date.now pin alone leaked real sub-millisecond elapsed into the
+    // first tick — the CI flake at 59999.75). Phase 2 advances the fake
+    // frame by exactly 350ms — fully deterministic, no real-time leak.
+    const nowSpy = vi.spyOn(Date, 'now').mockReturnValue(T0);
+    let fakeNow = 0;
+    const perfSpy = vi.spyOn(performance, 'now').mockImplementation(() => fakeNow);
     const { api } = setup({ config: config({ timeControl: BLITZ_1_3, playerColor: 'w' }), initialFen: START_FEN });
     await waitFor(() => expect(api().clock.runningSide).toBe('w'));
-    expect(api().clock.clocks.w).toBe(60_000);
-    await sleep(350);
-    expect(api().clock.clocks.w).toBeLessThan(60_000);
-    expect(api().clock.clocks.w).toBeGreaterThan(59_000); // ~350ms billed, not zero, not more
+    expect(api().clock.clocks.w).toBe(60_000); // starts FULL — exact
+    nowSpy.mockRestore();
+    fakeNow = 350; // deterministic advance on the pinned frame
+    await waitFor(() => expect(api().clock.clocks.w).toBeLessThan(60_000));
+    expect(api().clock.clocks.w).toBeGreaterThan(59_000); // ~350ms billed
+    expect(api().clock.clocks.w).toBeLessThanOrEqual(59_651); // and NOT a second more than 350ms
+    perfSpy.mockRestore();
   });
 
   it('black-start games bill the side to move from the start', async () => {

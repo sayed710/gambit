@@ -5,6 +5,7 @@ import { KnightMark } from './components/Icons';
 import { useUnsavedUnloadGuard } from './lib/persistStatus';
 import Home from './pages/Home';
 import Play from './pages/Play';
+import Online from './pages/Online';
 
 const Puzzles = lazy(() => import('./pages/Puzzles'));
 const Editor = lazy(() => import('./pages/Editor'));
@@ -32,6 +33,9 @@ export default function App() {
       <Route element={<Layout />}>
         <Route index element={<Home />} />
         <Route path="/play" element={<Play />} />
+        <Route path="/online" element={<Online />} />
+        <Route path="/online/join" element={<Online />} />
+        <Route path="/online/live" element={<Online />} />
         <Route
           path="/analysis"
           element={
