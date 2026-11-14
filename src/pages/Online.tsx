@@ -699,16 +699,21 @@ function Waiting({ gameId, token, color, onCancel, onSeated, onEnded }: { gameId
      states (abandoned from another tab, or expired) end the waiting view
      instead of polling forever */
   useEffect(() => {
+    let dead = false; // an in-flight poll must not act after unmount/cancel
     const t = window.setInterval(async () => {
       try {
         const res = await api.getState(gameId);
+        if (dead) return;
         if (res.game.status === 'active' || res.game.status === 'ready') onSeated(res.game);
         else if (res.game.status === 'abandoned' || res.game.status === 'completed') onEnded(res.game.status);
       } catch {
         /* transient — keep polling */
       }
     }, 2000);
-    return () => window.clearInterval(t);
+    return () => {
+      dead = true;
+      window.clearInterval(t);
+    };
   }, [gameId, onSeated, onEnded]);
   return (
     <div className="panel panel-pad online-waiting">

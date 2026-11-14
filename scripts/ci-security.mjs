@@ -10,7 +10,7 @@ import { execSync } from 'node:child_process';
 import { Buffer } from 'node:buffer';
 import os from 'node:os';
 import path from 'node:path';
-import { FABRICATED_JWT_MARKER, FABRICATED_SB_SECRET, isFabricatedJwt, scanTextForSecretKeys, validateClientKey } from './bundle-security-scan.mjs';
+import { decodeJwtPayload, FABRICATED_JWT_MARKER, FABRICATED_SB_SECRET, isFabricatedJwt, scanTextForSecretKeys, validateClientKey } from './bundle-security-scan.mjs';
 
 let failures = 0;
 const check = (name, ok, detail = '') => {
