@@ -24,7 +24,7 @@ interface Settings {
 const DEFAULTS: Settings = {
   theme: 'system',
   volume: 35,
-  boardTheme: 'glacier',
+  boardTheme: 'walnut',
   soundOn: true,
   showLegalHints: true,
   confirmResign: true,
@@ -40,8 +40,17 @@ interface SettingsContextValue extends Settings {
 
 const SettingsContext = createContext<SettingsContextValue | null>(null);
 
+/**
+ * The startup settings: stored preferences win over defaults, exactly as
+ * saved. Walnut is the DEFAULT for fresh settings; an explicitly saved
+ * Glacier (or any other valid theme) is the user's choice and persists.
+ */
+export function initializeSettings(): Settings {
+  return { ...DEFAULTS, ...loadJSON('settings', {}) };
+}
+
 export function SettingsProvider({ children }: { children: ReactNode }) {
-  const [settings, setSettings] = useState<Settings>(() => ({ ...DEFAULTS, ...loadJSON('settings', {}) }));
+  const [settings, setSettings] = useState<Settings>(initializeSettings);
 
   // Arctic Editorial ships as one calm dark theme; the stored preference is kept
   // for schema stability but the resolved theme is always dark.

@@ -132,14 +132,14 @@
 [data-board='glacier'] { --board-light: #C7D9E6; --board-dark: #3E637F; --board-border: #2C4A63; }
 [data-board='seaice'] { --board-light: #F2F7FA; --board-dark: #C2D8E4; --board-border: #9DB9CB; }
 [data-board='polarnight'] { --board-light: #2E4358; --board-dark: #12212F; --board-border: #0C1822; }
-[data-board='walnut'] { --board-light: #e8d9c0; --board-dark: #a06c40; --board-border: #835530; }
+[data-board='walnut'] { --board-light: #e8d9c0; --board-dark: #9a6b45; --board-border: #7d5836; }
 [data-board='tundra'] { --board-light: #e9eee6; --board-dark: #7b9a85; --board-border: #637e6c; }
 [data-board='aurora'] { --board-light: #24404A; --board-dark: #101E28; --board-border: #0B161E; }
 
 [data-theme='dark'][data-board='glacier'] { --board-light: #4c657e; --board-dark: #263a52; --board-border: #1c2c40; }
 [data-theme='dark'][data-board='seaice'] { --board-light: #54708a; --board-dark: #31485e; --board-border: #253950; }
 [data-theme='dark'][data-board='polarnight'] { --board-light: #2C4058; --board-dark: #141F2C; --board-border: #0E1622; }
-[data-theme='dark'][data-board='walnut'] { --board-light: #54412e; --board-dark: #33251a; --board-border: #241a12; }
+[data-theme='dark'][data-board='walnut'] { --board-light: #e8d9c0; --board-dark: #9a6b45; --board-border: #7d5836; }
 [data-theme='dark'][data-board='tundra'] { --board-light: #44544a; --board-dark: #29342c; --board-border: #1e2721; }
 [data-theme='dark'][data-board='aurora'] { --board-light: #333a58; --board-dark: #202540; --board-border: #161a2e; }
 
