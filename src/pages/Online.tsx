@@ -65,16 +65,14 @@ function LiveGame({
   const [pendingPromotion, setPendingPromotion] = useState<PendingPromotion | null>(null);
   const [confirmResign, setConfirmResign] = useState(false);
   const [busy, setBusy] = useState(false);
-  const versionRef = useRef(initial.version);
   const moveIdRef = useRef<string | null>(null);
-  versionRef.current = game.version;
   /* install an authoritative response only if it is not older than what
-     is already on screen — a late reply must never rewind the board */
+     is already on screen — compared against the LIVE queued state (not a
+     ref that lags between a queued refetch and its render), so a late
+     reply can never rewind the board and refetch/commands can never
+     interleave an older version through the ref gap */
   const applyAuthoritative = useCallback((g: OnlineGame) => {
-    if (g.version >= versionRef.current) {
-      versionRef.current = g.version;
-      setGame(g);
-    }
+    setGame((cur) => (g.version >= cur.version ? g : cur));
   }, []);
 
   const mySeat: 'w' | 'b' | null = game.white_id === me ? 'w' : game.black_id === me ? 'b' : null;
