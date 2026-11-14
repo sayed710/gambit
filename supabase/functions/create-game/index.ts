@@ -11,7 +11,7 @@
    rooms are reclaimed by the 24-hour expiry reconciliation (see
    _shared/game.ts). */
 import { createHash } from 'node:crypto';
-import { adminClient, asEnum, asIntIn, asOptionalEnum, asStr, corsPreflight, fail, json, requireUser } from '../_shared/game.ts';
+import { ROOM_EXPIRY_MS, adminClient, asEnum, asIntIn, asOptionalEnum, asStr, corsPreflight, expireIfStale, fail, json, requireUser, type GameRow } from '../_shared/game.ts';
 
 Deno.serve(async (req) => {
     if (req.method === 'OPTIONS') return corsPreflight();
@@ -43,6 +43,23 @@ if (req.method !== 'POST') return fail('method', 'POST only', 405);
   const colorPick = (picked ?? 'random') === 'random' ? (Math.random() < 0.5 ? 'white' : 'black') : (picked as 'white' | 'black');
 
   const admin = adminClient();
+
+  // reclaim the creator's OWN stale rooms first (24h inactivity policy):
+  // waiting/ready -> abandoned; ACTIVE -> timeout-adjudicated by the
+  // full chess.js rules (FIDE 6.9) with the PGN persisted — correct
+  // results AND the quota freed, without coarse SQL adjudication
+  {
+    const cutoff = new Date(Date.now() - ROOM_EXPIRY_MS).toISOString();
+    const { data: staleRooms } = await admin
+      .from('online_games')
+      .select('*')
+      .eq('creator_id', user.id)
+      .in('status', ['waiting', 'ready', 'active'])
+      .lt('updated_at', cutoff);
+    for (const stale of (staleRooms ?? []) as unknown as GameRow[]) {
+      await expireIfStale(admin, stale);
+    }
+  }
 
   // 32 random bytes, base64url (~192 bits) — stored as sha-256 only
   const raw = new Uint8Array(32);

@@ -106,13 +106,18 @@ check('client guard rejects service_role (validatePublishableKey present)', onli
    the same file, and runs against the real built bundle. */
 if (fs.existsSync('dist/assets')) {
   let bundleHits = [];
+  let scanned = 0;
   for (const f of fs.readdirSync('dist/assets').filter((n) => n.endsWith('.js'))) {
     const text = fs.readFileSync(path.join('dist/assets', f), 'utf8');
+    scanned += 1;
     for (const hit of scanTextForSecretKeys(text)) {
       bundleHits.push(`${f}: ${hit}`);
     }
   }
+  check('the bundle scan actually read at least one asset', scanned > 0, `scanned=${scanned}`);
   check('distributed bundle carries no secret keys', bundleHits.length === 0, bundleHits.join(', ').slice(0, 160));
+} else {
+  check('dist/assets exists for the bundle scan', false, 'the build output is missing');
 }
 
 /* 6c — build-time validation of the CONFIGURED key: if the environment

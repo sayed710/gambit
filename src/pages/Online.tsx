@@ -903,6 +903,10 @@ function OnlineInner() {
         if (res.game.status === 'waiting') {
           // the seat was chosen at creation — never derived from which id is filled
           setPhase({ kind: 'waiting', gameId: parsedSaved.id, token: parsedSaved.token, color: parsedSaved.color ?? 'white' });
+        } else if (res.game.status === 'abandoned') {
+          // a room cancelled/expired elsewhere: clear the matching
+          // record so later visits stop re-fetching a dead room
+          if (current === saved) localStorage.removeItem('gambit.onlineGame');
         } else if (['ready', 'active', 'completed'].includes(res.game.status)) {
           // a room whose opponent already joined (ready) resumes to the
           // live view — LiveGame handles the readiness acknowledgment
@@ -925,8 +929,15 @@ function OnlineInner() {
       void (async () => {
         try {
           await ensureGuestSession();
+          const meId = await currentGuestId();
           const res = await api.joinGame(liveFromJoin.joinedToken!, localStorage.getItem('gambit.onlineName')?.trim() || 'Player');
-          localStorage.setItem('gambit.onlineGame', JSON.stringify({ id: res.game.id, token: liveFromJoin.joinedToken }));
+          // the record carries the seat color — a later resume of the
+          // same room must not relabel a Black creator as White
+          localStorage.setItem('gambit.onlineGame', JSON.stringify({
+            id: res.game.id,
+            token: liveFromJoin.joinedToken,
+            color: res.game.white_id === meId ? 'white' : 'black',
+          }));
           if (res.game.status === 'waiting') {
             // the creator reopened their own invitation — the room is
             // still unseated: back to the waiting view (invite + cancel

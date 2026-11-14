@@ -54,21 +54,11 @@ begin
     and status in ('waiting', 'ready')
     and updated_at < now() - interval '24 hours';
 
-  -- ACTIVE rooms are ADJUDICATED (clocks cap at 1h: after 24h of
-  -- silence the side to move has flagged — the non-flagged seat wins
-  -- on time; the coarse SQL path cannot run the FIDE insufficient-
-  -- material draw check, which the JS expiry path applies)
-  update public.online_games
-  set status = 'completed',
-      result = case when turn = 'w' then 'black' else 'white' end,
-      result_reason = 'timeout',
-      white_ms_remaining = case when turn = 'w' then 0 else white_ms_remaining end,
-      black_ms_remaining = case when turn = 'b' then 0 else black_ms_remaining end,
-      version = version + 1,
-      updated_at = now()
-  where creator_id = p_creator
-    and status = 'active'
-    and updated_at < now() - interval '24 hours';
+  -- ACTIVE rooms are NOT touched here: their expiry must apply the
+  -- FIDE 6.9 insufficient-material draw check and persist the PGN,
+  -- which needs chess.js — that lives in the JS expiry path
+  -- (expireIfStale), which create-game runs for the creator's own
+  -- stale rooms right before this quota decision.
 
   select count(*) into open_count
   from public.online_games
