@@ -229,6 +229,65 @@ try {
     await ctxD.close();
   }
 
+  /* ---- BLOCKER-1: a HIDDEN tab never acknowledges readiness ---- */
+  {
+    // two ISOLATED contexts (shared storage would make the joiner the
+    // creator's identity): E1 creates a room, then goes "hidden" (a
+    // deterministic visibilityState stub). E2 joins and acks. The server
+    // must stay in `ready` until E1's tab becomes visible again.
+    const ctxE1 = await browser.newContext({ serviceWorkers: 'block', viewport: { width: 1100, height: 900 } });
+    const e1 = await ctxE1.newPage();
+    await e1.goto(`${BASE}/#/online`, { waitUntil: 'load' });
+    await e1.waitForSelector('#online-name', { timeout: 30000 });
+    await e1.fill('#online-name', 'Evan');
+    await e1.locator('button:has-text("Create private game")').click();
+    await e1.waitForSelector('input[aria-label="Invitation link"]', { timeout: 30000 });
+    const linkE = await e1.locator('input[aria-label="Invitation link"]').inputValue();
+    // E1's tab goes hidden BEFORE the join lands
+    await e1.evaluate(() => {
+      Object.defineProperty(document, 'visibilityState', { value: 'hidden', configurable: true });
+      document.dispatchEvent(new Event('visibilitychange'));
+    });
+    const ctxE2 = await browser.newContext({ serviceWorkers: 'block', viewport: { width: 1100, height: 900 } });
+    const e2 = await ctxE2.newPage();
+    await e2.goto(linkE, { waitUntil: 'load' });
+    await e2.waitForSelector('#join-name', { timeout: 30000 });
+    await e2.fill('#join-name', 'Nia');
+    await e2.locator('button:has-text("Accept invitation")').click();
+    await e2.waitForSelector('.online-live', { timeout: 30000 });
+    // E2 acks (their tab is visible); E1 is hidden and must NOT ack
+    await wait(4500); // > one retry interval
+    const e2WaitingForE1 = await pollUntil(e2, () => {
+      const banner = document.querySelector('.status-banner')?.textContent ?? '';
+      return banner.includes('waiting for Evan to confirm');
+    }, 15000);
+    check('BLOCKER-1: the visible player acks; the server stays READY awaiting the hidden one', !!e2WaitingForE1);
+    // server-authoritative evidence through E2's UI: the clock chips are
+    // NOT running (projectClocks never bills a non-active game)
+    const clocksIdle = await e2.evaluate(() => {
+      const running = document.querySelectorAll('.clock.running').length;
+      return running === 0;
+    });
+    check('BLOCKER-1: the clock has NOT started while the hidden tab is unacknowledged', clocksIdle);
+    // E1's tab returns to visibility — readiness proceeds and the game activates
+    await e1.evaluate(() => {
+      Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true });
+      document.dispatchEvent(new Event('visibilitychange'));
+    });
+    const e1Active = await pollUntil(e1, () => {
+      const hint = document.querySelector('.board-hint')?.textContent ?? '';
+      return hint.includes('Your move') || hint.includes('thinking');
+    }, 20000);
+    check('BLOCKER-1: returning to the tab acknowledges promptly and the clock starts then', !!e1Active);
+    const b2BannerGone = await pollUntil(e2, () => {
+      const banner = document.querySelector('.status-banner')?.textContent ?? '';
+      return !banner.includes('waiting for Evan');
+    }, 20000);
+    check('BLOCKER-1: both players activated after the visible return', !!b2BannerGone);
+    await ctxE1.close();
+    await ctxE2.close();
+  }
+
   /* ---- zero page errors ---- */
   check('zero page errors on A', errorsA.length === 0, errorsA.slice(0, 2).join(' | '));
   check('zero page errors on B', errorsB.length === 0, errorsB.slice(0, 2).join(' | '));

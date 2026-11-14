@@ -17,6 +17,7 @@ import {
   supabase,
 } from '../lib/online/supabase';
 import { formatClock, formatTimeControl, projectClocks } from '../lib/online/clock';
+import { createReadinessScheduler } from '../lib/online/readinessScheduler';
 import { useClickToMove } from '../hooks/useClickToMove';
 import { playSound } from '../lib/sound';
 import type { PendingPromotion } from '../hooks/useGame';
@@ -81,38 +82,33 @@ function LiveGame({
   const finished = game.status === 'completed' || game.status === 'abandoned';
   const pregame = game.status === 'ready'; // both seated — clocks start when BOTH acknowledge
 
-  /* F8 — acknowledge readiness while the room is `ready`. A bounded
-     retry interval (3s) instead of a once-per-version attempt: a failed
-     or lost request is retried until the server records MY flag (the
-     command is idempotent and version-CAS'd, so duplicates are free).
-     The clock starts ONLY from the server's ready->active transition. */
+  /* F8 — acknowledge readiness while the room is `ready`, through the
+     isolated scheduler: EVERY submission path (prompt and retry) is
+     visibility-gated — a hidden/background tab NEVER acknowledges, so
+     no one's clock starts unseen; returning to the tab resumes
+     promptly; in-flight submissions are deduped and stale responses are
+     dropped via the scheduler's isCurrent contract. The clock starts
+     ONLY from the server's ready->active transition. */
   const myReadyFlag = mySeat ? (mySeat === 'w' ? game.white_ready : game.black_ready) : true;
   useEffect(() => {
     if (!pregame || !mySeat || myReadyFlag) return;
-    const t = window.setInterval(() => {
-      // a background tab must not start anyone's clock unseen: the ack
-      // fires only while the player can actually see the board; the
-      // interval resumes it the moment the tab becomes visible
-      if (document.visibilityState !== 'visible') return;
-      void (async () => {
+    const scheduler = createReadinessScheduler({
+      isVisible: () => document.visibilityState === 'visible',
+      submit: async (isCurrent) => {
         try {
           const res = await api.ready(game.id);
-          applyAuthoritative(res.game);
+          if (isCurrent()) applyAuthoritative(res.game);
         } catch (e) {
-          if (e instanceof OnlineError && e.code === 'alreadyActive' && e.game) applyAuthoritative(e.game);
+          if (e instanceof OnlineError && e.code === 'alreadyActive' && e.game && isCurrent()) {
+            applyAuthoritative(e.game);
+          }
           // other failures simply retry on the next tick
         }
-      })();
-    }, 3000);
-    void (async () => {
-      try {
-        const res = await api.ready(game.id);
-        applyAuthoritative(res.game);
-      } catch (e) {
-        if (e instanceof OnlineError && e.code === 'alreadyActive' && e.game) applyAuthoritative(e.game);
-      }
-    })();
-    return () => window.clearInterval(t);
+      },
+      intervalMs: 3000,
+    });
+    scheduler.start();
+    return () => scheduler.stop();
   }, [pregame, mySeat, myReadyFlag, game.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   /* F2-of-round2 — a readiness stall older than 60s (SERVER timestamp,
@@ -497,7 +493,7 @@ function LiveGame({
             <span className="small">
               ● {opponentName} <span className="muted">({opponentSeat === 'w' ? 'White' : 'Black'})</span>
             </span>
-            <span className={`clock mono ${game.turn === (mySeat === 'w' ? 'b' : 'w') && !finished ? 'running' : ''} ${opponentClock < 20000 && !finished ? 'low' : ''}`}>
+            <span className={`clock mono ${game.status === 'active' && game.turn === (mySeat === 'w' ? 'b' : 'w') && !finished ? 'running' : ''} ${game.status === 'active' && opponentClock < 20000 && !finished ? 'low' : ''}`}>
               {formatClock(opponentClock)}
             </span>
           </div>
@@ -527,7 +523,7 @@ function LiveGame({
             <span className="small">
               ○ {myName} <span className="muted">({mySeat === 'w' ? 'White' : 'Black'})</span>
             </span>
-            <span className={`clock mono ${myTurn ? 'running' : ''} ${myClock < 20000 && !finished ? 'low' : ''}`}>
+            <span className={`clock mono ${game.status === 'active' && myTurn ? 'running' : ''} ${game.status === 'active' && myClock < 20000 && !finished ? 'low' : ''}`}>
               {formatClock(myClock)}
             </span>
           </div>
@@ -892,6 +888,7 @@ function OnlineInner() {
         if (phase.kind !== 'create') return;
         const current = localStorage.getItem('gambit.onlineGame');
         if (current !== saved) return;
+        console.log('[RESUME] saved-status=', res.game.status, 'kind-at-fire=', phase.kind);
         if (res.game.status === 'waiting') {
           // the seat was chosen at creation — never derived from which id is filled
           setPhase({ kind: 'waiting', gameId: parsedSaved.id, token: parsedSaved.token, color: parsedSaved.color ?? 'white' });
@@ -918,6 +915,7 @@ function OnlineInner() {
         try {
           await ensureGuestSession();
           const res = await api.joinGame(liveFromJoin.joinedToken!, localStorage.getItem('gambit.onlineName')?.trim() || 'Player');
+          console.log('[JOIN-FLOW] status=', res.game.status, 'saved-color-before=', localStorage.getItem('gambit.onlineGame'));
           localStorage.setItem('gambit.onlineGame', JSON.stringify({ id: res.game.id, token: liveFromJoin.joinedToken }));
           if (res.game.status === 'waiting') {
             // the creator reopened their own invitation — the room is

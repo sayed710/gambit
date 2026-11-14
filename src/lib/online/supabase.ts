@@ -116,9 +116,27 @@ async function command<T = Record<string, unknown>>(fn: string, body: Record<str
     game?: OnlineGame;
   };
   if (!res.ok || payload.ok === false) {
-    throw new OnlineError(payload.error?.code ?? `http-${res.status}`, payload.error?.message ?? res.statusText, payload.game);
+    const { code, message } = describeHttpFailure(payload, res.status, res.statusText);
+    throw new OnlineError(code, message, payload.game);
   }
   return payload as T;
+}
+
+/**
+ * The user-facing failure descriptor for a failed command response.
+ * The server's structured code and message win when present and
+ * non-empty; otherwise a non-empty status-derived message — an empty
+ * user-facing error is never produced.
+ */
+export function describeHttpFailure(
+  payload: { ok?: boolean; error?: { code?: string; message?: string } },
+  status: number,
+  statusText: string,
+): { code: string; message: string } {
+  const serverCode = typeof payload.error?.code === 'string' && payload.error.code.trim() ? payload.error.code : null;
+  const serverMessage = typeof payload.error?.message === 'string' && payload.error.message.trim() ? payload.error.message : null;
+  const fallback = (statusText && statusText.trim()) || `request failed (HTTP ${status})`;
+  return { code: serverCode ?? `http-${status}`, message: serverMessage ?? fallback };
 }
 
 export class OnlineError extends Error {
