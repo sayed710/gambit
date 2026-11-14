@@ -61,6 +61,17 @@ npm run preview    # serve the production build
 App code: MIT. `public/stockfish/` contains [Stockfish](https://github.com/official-stockfish/Stockfish)
 builds from [stockfish.js](https://github.com/nmrugg/stockfish.js), licensed **GPL-3.0**.
 
+## Git worktrees — placement rule
+
+Secondary worktrees (e.g. for parallel feature streams) must live under a
+**permanent** directory such as `E:/gambit-worktrees/` — never inside
+`%TEMP%`/any auto-cleaned location. Windows Temp cleanup has already deleted
+a worktree's `.git` link and tracked files once. Create them with:
+
+```bash
+git worktree add E:/gambit-worktrees/<name> <branch>
+```
+
 ## Regenerating puzzles
 
 ```bash
