@@ -102,6 +102,33 @@ describe('createReadinessScheduler', () => {
     expect(applied).toBe(0); // isCurrent() is false — the stale response never applied
   });
 
+  it('start -> stop BEFORE the deferred dispatch sends NOTHING (no post-disposal request)', async () => {
+    let submissions = 0;
+    const s = createReadinessScheduler({ isVisible: () => true, submit: async () => { submissions += 1; } });
+    s.start();
+    s.stop(); // disposal BEFORE the microtask executes
+    await flush(); // the deferred callback runs now — must recheck and bail
+    vi.advanceTimersByTime(10_000); // and no retry may dispatch either
+    expect(submissions).toBe(0); // the callback was never invoked
+  });
+
+  it('visibility dropping BEFORE the deferred dispatch prevents the submission', async () => {
+    let visible = true;
+    let submissions = 0;
+    const s = createReadinessScheduler({ isVisible: () => visible, submit: async () => { submissions += 1; } });
+    s.start();
+    visible = false; // the tab hid before the microtask ran
+    await flush();
+    vi.advanceTimersByTime(10_000);
+    await flush();
+    expect(submissions).toBe(0);
+    visible = true; // visibility returns — the scheduler resumes
+    vi.advanceTimersByTime(3_100);
+    await flush();
+    expect(submissions).toBeGreaterThanOrEqual(1);
+    s.stop();
+  });
+
   it('a rejected submit does not break the retry loop', async () => {
     let visible = true;
     let attempts = 0;

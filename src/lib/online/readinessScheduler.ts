@@ -41,7 +41,16 @@ export function createReadinessScheduler(opts: ReadinessSchedulerOptions): Readi
     if (!opts.isVisible()) return; // hidden/background: NEVER acknowledge
     inFlight = true;
     void Promise.resolve()
-      .then(() => opts.submit(() => !disposed))
+      .then(() => {
+        // RECHECK before dispatching: start() followed by stop() (or a
+        // visibility drop) before this microtask ran must not dispatch a
+        // NEW request. A request ALREADY SENT while the player was
+        // visible cannot be un-sent — the server command is idempotent
+        // and its stale response is dropped via the isCurrent contract.
+        // (inFlight is THIS submission's own flag — not a conflict)
+        if (disposed || !opts.isVisible()) return;
+        return opts.submit(() => !disposed);
+      })
       .catch(() => {
         /* the retry interval resubmits; the server is idempotent */
       })
