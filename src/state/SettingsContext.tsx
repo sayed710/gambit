@@ -24,7 +24,7 @@ interface Settings {
 const DEFAULTS: Settings = {
   theme: 'system',
   volume: 35,
-  boardTheme: 'glacier',
+  boardTheme: 'walnut',
   soundOn: true,
   showLegalHints: true,
   confirmResign: true,

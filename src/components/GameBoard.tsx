@@ -28,9 +28,9 @@ const PALETTES_DARK: Record<string, { light: string; dark: string; border: strin
   polarnight: { light: '#2C4058', dark: '#141F2C', border: '#0E1622' },
   aurora: { light: '#333A58', dark: '#202540', border: '#161A2E' },
   frost: { light: '#54708A', dark: '#31485E', border: '#253950' },
-  walnut: { light: '#54412E', dark: '#33251A', border: '#241A12' },
+  walnut: { light: '#E8D9C0', dark: '#9A6B45', border: '#7D5836' },
 };export function boardColors(theme: string, resolved: 'light' | 'dark'): BoardColors {
-  const p = (resolved === 'dark' ? PALETTES_DARK : PALETTES)[theme] ?? PALETTES.glacier;
+  const p = (resolved === 'dark' ? PALETTES_DARK : PALETTES)[theme] ?? PALETTES.walnut;
   return { ...p, dot: 'rgba(125, 160, 190, 0.5)' };
 }
 
