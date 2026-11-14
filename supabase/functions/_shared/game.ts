@@ -131,15 +131,32 @@ export async function expireIfStale(admin: SupabaseClient, game: GameRow): Promi
   // activity for 24h is dead
   if (Date.now() - new Date(game.updated_at).getTime() < ROOM_EXPIRY_MS) return game;
 
-  // an ACTIVE room is ADJUDICATED, not just dropped: the clocks cap at
-  // 1h base, so after 24h of silence the side to move has always
-  // flagged — the honest result is a timeout win for the other side
-  // (FIDE 6.9, full chess.js material rules)
+  // an ACTIVE room is ADJUDICATED, not just dropped: the honest result
+  // comes from the REAL clock arithmetic — elapsed (24h of silence)
+  // vs that player's remaining balance (a long game with increments
+  // can legally accumulate more than 24h of banked time). Only a truly
+  // exhausted clock produces a timeout result; otherwise the room is
+  // abandoned WITHOUT a result (both players simply left).
   if (game.status === 'active') {
     const c = replay(game);
+    const now = new Date().toISOString();
+    const elapsed = now - (game.turn_started_at ? new Date(game.turn_started_at).getTime() : now);
+    const remaining = game.turn === 'w' ? game.white_ms_remaining : game.black_ms_remaining;
+    if (elapsed < remaining) {
+      // the clock has NOT actually expired (banked time from increments)
+      // — abandon without a result rather than declaring a fake win
+      const { data: abandoned } = await admin
+        .from('online_games')
+        .update({ status: 'abandoned', version: game.version + 1, updated_at: now })
+        .eq('id', game.id)
+        .eq('version', game.version)
+        .eq('status', 'active')
+        .select('*')
+        .single();
+      return (abandoned as GameRow) ?? game;
+    }
     const flagged = game.turn;
     const out = timeoutResult(c, flagged);
-    const now = new Date().toISOString();
     const { data } = await admin
       .from('online_games')
       .update({
