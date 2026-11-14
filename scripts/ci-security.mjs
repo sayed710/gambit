@@ -30,7 +30,7 @@ const readTracked = (p) => {
 /* 1 — no secret-shaped strings in tracked text files */
 let secretHits = [];
 for (const f of tracked) {
-  const isTextLike = /\.(ts|tsx|mjs|js|json|html|css|toml|ya?ml|md|svg|sql)$/.test(f);
+  const isTextLike = /\.(ts|tsx|mjs|js|json|html|css|toml|ya?ml|md|svg|sql|txt|conf|ini|cfg)$/.test(f);
   const isKeyLike = /\.(pem|key|p12|pfx|crt|cer|der)$|^id_[rd]sa|^private|^\.(pem|key)/.test(f) || !/\.[A-Za-z0-9]+$/.test(f);
   if (!isTextLike && !isKeyLike) continue;
   const lines = readTracked(f).split('\n');
@@ -48,12 +48,18 @@ for (const f of tracked) {
     if (/-----BEGIN (RSA |EC |OPENSSH )?PRIVATE KEY-----/.test(line)) {
       secretHits.push(`${f}:${i + 1}: private key block`);
     }
-    // a service_role mention on a KEY-assignment line is a real leak
-    // UNLESS the line's JWTs are fabricated (decoded payload carries the
-    // exact FABRICATED_JWT_MARKER field — a real credential would not)
+    // service_role JWTs are detected by DECODING every JWT on the line
+    // (the same per-token approach as the bundle scan) — a real
+    // service-role JWT cannot hide on a line without a key assignment
     const jwts = line.match(/eyJ[A-Za-z0-9_-]+\.eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]*/g) ?? [];
     const allJwtsFabricated = jwts.length > 0 && jwts.every(isFabricatedJwt);
     const fabricatedCall = line.includes(`marker: '${FABRICATED_JWT_MARKER}'`);
+    const svcJwtPresent = jwts.some((j) => decodeJwtPayload(j)?.role === 'service_role');
+    if (svcJwtPresent && !allJwtsFabricated) {
+      secretHits.push(`${f}:${i + 1}: service_role JWT (decoded payload role)`);
+    }
+    // a service_role mention on a KEY-assignment line is a real leak
+    // unless the line is the exact fabricated call shape
     const serviceRoleAssigned =
       /(KEY|key)[a-zA-Z_]*\s*[:=][^\n]*service_role/.test(line) && !line.includes('payload.role');
     if (serviceRoleAssigned && !allJwtsFabricated && !fabricatedCall) {

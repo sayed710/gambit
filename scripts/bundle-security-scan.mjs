@@ -29,7 +29,7 @@ export function isFabricatedJwt(jwt) {
 
 /** Base64url-decode a JWT payload segment (no signature verification —
     this is a credential-shape scan, not an auth check). */
-function decodeJwtPayload(jwt) {
+export function decodeJwtPayload(jwt) {
   const parts = jwt.split('.');
   if (parts.length < 2) return null;
   try {

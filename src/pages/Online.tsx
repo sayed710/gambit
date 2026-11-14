@@ -248,22 +248,22 @@ function LiveGame({
      opponent's own claim or a lagging projection) retries on a bounded
      backoff (3 attempts) while the backend remains reachable; every
      adjudication is version-guarded, so duplicates are impossible. */
-  const [claimAttempts, setClaimAttempts] = useState(0);
-  useEffect(() => {
-    if (!finished) setClaimAttempts(0);
-  }, [finished, game.id]);
-  // a new turn is a fresh claim window: attempts spent on a premature
-  // projection must not starve a later, real flag fall
-  const turnKey = `${game.turn}:${game.turn_started_at}`;
-  useEffect(() => {
-    setClaimAttempts(0);
-  }, [turnKey]);
+  /* timeout claiming: when the OPPONENT's projected clock flags, claim.
+     No hard attempt cap: the SERVER is the authority — a refused claim
+     (not-expired, e.g. a device clock running slightly ahead) must not
+     starve the honest flag fall a few seconds later. Claims space
+     themselves 2s apart while the projection says flagged; the loop
+     terminates naturally when the claim succeeds or the projection
+     stops flagging. Duplicate adjudication remains impossible (the
+     server CAS). */
+  const claimRetryRef = useRef(0);
   useEffect(() => {
     if (finished || !mySeat || !backendOk) return;
     const flagged = clocks.flagged;
-    if (!flagged || flagged === mySeat || claimAttempts >= 3) return;
+    if (!flagged || flagged === mySeat) return;
+    const sinceLast = Date.now() - claimRetryRef.current;
     const t = window.setTimeout(() => {
-      setClaimAttempts((n) => n + 1);
+      claimRetryRef.current = Date.now();
       void (async () => {
         try {
           const res = await api.claimTimeout(game.id);
@@ -271,7 +271,7 @@ function LiveGame({
           applyAuthoritative(res.game);
           toast(res.game.result === 'draw'
             ? 'Flag fall — insufficient mating material: draw.'
-            : 'Won on time — the opponent\'s clock flagged.');
+            : 'Won on time — the opponent' + String.fromCharCode(39) + 's clock flagged.');
         } catch (e) {
           if (e instanceof OnlineError) {
             setBackendOk(true); // the backend answered — only the claim was refused
@@ -281,9 +281,9 @@ function LiveGame({
           void refetch();
         }
       })();
-    }, claimAttempts === 0 ? 0 : 2000);
+    }, Math.max(0, 2000 - sinceLast));
     return () => window.clearTimeout(t);
-  }, [clocks.flagged, claimAttempts, finished, mySeat, backendOk]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [clocks.flagged, finished, mySeat, backendOk, game.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   /* ---- move submission ---- */
 
@@ -888,7 +888,6 @@ function OnlineInner() {
         if (phase.kind !== 'create') return;
         const current = localStorage.getItem('gambit.onlineGame');
         if (current !== saved) return;
-        console.log('[RESUME] saved-status=', res.game.status, 'kind-at-fire=', phase.kind);
         if (res.game.status === 'waiting') {
           // the seat was chosen at creation — never derived from which id is filled
           setPhase({ kind: 'waiting', gameId: parsedSaved.id, token: parsedSaved.token, color: parsedSaved.color ?? 'white' });
@@ -915,7 +914,6 @@ function OnlineInner() {
         try {
           await ensureGuestSession();
           const res = await api.joinGame(liveFromJoin.joinedToken!, localStorage.getItem('gambit.onlineName')?.trim() || 'Player');
-          console.log('[JOIN-FLOW] status=', res.game.status, 'saved-color-before=', localStorage.getItem('gambit.onlineGame'));
           localStorage.setItem('gambit.onlineGame', JSON.stringify({ id: res.game.id, token: liveFromJoin.joinedToken }));
           if (res.game.status === 'waiting') {
             // the creator reopened their own invitation — the room is
