@@ -128,7 +128,7 @@ check(
     check('F1: the stale room is ABANDONED by the reconciliation', status === 'abandoned', `status=${status}`);
     // the creator's readiness is REFUSED — an expired room can never activate
     const ready = await call(a.token, 'ready', { gameId });
-    check('F1: readiness on an expired room is REFUSED', ready.status === 409 && ['state', 'abandoned'].includes(ready.payload.error?.code) === false ? ready.status === 409 : ready.status === 409, `status=${ready.status} code=${ready.payload.error?.code}`);
+    check('F1: readiness on an expired room is REFUSED (409)', ready.status === 409, `status=${ready.status} code=${ready.payload.error?.code}`);
     const finalStatus = psql(`select status from online_games where id = '${gameId}'`);
     check('F1: the room is NOT active after the refused readiness', finalStatus !== 'active', `status=${finalStatus}`);
   } catch (e) {

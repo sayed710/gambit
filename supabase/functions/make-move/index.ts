@@ -63,7 +63,7 @@ if (req.method !== 'POST') return fail('method', 'POST only', 405);
   const now = Date.now();
   const out = expiryOutcome(replay(game), game, now);
   if (out) {
-    const { data } = await saveGame(admin, game, {
+    const { data, error } = await saveGame(admin, game, {
       status: 'completed',
       result: out.result,
       result_reason: 'timeout',
@@ -72,11 +72,16 @@ if (req.method !== 'POST') return fail('method', 'POST only', 405);
       black_ms_remaining: out.flagged === 'b' ? 0 : game.black_ms_remaining,
       version: game.version + 1,
     }, game.version);
+    // if the adjudication write LOST the CAS race, the winning row (a
+    // concurrent claim/resignation/move) is the truth — return it, not
+    // the stale snapshot this request started from
+    let winner = data as typeof game | null;
+    if (error || !winner) winner = await loadGame(admin, game.id);
     return json({
       ok: false,
       applied: false,
       error: { code: 'timeout', message: out.result === 'draw' ? 'your clock ran out — insufficient material to mate: draw' : 'your clock ran out — the opponent wins on time' },
-      game: data ? project(data) : project(game),
+      game: winner ? project(winner) : project(game),
     }, 409);
   }
 
