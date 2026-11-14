@@ -116,15 +116,18 @@ export function asOptionalEnum<T extends string>(v: unknown, allowed: readonly T
   return asEnum(v, allowed);
 }
 
-/* ---- stale-room expiry policy (documented): a room left waiting or
-   ready for over 24 hours is abandoned on the next join attempt, so
-   stale invitations cannot be joined and cannot occupy the open-room
-   quota forever. The creator can cancel an unused room at any time. */
+/* ---- stale-room expiry policy (documented): a room with NO activity
+   for over 24 hours is abandoned on the next join attempt, so stale
+   invitations cannot be joined and dead rooms (waiting, ready, or
+   active-but-abandoned-mid-play) cannot occupy the open-room quota
+   forever. The creator can cancel a waiting room at any time. */
 export const ROOM_EXPIRY_MS = 24 * 60 * 60 * 1000;
 
 export async function expireIfStale(admin: SupabaseClient, game: GameRow): Promise<GameRow> {
-  if (game.status !== 'waiting' && game.status !== 'ready') return game;
-  if (Date.now() - new Date(game.created_at).getTime() < ROOM_EXPIRY_MS) return game;
+  if (game.status !== 'waiting' && game.status !== 'ready' && game.status !== 'active') return game;
+  // inactivity = updated_at (every command touches it): an active game
+  // whose last activity is older than 24h is dead — both players left
+  if (Date.now() - new Date(game.updated_at).getTime() < ROOM_EXPIRY_MS) return game;
   const { data } = await admin
     .from('online_games')
     .update({ status: 'abandoned', version: game.version + 1, updated_at: new Date().toISOString() })

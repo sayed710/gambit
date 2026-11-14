@@ -24,7 +24,7 @@ for either creator color. A room stuck in `ready` for over 60 seconds
 may be abandoned by either participant (bounded pre-game stall), and
 the creator can cancel a WAITING room at any time via
 `cancel-game` (a seated ready room is reclaimed by the 60s stall
-claim or the 24h expiry instead) — a room whose opponent already seated CANNOT be
+claim or the 24h inactivity expiry instead) — a room whose opponent already seated CANNOT be
 cancelled (the command refuses with the authoritative game, so a stale
 cancel click never resigns a live game).
 

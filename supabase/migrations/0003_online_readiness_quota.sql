@@ -50,8 +50,8 @@ begin
   update public.online_games
   set status = 'abandoned', version = version + 1, updated_at = now()
   where creator_id = p_creator
-    and status in ('waiting', 'ready')
-    and created_at < now() - interval '24 hours';
+    and status in ('waiting', 'ready', 'active')
+    and updated_at < now() - interval '24 hours'; -- inactivity-based
 
   select count(*) into open_count
   from public.online_games

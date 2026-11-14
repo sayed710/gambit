@@ -257,6 +257,7 @@ function LiveGame({
      stops flagging. Duplicate adjudication remains impossible (the
      server CAS). */
   const claimRetryRef = useRef(0);
+  const [claimTick, setClaimTick] = useState(0); // re-arms after every refusal
   useEffect(() => {
     if (finished || !mySeat || !backendOk) return;
     const flagged = clocks.flagged;
@@ -279,11 +280,12 @@ function LiveGame({
             setBackendOk(false); // transport failure — backend unreachable
           }
           void refetch();
+          setClaimTick((n) => n + 1); // re-arm: a refused claim retries after the spacing
         }
       })();
     }, Math.max(0, 2000 - sinceLast));
     return () => window.clearTimeout(t);
-  }, [clocks.flagged, finished, mySeat, backendOk, game.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [clocks.flagged, claimTick, finished, mySeat, backendOk, game.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   /* ---- move submission ---- */
 
@@ -387,8 +389,11 @@ function LiveGame({
       // reason wins over the resign intent
       if (res.game.result_reason === 'timeout') toast('The clock flagged — decided on time.');
       else toast('You resigned.');
-    } catch (e) {
-      toast(e instanceof Error ? e.message : 'resign failed');
+    } catch (err) {
+      // a refusal carries the authoritative game — reconcile, don't stall
+      if (err instanceof OnlineError && err.game) applyAuthoritative(err.game);
+      else void refetch();
+      toast(err instanceof Error ? err.message : 'resign failed');
     } finally {
       setBusy(false);
     }
@@ -402,8 +407,10 @@ function LiveGame({
       if (res.game.status === 'completed') toast(gameEndToast(res.game, me));
       else if (action === 'offer') toast('Draw offered.');
       else if (action === 'decline') toast('Draw declined.');
-    } catch (e) {
-      toast(e instanceof Error ? e.message : 'draw command failed');
+    } catch (err) {
+      if (err instanceof OnlineError && err.game) applyAuthoritative(err.game);
+      else void refetch();
+      toast(err instanceof Error ? err.message : 'draw command failed');
     } finally {
       setBusy(false);
     }
@@ -431,10 +438,10 @@ function LiveGame({
     <div className="online-live">
       <div className="row between online-status">
         <span className={`conn-pill conn-${conn === 'live' && !backendOk ? 'offline' : conn}`} role="status" aria-live="polite">
-          {conn === 'live' && backendOk
-            ? '● realtime connected'
-            : conn === 'offline' || !backendOk
-              ? '○ offline — reconnecting…'
+          {!backendOk
+            ? '○ offline — reconnecting…'
+            : conn === 'live'
+              ? '● realtime connected'
               : '◐ realtime down — syncing by polling'}
         </span>
         <span className="small muted">{formatTimeControl(game.base_ms, game.increment_ms)} · unrated · private</span>
