@@ -134,7 +134,7 @@ if (req.method !== 'POST') return fail('method', 'POST only', 405);
     // lost the CAS race (opponent moved / adjudication raced) — the
     // client reconciles from authoritative state; the move is NOT applied
     const current = await loadGame(admin, game.id);
-    return json({ ok: false, applied: false, versionConflict: true, game: current ? project(current) : null }, 409);
+    return json({ ok: false, applied: false, versionConflict: true, error: { code: 'version-conflict', message: 'another command landed first — reconciling to the authoritative state' }, game: current ? project(current) : null }, 409);
   }
 
   return json({ ok: true, applied: true, san: move.san, game: project(data as typeof game) });

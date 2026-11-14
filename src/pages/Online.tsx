@@ -90,6 +90,10 @@ function LiveGame({
   useEffect(() => {
     if (!pregame || !mySeat || myReadyFlag) return;
     const t = window.setInterval(() => {
+      // a background tab must not start anyone's clock unseen: the ack
+      // fires only while the player can actually see the board; the
+      // interval resumes it the moment the tab becomes visible
+      if (document.visibilityState !== 'visible') return;
       void (async () => {
         try {
           const res = await api.ready(game.id);

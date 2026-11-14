@@ -49,7 +49,7 @@ if (req.method !== 'POST') return fail('method', 'POST only', 405);
       white_ms_remaining: out.flagged === 'w' ? 0 : game.white_ms_remaining,
       black_ms_remaining: out.flagged === 'b' ? 0 : game.black_ms_remaining,
     }, game.version);
-    if (error || !data) return json({ ok: false, versionConflict: true, game: project(game) }, 409);
+    if (error || !data) return json({ ok: false, versionConflict: true, error: { code: 'version-conflict', message: 'another command landed first — reconciling to the authoritative state' }, game: project(game) }, 409);
     return json({ ok: true, adjudicated: true, game: project(data as typeof game) });
   }
 
@@ -61,7 +61,7 @@ if (req.method !== 'POST') return fail('method', 'POST only', 405);
     pgn: c.pgn(),
     version: game.version + 1,
   }, game.version);
-  if (error || !data) return json({ ok: false, versionConflict: true, game: project(game) }, 409);
+  if (error || !data) return json({ ok: false, versionConflict: true, error: { code: 'version-conflict', message: 'another command landed first — reconciling to the authoritative state' }, game: project(game) }, 409);
 
   return json({ ok: true, game: project(data as typeof game) });
 });

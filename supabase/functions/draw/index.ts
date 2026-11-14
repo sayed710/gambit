@@ -48,7 +48,7 @@ if (req.method !== 'POST') return fail('method', 'POST only', 405);
       white_ms_remaining: out.flagged === 'w' ? 0 : game.white_ms_remaining,
       black_ms_remaining: out.flagged === 'b' ? 0 : game.black_ms_remaining,
     }, game.version);
-    if (error || !data) return json({ ok: false, versionConflict: true, game: project(game) }, 409);
+    if (error || !data) return json({ ok: false, versionConflict: true, error: { code: 'version-conflict', message: 'another command landed first — reconciling to the authoritative state' }, game: project(game) }, 409);
     return json({ ok: true, adjudicated: true, game: project(data as typeof game) });
   }
 
@@ -58,14 +58,14 @@ if (req.method !== 'POST') return fail('method', 'POST only', 405);
     if (game.draw_offer_by === user.id) return json({ ok: true, game: project(game) }); // idempotent
     if (game.draw_offer_by) return fail('state', 'the opponent already has an offer pending', 409);
     const { data, error } = await saveGame(admin, game, { draw_offer_by: user.id, version: game.version + 1 }, game.version);
-    if (error || !data) return json({ ok: false, versionConflict: true, game: project(game) }, 409);
+    if (error || !data) return json({ ok: false, versionConflict: true, error: { code: 'version-conflict', message: 'another command landed first — reconciling to the authoritative state' }, game: project(game) }, 409);
     return json({ ok: true, offered: true, game: project(data as typeof game) });
   }
 
   if (action === 'decline') {
     if (game.draw_offer_by !== opponentId) return fail('state', 'no pending offer from the opponent', 409);
     const { data, error } = await saveGame(admin, game, { draw_offer_by: null, version: game.version + 1 }, game.version);
-    if (error || !data) return json({ ok: false, versionConflict: true, game: project(game) }, 409);
+    if (error || !data) return json({ ok: false, versionConflict: true, error: { code: 'version-conflict', message: 'another command landed first — reconciling to the authoritative state' }, game: project(game) }, 409);
     return json({ ok: true, declined: true, game: project(data as typeof game) });
   }
 
@@ -80,7 +80,7 @@ if (req.method !== 'POST') return fail('method', 'POST only', 405);
     pgn: c.pgn(),
     version: game.version + 1,
   }, game.version);
-  if (error || !data) return json({ ok: false, versionConflict: true, game: project(game) }, 409);
+  if (error || !data) return json({ ok: false, versionConflict: true, error: { code: 'version-conflict', message: 'another command landed first — reconciling to the authoritative state' }, game: project(game) }, 409);
 
   return json({ ok: true, accepted: true, game: project(data as typeof game) });
 });
