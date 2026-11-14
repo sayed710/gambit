@@ -598,7 +598,7 @@ Two radii: 14px for large containers (panels, board frame, modals), 10px for con
 Mono, tabular, 1.45rem, hairline border on raised paper. States: running (ink), low (<20s: alarm red + red-soft fill), flagged (strikethrough, muted).
 
 ### Board
-Glacier palette default (#dce9f2 / #5d84a0 light, #43596e / #22334a dark) with frost, polar, walnut, tundra and aurora alternatives per theme. Last-move squares get brass at 45% alpha; selection gets brass at 60% + inset ring; check is a red radial under the king. Legal-move hints are radial dots, tinted from the square's own ink, toggleable.
+Warm Walnut is the default board palette (#e8d9c0 / #9a6b45 squares, #7d5836 border) with glacier, seaice, polarnight, frost and aurora selectable alternatives per theme. Last-move squares get brass at 45% alpha; selection gets brass at 60% + inset ring; check is a red radial under the king. Legal-move hints are radial dots, tinted from the square's own ink, toggleable.
 
 ### Navigation
 Header: 3.75rem tall, blurred paper backdrop, hairline bottom. Brand = knight mark + serif wordmark. Links: 0.925rem medium, 8px radius, active state brass-soft fill. Below 720px the nav collapses to a disclosure menu.

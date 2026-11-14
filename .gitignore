@@ -37,6 +37,8 @@ debug-*.png
 Gambit-*Visual-Review.zip
 a11y-*.png
 check-*.png
+board-*.png
+glacier-preserved.png
 .env
 .env.*
 a11y-*.json
