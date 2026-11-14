@@ -47,11 +47,28 @@ begin
   -- documented sweep point includes the creator's create attempt), so
   -- forgotten invitations cannot lock the guest out of the quota forever.
   -- version is bumped so any seated client reconciles the abandonment.
+  -- waiting/ready: plain abandonment
   update public.online_games
   set status = 'abandoned', version = version + 1, updated_at = now()
   where creator_id = p_creator
-    and status in ('waiting', 'ready', 'active')
-    and updated_at < now() - interval '24 hours'; -- inactivity-based
+    and status in ('waiting', 'ready')
+    and updated_at < now() - interval '24 hours';
+
+  -- ACTIVE rooms are ADJUDICATED (clocks cap at 1h: after 24h of
+  -- silence the side to move has flagged — the non-flagged seat wins
+  -- on time; the coarse SQL path cannot run the FIDE insufficient-
+  -- material draw check, which the JS expiry path applies)
+  update public.online_games
+  set status = 'completed',
+      result = case when turn = 'w' then 'black' else 'white' end,
+      result_reason = 'timeout',
+      white_ms_remaining = case when turn = 'w' then 0 else white_ms_remaining end,
+      black_ms_remaining = case when turn = 'b' then 0 else black_ms_remaining end,
+      version = version + 1,
+      updated_at = now()
+  where creator_id = p_creator
+    and status = 'active'
+    and updated_at < now() - interval '24 hours';
 
   select count(*) into open_count
   from public.online_games

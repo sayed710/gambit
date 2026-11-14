@@ -4,11 +4,13 @@
    online_games and NO write grants — all mutations go through here with
    the service role AFTER these checks. */
 import { Chess } from 'npm:chess.js@1.4.0';
+import { timeoutResult } from './serverRules.ts';
 import { createClient, SupabaseClient } from 'npm:@supabase/supabase-js@2';
 
 export interface GameRow {
   id: string;
   created_at: string;
+  updated_at: string;
   creator_id: string;
   white_id: string | null;
   black_id: string | null;
@@ -125,9 +127,40 @@ export const ROOM_EXPIRY_MS = 24 * 60 * 60 * 1000;
 
 export async function expireIfStale(admin: SupabaseClient, game: GameRow): Promise<GameRow> {
   if (game.status !== 'waiting' && game.status !== 'ready' && game.status !== 'active') return game;
-  // inactivity = updated_at (every command touches it): an active game
-  // whose last activity is older than 24h is dead — both players left
+  // inactivity = updated_at (every command touches it): a room with no
+  // activity for 24h is dead
   if (Date.now() - new Date(game.updated_at).getTime() < ROOM_EXPIRY_MS) return game;
+
+  // an ACTIVE room is ADJUDICATED, not just dropped: the clocks cap at
+  // 1h base, so after 24h of silence the side to move has always
+  // flagged — the honest result is a timeout win for the other side
+  // (FIDE 6.9, full chess.js material rules)
+  if (game.status === 'active') {
+    const c = replay(game);
+    const flagged = game.turn;
+    const out = timeoutResult(c, flagged);
+    const now = new Date().toISOString();
+    const { data } = await admin
+      .from('online_games')
+      .update({
+        status: 'completed',
+        result: out.result,
+        result_reason: 'timeout',
+        pgn: c.pgn(),
+        white_ms_remaining: flagged === 'w' ? 0 : game.white_ms_remaining,
+        black_ms_remaining: flagged === 'b' ? 0 : game.black_ms_remaining,
+        version: game.version + 1,
+        updated_at: now,
+      })
+      .eq('id', game.id)
+      .eq('version', game.version)
+      .eq('status', 'active')
+      .select('*')
+      .single();
+    return (data as GameRow) ?? game;
+  }
+
+  // waiting/ready: nothing decided — plain abandonment
   const { data } = await admin
     .from('online_games')
     .update({ status: 'abandoned', version: game.version + 1, updated_at: new Date().toISOString() })

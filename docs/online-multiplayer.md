@@ -49,7 +49,7 @@ cancel click never resigns a live game).
 - Display names are cosmetic only — never authorization evidence.
 - The anon JWT proves *an identity exists*; membership is `white_id` /
   `black_id` columns compared against `auth.uid()` inside functions.
-- `security definer` functions are avoided; Edge Functions use the
+- Edge Functions use the
   service key server-side only (never shipped to the client bundle).
 
 ## Concurrency & clocks
@@ -69,7 +69,7 @@ cancel click never resigns a live game).
   `turn_started_at + remaining < now()` (server-verified). No background
   cron is required in this milestone; the claim is the mechanism.
 - Idempotency: `make-move` accepts a client-generated `move_id (uuid)`;
-  a `(game_id, move_id)` unique index makes replays no-ops returning the
+  a unique `(id, last_move_id)` partial index makes replays no-ops returning the
   current authoritative state.
 
 ## Guest identities (limits to disclose in UI)
@@ -99,10 +99,12 @@ modified by online games.
   advisory lock (`pg_advisory_xact_lock`) serializes concurrent creates
   by the same identity and the count+insert share one transaction —
   a flood cannot exceed the quota and old open rooms cannot escape it.
-- **Stale rooms**: a room left waiting/ready for over 24 hours is
-  abandoned by the expiry reconciliation on the next join attempt; the
-  creator can cancel an unused room at any time. A readiness stall
-  longer than 60 seconds can be abandoned by either participant.
+- **Stale rooms**: a room with no activity for over 24 hours (any
+  status) is reconciled on the next join attempt — waiting/ready rooms
+  are abandoned; ACTIVE rooms are ADJUDICATED as a timeout (the side to
+  move flagged long ago; the winner is the other seat, FIDE 6.9 material
+  rules applied by the JS path). A readiness stall longer than 60
+  seconds can be abandoned by either participant.
 - **Cancellation vs resignation**: `cancel-game` touches only
   waiting/ready rooms; `resign` touches only active games. The two
   semantics can never overlap.

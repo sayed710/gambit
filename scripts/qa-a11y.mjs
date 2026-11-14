@@ -66,7 +66,7 @@ const titles = {}; // page name -> document.title, filled by axeScan
 await page.goto(`${BASE}/#/`, { waitUntil: 'load' });
 await page.waitForTimeout(1500);
 check('html has a lang attribute', await page.evaluate(() => Boolean(document.documentElement.getAttribute('lang'))));
-check('every page has a nonempty title', Object.values(titles).every((t) => t.length > 0), JSON.stringify(titles));
+
 
 /* 2 — axe scans on the critical pages (each records its title) */
 await axeScan('home', '/');
@@ -96,10 +96,11 @@ const landmarks = await page.evaluate(() => ({
 }));
 check('landmarks: header + nav + main present', landmarks.banner && landmarks.nav && landmarks.main, JSON.stringify(landmarks));
 
+check('every page has a NONEMPTY title', Object.values(titles).every((t) => t.length > 0), JSON.stringify(titles));
 check('every page has a UNIQUE title (actual per-page comparison)',
   (() => {
     const vals = Object.values(titles);
-    return new Set(vals).size === vals.length;
+    return vals.length > 0 && new Set(vals).size === vals.length;
   })(),
   JSON.stringify(titles),
 );
