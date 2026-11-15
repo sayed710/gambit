@@ -313,10 +313,13 @@ try {
       return banner.includes('ready') || banner.includes('Your move') || banner.includes('thinking');
     }, 20000);
     check('RM-E2E: B lands on the new (ready) game after accepting', !!bLive);
+    // "pulled in" = A left the OLD result screen: the result overlay is
+    // gone and a live board is mounted (any pregame/live banner counts)
     const aLive = await pollUntil(pA, () => {
-      const banner = document.querySelector('.status-banner')?.textContent ?? '';
-      return banner.includes('ready') || banner.includes('Your move') || banner.includes('thinking');
-    }, 20000);
+      const overlayGone = !document.querySelector('.online-result-overlay');
+      const liveMounted = !!document.querySelector('.online-live');
+      return overlayGone && liveMounted;
+    }, 30000);
     check('RM-E2E: A is pulled into the rematch automatically (polling)', !!aLive);
     // color swap: A was White in game 1 — A must be Black now (a1 at the TOP)
     const aSwapped = await pollUntil(pA, () => {
