@@ -82,6 +82,55 @@ $$;
 revoke all on function public.expire_stale_rematch(uuid) from public, anon, authenticated;
 grant execute on function public.expire_stale_rematch(uuid) to service_role;
 
+-- The OFFER, made atomic against acceptance by locking the parent game
+-- row: the existence check for an already-accepted rematch and the
+-- pending insert share that lock with accept_rematch, so an offer that
+-- overlaps an acceptance can never insert a stray pending row that
+-- would hide the accepted destination from the offerer's polling.
+create or replace function public.offer_rematch(p_game_id uuid, p_requester uuid)
+returns uuid -- the pending request id (NULL when already rematched)
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  old public.online_games;
+  existing uuid;
+  new_id uuid;
+begin
+  select * into old from public.online_games
+    where id = p_game_id for update;
+  if old.status <> 'completed' then
+    raise exception 'STATE';
+  end if;
+  if p_requester is distinct from old.white_id and p_requester is distinct from old.black_id then
+    raise exception 'FORBIDDEN';
+  end if;
+
+  -- blocker-2: at most one ACCEPTED rematch per parent — return the
+  -- existing destination so the caller navigates there instead of
+  -- branching a second game
+  select id into existing from public.rematch_requests
+    where game_id = old.id and status = 'accepted' limit 1;
+  if existing is not null then
+    return null; -- caller re-reads the accepted row for the destination
+  end if;
+
+  -- a pending request already exists (raced another offer): return it
+  select id into existing from public.rematch_requests
+    where game_id = old.id and status = 'pending' limit 1;
+  if existing is not null then
+    return existing;
+  end if;
+
+  insert into public.rematch_requests (game_id, requester_id)
+    values (p_game_id, p_requester) returning id into new_id;
+  return new_id;
+end $$;
+
+revoke all on function public.offer_rematch(uuid, uuid) from public, anon, authenticated;
+grant execute on function public.offer_rematch(uuid, uuid) to service_role;
+
 -- The acceptance transaction: ONE atomic unit that adjudicates the
 -- pending request AND creates the swapped-color game. Row locks + the
 -- per-creator advisory quota lock make concurrent acceptances resolve

@@ -400,9 +400,12 @@ const openRoomsFromRaces = [];
   check('RM: the loser offers a rematch', offer.status === 200 && offer.payload.request?.status === 'pending');
   const requestId = offer.payload.request.id;
 
-  // a second offer races -> exactly one pending (the partial unique index)
+  // a second offer races -> the SAME pending request is returned
+  // idempotently (offer_rematch locks the parent row; no stray duplicates)
   const offer2 = await fn(A.token, 'rematch', { gameId: g.id, action: 'offer' });
-  check('RM: a duplicate offer is refused (one pending per game)', offer2.status === 409 && offer2.payload.error?.code === 'already-pending');
+  check('RM: a duplicate offer returns the SAME pending request idempotently',
+    offer2.status === 200 && offer2.payload.request?.id === requestId,
+    `req=${String(offer2.payload.request?.id).slice(0, 8)}`);
 
   // the offerer cannot accept their own offer
   const selfAccept = await fn(A.token, 'rematch', { gameId: g.id, action: 'accept', requestId });

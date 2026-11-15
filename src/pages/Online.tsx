@@ -1139,7 +1139,10 @@ function OnlineInner() {
           // a reload replays this effect with the stale join state: when
           // the refusal is for a game that is NO LONGER the saved one
           // (e.g. a rematch replaced it), do NOT fail — the saved-record
-          // resume effect owns navigation and will land on the real game
+          // resume effect owns navigation and will land on the real game.
+          // Narrowed to "the room is unavailable" errors only: a truly
+          // invalid invitation still surfaces as a failure, and the
+          // suppressed message is shown as a non-blocking toast.
           const savedId = (() => {
             try {
               return JSON.parse(localStorage.getItem('gambit.onlineGame') ?? 'null')?.id ?? null;
@@ -1147,8 +1150,11 @@ function OnlineInner() {
               return null;
             }
           })();
-          const staleSeat = e instanceof OnlineError && savedId && liveFromJoin.gameId && savedId !== liveFromJoin.gameId;
-          if (!staleSeat) {
+          const unavailableRoom = e instanceof OnlineError && ['expired', 'full', 'state', 'not-found'].includes(e.code);
+          const staleSeat = unavailableRoom && savedId && liveFromJoin.gameId && savedId !== liveFromJoin.gameId;
+          if (staleSeat) {
+            toast(`That invitation is no longer available (${e.message}) — you have been returned to your current game.`);
+          } else {
             if (e instanceof OnlineError) setPhase({ kind: 'failed', code: e.code, message: e.message });
             else setPhase({ kind: 'failed', code: 'backend', message: 'could not reach the local backend — run `npx supabase start`' });
           }

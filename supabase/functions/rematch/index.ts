@@ -69,43 +69,37 @@ Deno.serve(async (req) => {
 
   /* ---------- offer ---------- */
   if (action === 'offer') {
-    // adjudicate an EXPIRED pending request first — measured by the
-    // DATABASE clock (same source as accept_rematch); a failed expiry
-    // MUST abort the offer (never report already-pending for a live
-    // request whose expiry check could not run)
-    const { error: expiryError } = await admin.rpc('expire_stale_rematch', { p_game_id: gameId });
-    if (expiryError) return fail('server', 'expiry adjudication failed', 500);
-
-    // blocker-2: if this parent was ALREADY rematched, return its
-    // existing destination as an explicit idempotent result — no second
-    // game may ever branch from the same completed parent
-    const acceptedReq = await admin
-      .from('rematch_requests')
-      .select('*')
-      .eq('game_id', gameId)
-      .eq('status', 'accepted')
-      .maybeSingle();
-    if (acceptedReq.data) {
-      const accepted = acceptedReq.data as RematchRow;
-      return json({ ok: true, alreadyRematched: true, rematchGameId: accepted.rematch_game_id, request: accepted });
-    }
-
-    // one pending request per game — the partial unique index is the
-    // concurrency guard; a racing duplicate surfaces as 23505
-    const { error } = await admin.from('rematch_requests').insert({ game_id: gameId, requester_id: user.id });
-    if (error) {
-      if (String(error.code) === '23505' || String(error.message).includes('rematch_one_pending_per_game')) {
-        return fail('already-pending', 'a rematch is already pending for this game', 409);
-      }
+    // ONE atomic SQL unit (locks the parent game row): adjudicates an
+    // expired pending request (by the DATABASE clock), refuses nothing
+    // silently, and either creates the pending request or returns the
+    // existing one. NULL = the parent was ALREADY rematched — the caller
+    // navigates to the accepted destination instead of branching a
+    // second game. The parent row lock serializes this against racing
+    // acceptances, so a pending insert can never hide an accepted
+    // destination from the offerer's polling.
+    const { data: requestId, error: offerError } = await admin.rpc('offer_rematch', {
+      p_game_id: gameId,
+      p_requester: user.id,
+    });
+    if (offerError) {
+      const msg = String(offerError.message);
+      if (msg.includes('STATE')) return fail('state', 'rematch requires a completed game', 409);
+      if (msg.includes('FORBIDDEN')) return fail('forbidden', 'you are not a player in this game', 403);
       return fail('server', 'offer failed', 500);
     }
-    const { data: created } = await admin
-      .from('rematch_requests')
-      .select('*')
-      .eq('game_id', gameId)
-      .eq('status', 'pending')
-      .maybeSingle();
-    return json({ ok: true, offered: true, request: created });
+    if (!requestId) {
+      // already rematched — return the accepted destination explicitly
+      const acceptedReq = await admin
+        .from('rematch_requests')
+        .select('*')
+        .eq('game_id', gameId)
+        .eq('status', 'accepted')
+        .maybeSingle();
+      const accepted = acceptedReq.data as RematchRow | null;
+      return json({ ok: true, alreadyRematched: true, rematchGameId: accepted?.rematch_game_id ?? null, request: accepted ?? undefined });
+    }
+    const request = await loadRequest(admin, requestId as string);
+    return json({ ok: true, offered: true, request });
   }
 
   // the remaining actions need the pending request id
