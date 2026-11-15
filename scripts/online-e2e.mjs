@@ -313,14 +313,19 @@ try {
       return banner.includes('ready') || banner.includes('Your move') || banner.includes('thinking');
     }, 20000);
     check('RM-E2E: B lands on the new (ready) game after accepting', !!bLive);
-    // "pulled in" = A left the OLD result screen: the result overlay is
-    // gone and a live board is mounted (any pregame/live banner counts)
+    // "pulled in" = A left the OLD result screen AND mounted the NEW
+    // game: the old card had an Analyze-in-Review button (PGN present);
+    // the fresh rematch has none (no PGN yet) — its absence plus a live
+    // board proves the NEW game is mounted, not just any navigation
     const aLive = await pollUntil(pA, () => {
       const overlayGone = !document.querySelector('.online-result-overlay');
       const liveMounted = !!document.querySelector('.online-live');
-      return overlayGone && liveMounted;
+      const oldAnalyzeGone = ![...document.querySelectorAll('.online-live button')].some((x) =>
+        x.textContent?.includes('Analyze in Review'),
+      );
+      return overlayGone && liveMounted && oldAnalyzeGone;
     }, 30000);
-    check('RM-E2E: A is pulled into the rematch automatically (polling)', !!aLive);
+    check('RM-E2E: A is pulled into the NEW game automatically (polling)', !!aLive);
     // color swap: A was White in game 1 — A must be Black now (a1 at the TOP)
     const aSwapped = await pollUntil(pA, () => {
       const a1 = document.querySelector('.online-live [data-square="a1"]')?.getBoundingClientRect().top;

@@ -69,6 +69,24 @@ Deno.serve(async (req) => {
 
   /* ---------- offer ---------- */
   if (action === 'offer') {
+    // adjudicate an EXPIRED pending request first (10-minute window):
+    // without this, a never-touched expired request would hold the
+    // pending slot forever and block every fresh offer
+    const pending = await admin
+      .from('rematch_requests')
+      .select('*')
+      .eq('game_id', gameId)
+      .eq('status', 'pending')
+      .maybeSingle();
+    const pendingRow = pending.data as RematchRow | null;
+    if (pendingRow && Date.now() - new Date(pendingRow.created_at).getTime() > REMATCH_WINDOW_MINUTES * 60_000) {
+      await admin
+        .from('rematch_requests')
+        .update({ status: 'expired', version: pendingRow.version + 1 })
+        .eq('id', pendingRow.id)
+        .eq('version', pendingRow.version)
+        .eq('status', 'pending');
+    }
     // one pending request per game — the partial unique index is the
     // concurrency guard; a racing duplicate surfaces as 23505
     const { error } = await admin.from('rematch_requests').insert({ game_id: gameId, requester_id: user.id });
@@ -118,7 +136,12 @@ Deno.serve(async (req) => {
     if (error) {
       const msg = String(error.message);
       if (msg.includes('NOT_PENDING')) {
+        // a concurrent acceptance committed between our read and the
+        // row lock — replay the rematch id instead of failing
         const fresh = await loadRequest(admin, requestId);
+        if (fresh?.status === 'accepted' && fresh.rematch_game_id) {
+          return json({ ok: true, accepted: true, rematchGameId: fresh.rematch_game_id, request: { ...fresh } });
+        }
         return fail('state', 'the rematch request is no longer pending', 409, { request: fresh ? { ...fresh } : undefined });
       }
       if (msg.includes('QUOTA_EXCEEDED')) {
@@ -154,12 +177,13 @@ Deno.serve(async (req) => {
       .eq('id', requestId)
       .eq('version', request.version)
       .eq('status', 'pending');
-    if (error) {
-      const fresh = await loadRequest(admin, requestId);
+    const fresh = await loadRequest(admin, requestId);
+    // the version guard may have matched ZERO rows (the request changed
+    // under us) — report the conflict instead of a false success
+    if (error || fresh?.status !== 'declined') {
       return json({ ok: false, versionConflict: true, error: { code: 'version-conflict', message: 'another command landed first' }, request: fresh ?? undefined }, 409);
     }
-    const fresh = await loadRequest(admin, requestId);
-    return json({ ok: true, declined: true, request: fresh ? { ...fresh } : undefined });
+    return json({ ok: true, declined: true, request: { ...fresh } });
   }
 
   /* ---------- cancel (requester withdraws the offer) ---------- */
@@ -175,9 +199,11 @@ Deno.serve(async (req) => {
     .eq('id', requestId)
     .eq('version', request.version)
     .eq('status', 'pending');
-  if (error) {
-    const fresh = await loadRequest(admin, requestId);
-    return json({ ok: false, versionConflict: true, error: { code: 'version-conflict', message: 'another command landed first' }, request: fresh ?? undefined }, 409);
+  const stillThere = await loadRequest(admin, requestId);
+  // zero-row delete (the request changed under us) is a conflict, not a
+  // success
+  if (error || stillThere) {
+    return json({ ok: false, versionConflict: true, error: { code: 'version-conflict', message: 'another command landed first' }, request: stillThere ?? undefined }, 409);
   }
   return json({ ok: true, cancelled: true });
 });

@@ -143,11 +143,23 @@ function LiveGame({
     if (!finished2 || !mySeat) return;
     let dead = false;
     const poll = async () => {
+      let req: RematchRequest | null = null;
       try {
-        const req = await latestRematchRequest(game.id);
-        if (!dead) setRematch(req);
+        req = await latestRematchRequest(game.id); // THROWS on failure — the last known state is kept
       } catch {
-        /* transient — the next tick retries */
+        return; // transient read failure: keep whatever is on screen
+      }
+      if (dead) return;
+      setRematch(req);
+      // accepted -> navigate into the new game (a failed get-state
+      // retries on the next tick — the request status does not change)
+      if (req?.status === 'accepted' && req.rematch_game_id) {
+        try {
+          const res = await api.getState(req.rematch_game_id);
+          if (!dead && (res.game.white_id === me || res.game.black_id === me)) onRematch(res.game);
+        } catch {
+          /* retried on the next tick */
+        }
       }
     };
     void poll();
@@ -156,25 +168,13 @@ function LiveGame({
       dead = true;
       window.clearInterval(t);
     };
-  }, [finished2, mySeat, game.id]);
-
-  // accepted -> navigate BOTH clients into the new game
-  useEffect(() => {
-    if (rematch?.status === 'accepted' && rematch.rematch_game_id) {
-      void (async () => {
-        try {
-          const res = await api.getState(rematch.rematch_game_id!);
-          if (res.game.white_id === me || res.game.black_id === me) onRematch(res.game);
-        } catch {
-          /* the next poll retries */
-        }
-      })();
-    }
-  }, [rematch?.status, rematch?.rematch_game_id]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [finished2, mySeat, game.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const rematchPendingMine = rematch?.status === 'pending' && rematch.requester_id === me;
   const rematchPendingTheirs = rematch?.status === 'pending' && rematch.requester_id !== me;
-  const canOfferRematch = finished && game.status === 'completed' && !rematch;
+  // F4 — after a declined/expired request the slot is free: offer again
+  const canOfferRematch =
+    finished && game.status === 'completed' && (!rematch || rematch.status === 'declined' || rematch.status === 'expired');
 
   const offerRematch = async () => {
     setRematchBusy(true);

@@ -231,15 +231,19 @@ export const api = {
 
 /** The latest rematch request for a game, read DIRECTLY through RLS
     (participants only) — no Edge Function needed for reads. */
+/** The latest rematch request for a game, read DIRECTLY through RLS
+    (participants only). THROWS on a transport/RLS failure — callers must
+    not treat a failed read as "no request exists". */
 export async function latestRematchRequest(gameId: string): Promise<RematchRequest | null> {
   const sb = supabase();
-  const { data } = await sb
+  const { data, error } = await sb
     .from('rematch_requests')
     .select('*')
     .eq('game_id', gameId)
     .order('created_at', { ascending: false })
     .limit(1)
     .maybeSingle();
+  if (error) throw new Error(`rematch read failed: ${error.message}`);
   return (data as RematchRequest | null) ?? null;
 }
 

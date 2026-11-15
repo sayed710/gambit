@@ -107,8 +107,18 @@ begin
   end if;
 
   -- the acceptor becomes the creator of the new game: enforce their
-  -- open-room quota atomically (same advisory lock as create-game)
+  -- open-room quota atomically (same advisory lock as create-game),
+  -- INCLUDING the 24h inactivity reclaim of stale rooms (same policy as
+  -- create_online_game) — a guest with forgotten invitations can still
+  -- accept a rematch
   perform pg_advisory_xact_lock(hashtextextended(p_acceptor::text, 0));
+
+  update public.online_games
+  set status = 'abandoned', version = version + 1, updated_at = now()
+  where creator_id = p_acceptor
+    and status in ('waiting', 'ready')
+    and updated_at < now() - interval '24 hours';
+
   select count(*) into open_count from public.online_games
     where creator_id = p_acceptor
       and status in ('waiting', 'ready', 'active');
