@@ -69,24 +69,12 @@ Deno.serve(async (req) => {
 
   /* ---------- offer ---------- */
   if (action === 'offer') {
-    // adjudicate an EXPIRED pending request first (10-minute window):
-    // without this, a never-touched expired request would hold the
-    // pending slot forever and block every fresh offer
-    const pending = await admin
-      .from('rematch_requests')
-      .select('*')
-      .eq('game_id', gameId)
-      .eq('status', 'pending')
-      .maybeSingle();
-    const pendingRow = pending.data as RematchRow | null;
-    if (pendingRow && Date.now() - new Date(pendingRow.created_at).getTime() > REMATCH_WINDOW_MINUTES * 60_000) {
-      await admin
-        .from('rematch_requests')
-        .update({ status: 'expired', version: pendingRow.version + 1 })
-        .eq('id', pendingRow.id)
-        .eq('version', pendingRow.version)
-        .eq('status', 'pending');
-    }
+    // adjudicate an EXPIRED pending request first — measured by the
+    // DATABASE clock (same source as accept_rematch); a failed expiry
+    // MUST abort the offer (never report already-pending for a live
+    // request whose expiry check could not run)
+    const { error: expiryError } = await admin.rpc('expire_stale_rematch', { p_game_id: gameId });
+    if (expiryError) return fail('server', 'expiry adjudication failed', 500);
     // one pending request per game — the partial unique index is the
     // concurrency guard; a racing duplicate surfaces as 23505
     const { error } = await admin.from('rematch_requests').insert({ game_id: gameId, requester_id: user.id });
@@ -171,19 +159,22 @@ Deno.serve(async (req) => {
     if (request.status !== 'pending') {
       return fail('state', 'the rematch request is no longer pending', 409);
     }
-    const { error } = await admin
+    // .select() returns the mutated row from the SAME statement — no
+    // second read, so a database read failure cannot fake a conflict
+    const { data: declinedRow, error } = await admin
       .from('rematch_requests')
       .update({ status: 'declined', version: request.version + 1 })
       .eq('id', requestId)
       .eq('version', request.version)
-      .eq('status', 'pending');
-    const fresh = await loadRequest(admin, requestId);
-    // the version guard may have matched ZERO rows (the request changed
-    // under us) — report the conflict instead of a false success
-    if (error || fresh?.status !== 'declined') {
+      .eq('status', 'pending')
+      .select('*')
+      .maybeSingle();
+    if (error || !declinedRow) {
+      // zero rows mutated: the request changed under us — conflict
+      const fresh = await loadRequest(admin, requestId);
       return json({ ok: false, versionConflict: true, error: { code: 'version-conflict', message: 'another command landed first' }, request: fresh ?? undefined }, 409);
     }
-    return json({ ok: true, declined: true, request: { ...fresh } });
+    return json({ ok: true, declined: true, request: { ...(declinedRow as RematchRow) } });
   }
 
   /* ---------- cancel (requester withdraws the offer) ---------- */
@@ -193,17 +184,17 @@ Deno.serve(async (req) => {
   if (request.status !== 'pending') {
     return fail('state', 'the rematch request is no longer pending', 409);
   }
-  const { error } = await admin
+  const { data: deletedRows, error } = await admin
     .from('rematch_requests')
     .delete()
     .eq('id', requestId)
     .eq('version', request.version)
-    .eq('status', 'pending');
-  const stillThere = await loadRequest(admin, requestId);
-  // zero-row delete (the request changed under us) is a conflict, not a
-  // success
-  if (error || stillThere) {
-    return json({ ok: false, versionConflict: true, error: { code: 'version-conflict', message: 'another command landed first' }, request: stillThere ?? undefined }, 409);
+    .eq('status', 'pending')
+    .select('*');
+  // an empty result = zero rows deleted = the request changed under us
+  if (error || !deletedRows?.length) {
+    const fresh = await loadRequest(admin, requestId);
+    return json({ ok: false, versionConflict: true, error: { code: 'version-conflict', message: 'another command landed first' }, request: fresh ?? undefined }, 409);
   }
   return json({ ok: true, cancelled: true });
 });

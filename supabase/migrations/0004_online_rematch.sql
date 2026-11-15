@@ -56,6 +56,25 @@ revoke insert, update, delete on public.rematch_requests from anon;
 -- accepted/declined without polling.
 alter publication supabase_realtime add table public.rematch_requests;
 
+-- Expiry adjudication with the DATABASE clock: the offer handler calls
+-- this before inserting so the 10-minute window is measured by the same
+-- clock as accept_rematch (never by a possibly-skewed Edge runtime).
+create or replace function public.expire_stale_rematch(p_game_id uuid)
+returns void
+language sql
+security definer
+set search_path = public
+as $$
+  update public.rematch_requests
+  set status = 'expired', version = version + 1
+  where game_id = p_game_id
+    and status = 'pending'
+    and created_at < now() - interval '10 minutes';
+$$;
+
+revoke all on function public.expire_stale_rematch(uuid) from public, anon, authenticated;
+grant execute on function public.expire_stale_rematch(uuid) to service_role;
+
 -- The acceptance transaction: ONE atomic unit that adjudicates the
 -- pending request AND creates the swapped-color game. Row locks + the
 -- per-creator advisory quota lock make concurrent acceptances resolve
