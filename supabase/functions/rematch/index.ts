@@ -75,6 +75,21 @@ Deno.serve(async (req) => {
     // request whose expiry check could not run)
     const { error: expiryError } = await admin.rpc('expire_stale_rematch', { p_game_id: gameId });
     if (expiryError) return fail('server', 'expiry adjudication failed', 500);
+
+    // blocker-2: if this parent was ALREADY rematched, return its
+    // existing destination as an explicit idempotent result — no second
+    // game may ever branch from the same completed parent
+    const acceptedReq = await admin
+      .from('rematch_requests')
+      .select('*')
+      .eq('game_id', gameId)
+      .eq('status', 'accepted')
+      .maybeSingle();
+    if (acceptedReq.data) {
+      const accepted = acceptedReq.data as RematchRow;
+      return json({ ok: true, alreadyRematched: true, rematchGameId: accepted.rematch_game_id, request: accepted });
+    }
+
     // one pending request per game — the partial unique index is the
     // concurrency guard; a racing duplicate surfaces as 23505
     const { error } = await admin.from('rematch_requests').insert({ game_id: gameId, requester_id: user.id });

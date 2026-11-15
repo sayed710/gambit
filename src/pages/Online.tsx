@@ -156,7 +156,10 @@ function LiveGame({
       if (req?.status === 'accepted' && req.rematch_game_id) {
         try {
           const res = await api.getState(req.rematch_game_id);
-          if (!dead && (res.game.white_id === me || res.game.black_id === me)) onRematch(res.game);
+          if (!dead && (res.game.white_id === me || res.game.black_id === me)) {
+            persistRematchGame(res.game); // BLOCKER-1: guarded by the on-screen game via the closure
+            onRematch(res.game);
+          }
         } catch {
           /* retried on the next tick */
         }
@@ -175,6 +178,26 @@ function LiveGame({
   // F4 — after a declined/expired request the slot is free: offer again
   const canOfferRematch =
     finished && game.status === 'completed' && (!rematch || rematch.status === 'declined' || rematch.status === 'expired');
+
+  /* BLOCKER-1 — persist the rematch session for THIS player when the
+     navigation lands. The saved record is what the reload-resume logic
+     reads; without this write a refresh during an active rematch would
+     resurrect the old completed game. The write is GUARDED: it lands
+     only when the saved record still points at the game on screen — a
+     stale asynchronous response can never overwrite a newer game
+     (e.g. a second rematch already navigated to). */
+  const persistRematchGame = (newGame: OnlineGame) => {
+    try {
+      const savedNow = JSON.parse(localStorage.getItem('gambit.onlineGame') ?? 'null') as { id?: string } | null;
+      if (savedNow && savedNow.id !== game.id) return; // a NEWER game already owns the record
+      localStorage.setItem(
+        'gambit.onlineGame',
+        JSON.stringify({ id: newGame.id, color: newGame.white_id === me ? 'white' : 'black' }),
+      );
+    } catch {
+      /* record unreadable — the resume path re-validates from the server */
+    }
+  };
 
   const offerRematch = async () => {
     setRematchBusy(true);
@@ -196,8 +219,11 @@ function LiveGame({
       const res = await api.rematchAccept(game.id, rematch.id);
       if (res.rematchGameId) {
         const next = await api.getState(res.rematchGameId);
-        if (next.game.white_id === me || next.game.black_id === me) onRematch(next.game);
-        toast('Rematch accepted — the clock starts when both players are ready.');
+        if (next.game.white_id === me || next.game.black_id === me) {
+          persistRematchGame(next.game); // BLOCKER-1: the reload-resume record follows the rematch
+          onRematch(next.game);
+          toast('Rematch accepted — the clock starts when both players are ready.');
+        }
       }
     } catch (e) {
       toast(e instanceof Error ? e.message : 'could not accept the rematch');
@@ -1084,6 +1110,10 @@ function OnlineInner() {
           const meId = await currentGuestId();
           const res = await api.joinGame(liveFromJoin.joinedToken!, localStorage.getItem('gambit.onlineName')?.trim() || 'Player');
           if (!current) return; // stale: the user navigated away — land nothing
+          // clean the route: a reload of /online/live with the stale
+          // join state would replay joinGame against a possibly-finished
+          // room — the saved-record resume owns reloads from here on
+          navigate('/online', { replace: true });
           // the record carries the seat color — a later resume of the
           // same room must not relabel a Black creator as White
           localStorage.setItem('gambit.onlineGame', JSON.stringify({
@@ -1106,8 +1136,22 @@ function OnlineInner() {
           }
         } catch (e) {
           if (!current) return;
-          if (e instanceof OnlineError) setPhase({ kind: 'failed', code: e.code, message: e.message });
-          else setPhase({ kind: 'failed', code: 'backend', message: 'could not reach the local backend — run `npx supabase start`' });
+          // a reload replays this effect with the stale join state: when
+          // the refusal is for a game that is NO LONGER the saved one
+          // (e.g. a rematch replaced it), do NOT fail — the saved-record
+          // resume effect owns navigation and will land on the real game
+          const savedId = (() => {
+            try {
+              return JSON.parse(localStorage.getItem('gambit.onlineGame') ?? 'null')?.id ?? null;
+            } catch {
+              return null;
+            }
+          })();
+          const staleSeat = e instanceof OnlineError && savedId && liveFromJoin.gameId && savedId !== liveFromJoin.gameId;
+          if (!staleSeat) {
+            if (e instanceof OnlineError) setPhase({ kind: 'failed', code: e.code, message: e.message });
+            else setPhase({ kind: 'failed', code: 'backend', message: 'could not reach the local backend — run `npx supabase start`' });
+          }
         }
       })();
       return () => {

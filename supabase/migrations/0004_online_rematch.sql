@@ -31,6 +31,13 @@ create table public.rematch_requests (
 create unique index rematch_one_pending_per_game
   on public.rematch_requests (game_id) where status = 'pending';
 
+-- exactly ONE ACCEPTED rematch per original game (blocker-2): a second
+-- acceptance for the same parent — concurrent or sequential — violates
+-- this index and cannot branch another game. Declined/cancelled/expired
+-- requests are exempt: re-offering after them stays possible.
+create unique index rematch_one_accepted_per_game
+  on public.rematch_requests (game_id) where status = 'accepted';
+
 create index rematch_requests_game on public.rematch_requests (game_id);
 
 alter table public.rematch_requests enable row level security;
@@ -113,11 +120,28 @@ begin
     return;
   end if;
 
-  -- lock the parent game: seats, colors and time control come from it
+  -- lock the parent game: seats, colors and time control come from it.
+  -- The row lock also SERIALIZES acceptances racing on the same parent
+  -- (both requests target this one row), so the accepted-rematch check
+  -- below is race-free.
   select * into old from public.online_games
     where id = req.game_id for update;
   if old.status <> 'completed' then
     raise exception 'STATE';
+  end if;
+  -- blocker-2: exactly one accepted rematch per original game. A later
+  -- pending request against an already-rematched parent returns the
+  -- EXISTING destination idempotently instead of branching another game
+  if exists (
+    select 1 from public.rematch_requests
+    where game_id = old.id and status = 'accepted' and id <> req.id
+  ) then
+    return query
+      select r.rematch_game_id, null::text
+      from public.rematch_requests r
+      where r.game_id = old.id and r.status = 'accepted'
+      limit 1;
+    return;
   end if;
   -- only the NON-requester participant may accept
   if p_acceptor = req.requester_id

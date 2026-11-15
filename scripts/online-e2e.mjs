@@ -346,6 +346,122 @@ try {
       return hint.includes('Your move') || hint.includes('thinking');
     }, 20000);
     check('RM-E2E: the rematch game activates (readiness acks automatic)', !!aYourMove);
+
+    /* BLOCKER-1: BOTH players RELOAD during the active rematch — each
+       must resume THIS game (the persisted record followed the rematch),
+       then play on. A reload also proves the resume path does not
+       resurrect the original completed game. */
+    const rmIdBefore = await pA.evaluate(() => {
+      try {
+        return JSON.parse(localStorage.getItem('gambit.onlineGame') ?? 'null')?.id ?? null;
+      } catch {
+        return null;
+      }
+    });
+    check('RM-E2E: the saved record followed the rematch (both players)', !!rmIdBefore);
+    await pA.reload({ waitUntil: 'load' });
+    await pB.reload({ waitUntil: 'load' });
+    const aResumed = await pollUntil(pA, () => {
+      const live = !!document.querySelector('.online-live');
+      const overlay = !!document.querySelector('.online-result-overlay');
+      return live && !overlay;
+    }, 30000);
+    const bResumed = await pollUntil(pB, () => {
+      const live = !!document.querySelector('.online-live');
+      const overlay = !!document.querySelector('.online-result-overlay');
+      return live && !overlay;
+    }, 30000);
+    check('RM-E2E: A resumes the ACTIVE rematch after reload (no old completed game)', !!aResumed);
+    check('RM-E2E: B resumes the ACTIVE rematch after reload', !!bResumed);
+    const rmIdAfter = await pA.evaluate(() => {
+      try {
+        return JSON.parse(localStorage.getItem('gambit.onlineGame') ?? 'null')?.id ?? null;
+      } catch {
+        return null;
+      }
+    });
+    check('RM-E2E: the persisted record still points at the rematch game after reload', rmIdAfter === rmIdBefore && !!rmIdAfter);
+    // both play on — colors swapped: B (the acceptor) is White and moves
+    // first; A (Black) replies
+    await playSquare(pB, 'e2', 'e4');
+    const aGotE4 = await pollUntil(pA, () => {
+      const txt = document.querySelector('.move-list')?.textContent ?? '';
+      return txt.includes('e4');
+    }, 15000);
+    check('RM-E2E: play continues after reload (B e2-e4 delivered to A)', !!aGotE4);
+    await playSquare(pA, 'e7', 'e5');
+    const bGotE5 = await pollUntil(pB, () => {
+      const txt = document.querySelector('.move-list')?.textContent ?? '';
+      return txt.includes('e4') && txt.includes('e5');
+    }, 15000);
+    check('RM-E2E: A replies e7-e5 on the resumed rematch', !!bGotE5);
+
+    /* consecutive rematch: the resumed game is finished (B resigns), and
+       a SECOND rematch is offered+accepted — proving rematches chain
+       from the NEWLY completed game and reloads keep working after each */
+    await pB.locator('button:has-text("Resign")').first().click();
+    await pB.locator('.status-banner.check button:has-text("Resign")').click();
+    const bOverlay2 = await pollUntil(pB, () => !!document.querySelector('.online-result-overlay'), 15000);
+    check('RM-E2E: the rematch game completes (B resigns again)', !!bOverlay2);
+    const rmBtn2 = await pollUntil(pB, () => {
+      const btn = [...document.querySelectorAll('.online-result-card button')].find((x) => x.textContent?.includes('Rematch'));
+      return btn ? !btn.disabled : false;
+    }, 10000);
+    check('RM-E2E: a rematch can be offered from the NEWLY completed game', !!rmBtn2);
+    await pB.locator('.online-result-card button:has-text("Rematch")').click();
+    const bPending2 = await pollUntil(pB, () => {
+      const banner = document.querySelector('.status-banner')?.textContent ?? '';
+      return banner.includes('Rematch pending');
+    }, 10000);
+    check('RM-E2E: the second rematch pending banner shows', !!bPending2);
+    const aAccept2 = await pollUntil(pA, () => {
+      const accept = [...document.querySelectorAll('.status-banner button')].find((x) => x.textContent?.includes('Accept'));
+      return accept ? !accept.disabled : false;
+    }, 15000);
+    check('RM-E2E: A sees the second rematch offer', !!aAccept2);
+    await pA.locator('.status-banner button:has-text("Accept")').click();
+    const aLive2 = await pollUntil(pA, () => {
+      const live = !!document.querySelector('.online-live');
+      const overlay = !!document.querySelector('.online-result-overlay');
+      return live && !overlay;
+    }, 30000);
+    check('RM-E2E: A lands on the second rematch game', !!aLive2);
+    const bLive2 = await pollUntil(pB, () => {
+      const live = !!document.querySelector('.online-live');
+      const overlay = !!document.querySelector('.online-result-overlay');
+      return live && !overlay;
+    }, 30000);
+    check('RM-E2E: B lands on the second rematch game too', !!bLive2);
+    // BOTH reload during rematch #2: both resume the SECOND rematch game
+    const rmId2 = await pA.evaluate(() => {
+      try {
+        return JSON.parse(localStorage.getItem('gambit.onlineGame') ?? 'null')?.id ?? null;
+      } catch {
+        return null;
+      }
+    });
+    check('RM-E2E: the persisted record followed the SECOND rematch', !!rmId2 && rmId2 !== rmIdBefore);
+    await pA.reload({ waitUntil: 'load' });
+    await pB.reload({ waitUntil: 'load' });
+    const aResumed2 = await pollUntil(pA, () => {
+      const live = !!document.querySelector('.online-live');
+      const overlay = !!document.querySelector('.online-result-overlay');
+      return live && !overlay;
+    }, 30000);
+    const bResumed2 = await pollUntil(pB, () => {
+      const live = !!document.querySelector('.online-live');
+      const overlay = !!document.querySelector('.online-result-overlay');
+      return live && !overlay;
+    }, 30000);
+    check('RM-E2E: BOTH resume rematch #2 after reload (no stale game)', !!aResumed2 && !!bResumed2);
+    const rmIdKept = await pA.evaluate(() => {
+      try {
+        return JSON.parse(localStorage.getItem('gambit.onlineGame') ?? 'null')?.id ?? null;
+      } catch {
+        return null;
+      }
+    });
+    check('RM-E2E: the record still points at rematch #2 after reload', rmIdKept === rmId2);
   }
 
   /* ---- zero page errors ---- */

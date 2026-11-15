@@ -436,12 +436,23 @@ const openRoomsFromRaces = [];
   // colors swapped on the live game: A (old white) is now black
   check('RM: the color swap holds after activation', (active.white_id === B.id && active.black_id === A.id));
 
-  // the request is now accepted — another offer for the OLD game is allowed (new request)
+  // BLOCKER-2 — the parent is now rematched: a fresh offer against the
+  // SAME parent returns the existing destination idempotently (no second
+  // game branches from one completed game), and a NEW pending request
+  // against that parent cannot be accepted either
   const reOffer = await fn(A.token, 'rematch', { gameId: g.id, action: 'offer' });
-  check('RM: a fresh offer is allowed after acceptance', reOffer.status === 200);
-  await fn(B.token, 'rematch', { gameId: g.id, action: 'decline', requestId: reOffer.payload.request.id });
-  const declinedState = await fn(A.token, 'get-state', { gameId: g.id });
-  void declinedState;
+  check('RM-B2: an offer against a rematched parent returns the EXISTING destination idempotently',
+    reOffer.status === 200 && reOffer.payload.alreadyRematched === true && reOffer.payload.rematchGameId === accept.payload.rematchGameId,
+    `id=${String(reOffer.payload.rematchGameId).slice(0, 8)}`);
+  const acceptBlocked = await fn(B.token, 'rematch', { gameId: g.id, action: 'accept', requestId: reOffer.payload.request?.id });
+  check('RM-B2: accepting against a rematched parent replays the same destination',
+    acceptBlocked.status === 200 && acceptBlocked.payload.rematchGameId === accept.payload.rematchGameId);
+  // the rematch game has both seats pre-filled: both players acknowledge
+  // readiness directly (no join, no invite link needed)
+  const rB2 = await fn(B.token, 'ready', { gameId: accept.payload.rematchGameId });
+  const rA2 = await fn(A.token, 'ready', { gameId: accept.payload.rematchGameId });
+  const activeRM = rA2.payload.game?.status === 'active' ? rA2.payload.game : rB2.payload.game;
+  check('RM: the rematch game runs through the readiness protocol', activeRM?.status === 'active' && typeof activeRM?.turn_started_at === 'string');
 
   // decline path: a fresh game, offer, decline, then accept must be refused
   const c2 = await fn(A.token, 'create-game', { name: 'Alice', baseMs: 600000, incrementMs: 0, color: 'white' });
