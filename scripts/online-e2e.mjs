@@ -308,10 +308,17 @@ try {
     }, 15000);
     check('RM-E2E: B sees the incoming offer with Accept', !!bAccept);
     await pB.locator('.status-banner button:has-text("Accept")').click();
+    // B lands on the NEW game: the OLD result overlay is gone and a
+    // live board is mounted (the fresh rematch has no PGN yet, so the
+    // old card's Analyze-in-Review button must be gone too)
     const bLive = await pollUntil(pB, () => {
-      const banner = document.querySelector('.status-banner')?.textContent ?? '';
-      return banner.includes('ready') || banner.includes('Your move') || banner.includes('thinking');
-    }, 20000);
+      const overlayGone = !document.querySelector('.online-result-overlay');
+      const liveMounted = !!document.querySelector('.online-live');
+      const oldAnalyzeGone = ![...document.querySelectorAll('.online-live button')].some((x) =>
+        x.textContent?.includes('Analyze in Review'),
+      );
+      return overlayGone && liveMounted && oldAnalyzeGone;
+    }, 30000);
     check('RM-E2E: B lands on the new (ready) game after accepting', !!bLive);
     // "pulled in" = A left the OLD result screen AND mounted the NEW
     // game: the old card had an Analyze-in-Review button (PGN present);
