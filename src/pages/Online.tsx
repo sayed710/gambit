@@ -8,12 +8,14 @@ import MoveList from '../components/MoveList';
 import { ToastProvider, useToast } from '../components/Toast';
 import {
   api,
+  latestRematchRequest,
   currentGuestId,
   ensureGuestSession,
   onlineConfigured,
   makeInviteLink,
   OnlineError,
   type OnlineGame,
+  type RematchRequest,
   supabase,
 } from '../lib/online/supabase';
 import { formatClock, formatTimeControl, projectClocks } from '../lib/online/clock';
@@ -51,10 +53,12 @@ function LiveGame({
   game: initial,
   me,
   onExit,
+  onRematch,
 }: {
   game: OnlineGame;
   me: string;
   onExit: () => void;
+  onRematch: (game: OnlineGame) => void;
 }) {
   const { toast } = useToast();
   const navigate = useNavigate();
@@ -126,6 +130,110 @@ function LiveGame({
   const lastMove = game.moves.length
     ? { from: game.moves[game.moves.length - 1].from as Square, to: game.moves[game.moves.length - 1].to as Square }
     : null;
+
+  /* ---- REMATCH lifecycle (completed games only) ----
+     The server owns the request row; this client polls it every 2s while
+     the game is finished so BOTH players learn about offer/accept/
+     decline/expired regardless of who acted. accepted -> both navigate
+     into the swapped-color game (the readiness protocol starts its clock). */
+  const [rematch, setRematch] = useState<RematchRequest | null>(null);
+  const [rematchBusy, setRematchBusy] = useState(false);
+  const finished2 = finished; // alias for effect deps readability
+  useEffect(() => {
+    if (!finished2 || !mySeat) return;
+    let dead = false;
+    const poll = async () => {
+      try {
+        const req = await latestRematchRequest(game.id);
+        if (!dead) setRematch(req);
+      } catch {
+        /* transient — the next tick retries */
+      }
+    };
+    void poll();
+    const t = window.setInterval(poll, 2000);
+    return () => {
+      dead = true;
+      window.clearInterval(t);
+    };
+  }, [finished2, mySeat, game.id]);
+
+  // accepted -> navigate BOTH clients into the new game
+  useEffect(() => {
+    if (rematch?.status === 'accepted' && rematch.rematch_game_id) {
+      void (async () => {
+        try {
+          const res = await api.getState(rematch.rematch_game_id!);
+          if (res.game.white_id === me || res.game.black_id === me) onRematch(res.game);
+        } catch {
+          /* the next poll retries */
+        }
+      })();
+    }
+  }, [rematch?.status, rematch?.rematch_game_id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const rematchPendingMine = rematch?.status === 'pending' && rematch.requester_id === me;
+  const rematchPendingTheirs = rematch?.status === 'pending' && rematch.requester_id !== me;
+  const canOfferRematch = finished && game.status === 'completed' && !rematch;
+
+  const offerRematch = async () => {
+    setRematchBusy(true);
+    try {
+      await api.rematchOffer(game.id);
+      const req = await latestRematchRequest(game.id);
+      setRematch(req);
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'rematch offer failed');
+    } finally {
+      setRematchBusy(false);
+    }
+  };
+
+  const acceptRematch = async () => {
+    if (!rematch) return;
+    setRematchBusy(true);
+    try {
+      const res = await api.rematchAccept(game.id, rematch.id);
+      if (res.rematchGameId) {
+        const next = await api.getState(res.rematchGameId);
+        if (next.game.white_id === me || next.game.black_id === me) onRematch(next.game);
+        toast('Rematch accepted — the clock starts when both players are ready.');
+      }
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'could not accept the rematch');
+      void refetch();
+    } finally {
+      setRematchBusy(false);
+    }
+  };
+
+  const declineRematch = async () => {
+    if (!rematch) return;
+    setRematchBusy(true);
+    try {
+      await api.rematchDecline(game.id, rematch.id);
+      toast('Rematch declined.');
+      setRematch(await latestRematchRequest(game.id));
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'could not decline the rematch');
+    } finally {
+      setRematchBusy(false);
+    }
+  };
+
+  const cancelRematch = async () => {
+    if (!rematch) return;
+    setRematchBusy(true);
+    try {
+      await api.rematchCancel(game.id, rematch.id);
+      setRematch(null);
+      toast('Rematch request cancelled.');
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'could not cancel the rematch');
+    } finally {
+      setRematchBusy(false);
+    }
+  };
 
   /* completed games persist locally for the lobby history (never touches
      the offline profile or ratings) */
@@ -589,6 +697,39 @@ function LiveGame({
             <p className="closing-eyebrow">Game over</p>
             <h2 className="online-result-title">{resultText(game, me)}</h2>
             <p className="small muted">{reasonText(game.result_reason)} · {game.moves.length} plies</p>
+            {finished && (
+              <div className="status-banner mt-2" role="status">
+                {rematchPendingMine && (
+                  <>
+                    Rematch pending — waiting for {opponentName} to accept.
+                    <button className="btn btn-ghost btn-sm" disabled={rematchBusy} onClick={() => void cancelRematch()}>
+                      Cancel request
+                    </button>
+                  </>
+                )}
+                {rematchPendingTheirs && (
+                  <>
+                    {opponentName} offers a rematch (colors swap).
+                    <button className="btn btn-gold btn-sm" disabled={rematchBusy} onClick={() => void acceptRematch()}>
+                      Accept
+                    </button>
+                    <button className="btn btn-ghost btn-sm" disabled={rematchBusy} onClick={() => void declineRematch()}>
+                      Decline
+                    </button>
+                  </>
+                )}
+                {canOfferRematch && (
+                  <>
+                    Want another game?
+                    <button className="btn btn-gold btn-sm" disabled={rematchBusy} onClick={() => void offerRematch()}>
+                      Rematch
+                    </button>
+                  </>
+                )}
+                {rematch?.status === 'declined' && <span>Rematch declined — you can offer a new one.</span>}
+                {rematch?.status === 'expired' && <span>Rematch offer expired — you can offer a new one.</span>}
+              </div>
+            )}
             <div className="row mt-2" style={{ gap: '0.5rem', flexWrap: 'wrap' }}>
               {game.pgn != null && (
                 <button className="btn btn-gold" onClick={() => navigate('/analysis', { state: { pgn: game.pgn ?? undefined } })}>
@@ -1056,7 +1197,13 @@ function OnlineInner() {
             </div>
           )}
           {phase.kind === 'live' && (
-            <LiveGame key={phase.game.id} game={phase.game} me={me ?? ''} onExit={exitToLobby} />
+            <LiveGame
+              key={phase.game.id}
+              game={phase.game}
+              me={me ?? ''}
+              onExit={exitToLobby}
+              onRematch={(g) => setPhase({ kind: 'live', game: g })}
+            />
           )}
         </>
       )}

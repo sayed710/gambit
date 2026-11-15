@@ -116,3 +116,18 @@ modified by online games.
   auth requirement before going public. The quota still bounds
   accidental accumulation (the common case) and is enforced
   atomically.
+
+## Rematch (post-game re-invite)
+
+After a game is **completed**, either participant may offer a rematch.
+The request lives in `rematch_requests` (one PENDING request per game —
+a partial unique index makes racing offers resolve to exactly one).
+The opponent ACCEPTS (colors swap: old black -> new white), DECLINES, or
+lets it EXPIRE (10 minutes). Acceptance is ONE atomic SECURITY DEFINER
+transaction (`accept_rematch`) that locks the request row, verifies the
+window and seats, enforces the acceptor's open-room quota, creates the
+new game (READY — the readiness protocol starts the clocks), and marks
+the request accepted. Concurrent acceptances serialize; the loser re-reads
+the accepted rematch id (idempotent replay). The original game and its PGN
+are never modified. The request row is RLS-read by participants only; all
+writes go through the `rematch` Edge Function via the service role.

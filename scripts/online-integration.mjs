@@ -378,6 +378,92 @@ const openRoomsFromRaces = [];
     `result=${gf?.result}/${gf?.result_reason}`);
 }
 
+/* ============ REMATCH — the full lifecycle over the real backend ============
+   A completed game is the prerequisite. One atomic SQL function adjudicates
+   acceptance AND creates the swapped-color game, so races cannot produce
+   duplicates. */
+{
+  const c = await fn(A.token, 'create-game', { name: 'Alice', baseMs: 300000, incrementMs: 2000, color: 'white' });
+  const g = await seatUp(A.token, B.token, c.payload.token);
+  // play 1.e4 e5 so the completed game has real content + a PGN
+  await fn(A.token, 'make-move', { gameId: g.id, moveId: crypto.randomUUID(), from: 'e2', to: 'e4' });
+  await fn(B.token, 'make-move', { gameId: g.id, moveId: crypto.randomUUID(), from: 'e7', to: 'e5' });
+  const res = await fn(B.token, 'resign', { gameId: g.id });
+  check('RM: the original game completes by resignation', res.status === 200 && res.payload.game?.status === 'completed');
+
+  // third party cannot offer
+  const cOffer = await fn(C.token, 'rematch', { gameId: g.id, action: 'offer' });
+  check('RM: a third party cannot offer a rematch', cOffer.status === 403 && cOffer.payload.error?.code === 'forbidden');
+
+  // the offerer's OWN rematch offer goes to the completed game B won... seats: A white, B black.
+  const offer = await fn(A.token, 'rematch', { gameId: g.id, action: 'offer' });
+  check('RM: the loser offers a rematch', offer.status === 200 && offer.payload.request?.status === 'pending');
+  const requestId = offer.payload.request.id;
+
+  // a second offer races -> exactly one pending (the partial unique index)
+  const offer2 = await fn(A.token, 'rematch', { gameId: g.id, action: 'offer' });
+  check('RM: a duplicate offer is refused (one pending per game)', offer2.status === 409 && offer2.payload.error?.code === 'already-pending');
+
+  // the offerer cannot accept their own offer
+  const selfAccept = await fn(A.token, 'rematch', { gameId: g.id, action: 'accept', requestId });
+  check('RM: the offerer cannot accept their own offer', selfAccept.status === 403);
+
+  // the opponent ACCEPTS -> ONE swapped-color game with the same time control
+  const accept = await fn(B.token, 'rematch', { gameId: g.id, action: 'accept', requestId });
+  check('RM: the opponent accepts -> accepted', accept.status === 200 && accept.payload.accepted === true);
+  const ng = accept.payload.game;
+  check('RM: the new game swaps the colors', ng?.white_id === B.id && ng?.black_id === A.id, `white=${ng?.white_id === B.id}`);
+  check('RM: the new game preserves the time control', ng?.base_ms === 300000 && ng?.increment_ms === 2000);
+  check('RM: the new game starts READY with no clock (readiness protocol)', ng?.status === 'ready' && ng?.turn_started_at === null);
+  check('RM: a fresh invitation token is issued', typeof accept.payload.token === 'string' && accept.payload.token.length > 20);
+
+  // the original game is untouched (PGN preserved)
+  const oldGame = await fn(A.token, 'get-state', { gameId: g.id });
+  check('RM: the original game and its PGN are preserved', oldGame.payload.game?.status === 'completed' && typeof oldGame.payload.game?.pgn === 'string');
+
+  // idempotent replay: accepting the same request again returns the SAME rematch id
+  const acceptAgain = await fn(B.token, 'rematch', { gameId: g.id, action: 'accept', requestId });
+  check('RM: accepting an already-accepted request replays the SAME rematch id',
+    acceptAgain.status === 200 && acceptAgain.payload.rematchGameId === accept.payload.rematchGameId,
+    `id=${String(acceptAgain.payload.rematchGameId).slice(0, 8)}`);
+
+  // the rematch game has BOTH seats pre-filled at creation — no join is
+  // needed; both players acknowledge readiness directly
+  const rB = await fn(B.token, 'ready', { gameId: accept.payload.rematchGameId });
+  const rA = await fn(A.token, 'ready', { gameId: accept.payload.rematchGameId });
+  const active = rA.payload.game?.status === 'active' ? rA.payload.game : rB.payload.game;
+  check('RM: the rematch game runs through the readiness protocol', active?.status === 'active' && typeof active?.turn_started_at === 'string');
+  // colors swapped on the live game: A (old white) is now black
+  check('RM: the color swap holds after activation', (active.white_id === B.id && active.black_id === A.id));
+
+  // the request is now accepted — another offer for the OLD game is allowed (new request)
+  const reOffer = await fn(A.token, 'rematch', { gameId: g.id, action: 'offer' });
+  check('RM: a fresh offer is allowed after acceptance', reOffer.status === 200);
+  await fn(B.token, 'rematch', { gameId: g.id, action: 'decline', requestId: reOffer.payload.request.id });
+  const declinedState = await fn(A.token, 'get-state', { gameId: g.id });
+  void declinedState;
+
+  // decline path: a fresh game, offer, decline, then accept must be refused
+  const c2 = await fn(A.token, 'create-game', { name: 'Alice', baseMs: 600000, incrementMs: 0, color: 'white' });
+  const g2 = await seatUp(A.token, B.token, c2.payload.token);
+  await fn(A.token, 'make-move', { gameId: g2.id, moveId: crypto.randomUUID(), from: 'e2', to: 'e4' });
+  await fn(B.token, 'make-move', { gameId: g2.id, moveId: crypto.randomUUID(), from: 'e7', to: 'e5' });
+  await fn(A.token, 'resign', { gameId: g2.id });
+  const offerD = await fn(A.token, 'rematch', { gameId: g2.id, action: 'offer' });
+  const declineD = await fn(B.token, 'rematch', { gameId: g2.id, action: 'decline', requestId: offerD.payload.request.id });
+  check('RM: the opponent declines the offer', declineD.status === 200 && declineD.payload.request?.status === 'declined');
+  const acceptD = await fn(B.token, 'rematch', { gameId: g2.id, action: 'accept', requestId: offerD.payload.request.id });
+  check('RM: accepting a DECLINED request is refused', acceptD.status === 409);
+  // a fresh offer is allowed after a decline
+  const reOfferD = await fn(A.token, 'rematch', { gameId: g2.id, action: 'offer' });
+  check('RM: a fresh offer is allowed after a decline', reOfferD.status === 200);
+  const notMine = await fn(B.token, 'rematch', { gameId: g2.id, action: 'cancel', requestId: reOfferD.payload.request.id });
+  check('RM: the opponent cannot cancel the requester' + String.fromCharCode(39) + 's offer', notMine.status === 403);
+  await fn(A.token, 'rematch', { gameId: g2.id, action: 'cancel', requestId: reOfferD.payload.request.id });
+  const cancelCheck = await fn(A.token, 'rematch', { gameId: g2.id, action: 'cancel', requestId: reOfferD.payload.request.id });
+  check('RM: cancelling twice is refused (already gone)', cancelCheck.status === 409 || cancelCheck.status === 404);
+}
+
 /* 20 — expiry adjudication policy (63s real wait — the honest path).
    All expiry scenarios share ONE wait: five games start, the clocks run
    down together, and every command shape is then asserted against the

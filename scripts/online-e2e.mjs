@@ -288,6 +288,51 @@ try {
     await ctxE2.close();
   }
 
+  /* ---- REMATCH: offer (A) -> accept (B) -> both land on the swapped-
+     color game, through the readiness protocol ---- */
+  {
+    const aBtn = await pollUntil(pA, () => {
+      const btn = [...document.querySelectorAll('.online-result-card button')].find((x) => x.textContent?.includes('Rematch'));
+      return btn ? !btn.disabled : false;
+    }, 10000);
+    check('RM-E2E: A sees the enabled Rematch action on the result card', !!aBtn);
+    await pA.locator('.online-result-card button:has-text("Rematch")').click();
+    const aPending = await pollUntil(pA, () => {
+      const banner = document.querySelector('.status-banner')?.textContent ?? '';
+      return banner.includes('Rematch pending');
+    }, 10000);
+    check('RM-E2E: A sees the pending banner', !!aPending);
+    const bAccept = await pollUntil(pB, () => {
+      const accept = [...document.querySelectorAll('.status-banner button')].find((x) => x.textContent?.includes('Accept'));
+      return accept ? !accept.disabled : false;
+    }, 15000);
+    check('RM-E2E: B sees the incoming offer with Accept', !!bAccept);
+    await pB.locator('.status-banner button:has-text("Accept")').click();
+    const bLive = await pollUntil(pB, () => {
+      const banner = document.querySelector('.status-banner')?.textContent ?? '';
+      return banner.includes('ready') || banner.includes('Your move') || banner.includes('thinking');
+    }, 20000);
+    check('RM-E2E: B lands on the new (ready) game after accepting', !!bLive);
+    const aLive = await pollUntil(pA, () => {
+      const banner = document.querySelector('.status-banner')?.textContent ?? '';
+      return banner.includes('ready') || banner.includes('Your move') || banner.includes('thinking');
+    }, 20000);
+    check('RM-E2E: A is pulled into the rematch automatically (polling)', !!aLive);
+    // color swap: A was White in game 1 — A must be Black now (a1 at the TOP)
+    const aSwapped = await pollUntil(pA, () => {
+      const a1 = document.querySelector('.online-live [data-square="a1"]')?.getBoundingClientRect().top;
+      const a8 = document.querySelector('.online-live [data-square="a8"]')?.getBoundingClientRect().top;
+      return a1 !== undefined && a8 !== undefined && a1 < a8;
+    }, 10000);
+    check('RM-E2E: colors swapped (A now Black — a1 at the top)', !!aSwapped);
+    // both readiness acks fire automatically -> the clocks start
+    const aYourMove = await pollUntil(pA, () => {
+      const hint = document.querySelector('.board-hint')?.textContent ?? '';
+      return hint.includes('Your move') || hint.includes('thinking');
+    }, 20000);
+    check('RM-E2E: the rematch game activates (readiness acks automatic)', !!aYourMove);
+  }
+
   /* ---- zero page errors ---- */
   check('zero page errors on A', errorsA.length === 0, errorsA.slice(0, 2).join(' | '));
   check('zero page errors on B', errorsB.length === 0, errorsB.slice(0, 2).join(' | '));

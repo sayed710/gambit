@@ -136,5 +136,54 @@ check(
   }
 }
 
+/* ---- REMATCH expiry — a backdated offer is adjudicated 'expired'
+   and its acceptance is refused (real backend + real SQL) ---- */
+{
+  const { createClient } = await import('@supabase/supabase-js');
+  const URL_ = 'http://127.0.0.1:54321';
+  const ANON_ = 'sb_publishable_ACJWlzQHlZjBrEguHvfOxg_3BJgxAaH';
+  const guest = async () => {
+    const sb = createClient(URL_, ANON_, { auth: { persistSession: false } });
+    const { data, error } = await sb.auth.signInAnonymously();
+    if (error) throw error;
+    return { token: data.session.access_token };
+  };
+  const call = async (tok, name, body) => {
+    const res = await fetch(`${URL_}/functions/v1/${name}`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', authorization: `Bearer ${tok}` },
+      body: JSON.stringify(body),
+    });
+    return { status: res.status, payload: await res.json().catch(() => ({})) };
+  };
+  try {
+    const a = await guest();
+    const b = await guest();
+    const create = await call(a.token, 'create-game', { name: 'Exp', baseMs: 600000, incrementMs: 0, color: 'white' });
+    const gameId = create.payload.gameId;
+    const j = await call(b.token, 'join-game', { token: create.payload.token, name: 'Nia' });
+    await call(a.token, 'ready', { gameId });
+    await call(b.token, 'ready', { gameId });
+    await call(a.token, 'make-move', { gameId, moveId: crypto.randomUUID(), from: 'e2', to: 'e4' });
+    await call(b.token, 'make-move', { gameId, moveId: crypto.randomUUID(), from: 'e7', to: 'e5' });
+    const rs = await call(a.token, 'resign', { gameId });
+    if (rs.status !== 200) throw new Error('resign failed');
+    const offer = await call(a.token, 'rematch', { gameId, action: 'offer' });
+    const reqId = offer.payload.request?.id;
+    if (!reqId) throw new Error('offer failed');
+    // backdate the request past the 10-minute window with REAL SQL
+    psql(`update rematch_requests set created_at = now() - interval '11 minutes' where id = '${reqId}'`);
+    const accept = await call(b.token, 'rematch', { gameId, action: 'accept', requestId: reqId });
+    check('RM-EXPIRY: accepting a backdated offer is REFUSED', accept.status === 409 && accept.payload.error?.code === 'expired', `status=${accept.status} code=${accept.payload.error?.code}`);
+    const st = psql(`select status from rematch_requests where id = '${reqId}'`);
+    check('RM-EXPIRY: the request is adjudicated EXPIRED server-side', st === 'expired', `status=${st}`);
+    // a fresh offer is allowed after the expiry (the slot freed)
+    const reOffer = await call(a.token, 'rematch', { gameId, action: 'offer' });
+    check('RM-EXPIRY: a fresh offer is allowed after the expiry', reOffer.status === 200);
+  } catch (e) {
+    check('RM-EXPIRY: the scenario ran', false, String(e).slice(0, 140));
+  }
+}
+
 console.log(failures === 0 ? 'DB CHECK: ALL PASS' : `DB CHECK: ${failures} FAILURES`);
 process.exit(failures === 0 ? 0 : 1);
