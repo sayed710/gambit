@@ -557,11 +557,24 @@ try {
         `select id from rematch_requests where game_id = '${rmId2}' and status = 'pending' order by created_at desc limit 1`,
       );
       check('RM-RENEW: the server holds a fresh pending id distinct from the stale one', /^[0-9a-f-]{36}$/.test(newReqId) && newReqId !== staleReqId);
-      // A's poll refreshes its held request every 2s — wait out one FULL
-      // cycle after the renewal commit so the click deterministically
-      // carries the NEW id (the enabled-Accept precondition alone cannot
-      // distinguish the rows; the CI run caught the pre-refresh click)
-      await wait(2600);
+      // OBSERVE A's poll actually reading the renewed row before the
+      // click (a fixed sleep only probably lands after the refresh —
+      // under CI load the click could still carry the stale id). The
+      // payload check below remains the explicit backstop.
+      const sawNewRow = pA
+        .waitForResponse(async (r) => {
+          if (!r.url().includes('/rest/v1/rematch_requests') || !r.ok()) return false;
+          try {
+            return (await r.text()).includes(newReqId);
+          } catch {
+            return false;
+          }
+        }, { timeout: 10000 })
+        .then(
+          () => true,
+          () => false,
+        );
+      check('RM-RENEW: the opponent poll observed the RENEWED request', await sawNewRow);
       let acceptPayload = null;
       await pA.route('**/functions/v1/rematch', async (route) => {
         try {
