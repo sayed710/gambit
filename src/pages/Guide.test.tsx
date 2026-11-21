@@ -62,6 +62,14 @@ describe('Guide page', () => {
     }
   });
 
+  it('documents the module-worker self-test gate truthfully', () => {
+    renderWithRouter(<Guide />);
+    const text = document.body.textContent ?? '';
+    expect(text).toContain('self-test');
+    expect(text).toContain('module workers');
+    expect(text).toContain('not proof');
+  });
+
   it('is reachable content, not an empty shell (back link present)', () => {
     renderWithRouter(<Guide />);
     expect(screen.getByRole('link', { name: 'Back to the board' })).toBeTruthy();

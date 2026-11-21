@@ -130,15 +130,14 @@ export default function Guide() {
 
           <Section id="compat" title="Browsers that run Gambit">
             <p>
-              One capability is required to start: <strong>Web Workers</strong> — both chess engines think in a
-              background worker, and without one no engine can run, so the app explains that instead of booting into a
-              broken board. Missing <strong>WebAssembly</strong> does <em>not</em> block anything: the strong Stockfish
-              engine needs it, and without it the app automatically falls back to the built-in lightweight engine. In
-              the rare browser that runs only classic (non-module) workers, Stockfish itself still works where
-              WebAssembly is available (it uses a classic worker) — only the built-in fallback engine is unavailable
-              there. Storage problems never lock you out either — a full or read-only store can still be read and
-              exported, and the storage banner explains any write that fails. Every current Chrome, Edge, Firefox, and
-              Safari runs Gambit fully.
+              Before the app starts it verifies — with a short, self-cleaning self-test — that the browser can actually
+              run the worker type the engines use (<strong>module workers</strong>, on top of workers in general).
+              Mere existence of a <code>Worker</code> is not proof, so a browser that cannot start one sees a plain
+              explanation instead of a broken board, and nothing is saved or changed behind your back. Missing{' '}
+              <strong>WebAssembly</strong> does <em>not</em> block anything: the strong Stockfish engine needs it, and
+              without it the app automatically falls back to the built-in lightweight engine. Storage problems never
+              lock you out either — a full or read-only store can still be read and exported, and the storage banner
+              explains any write that fails. Every current Chrome, Edge, Firefox, and Safari runs Gambit fully.
             </p>
           </Section>
 

@@ -20,8 +20,9 @@ export default function CompatGate({ missing }: { missing: CompatFeature[] }) {
           </span>
           <h1>This browser can’t run Gambit fully</h1>
           <p className="small muted">
-            Gambit runs entirely in your browser — no account, no server. A capability this app depends on is missing
-            here, so parts or all of it cannot start. Nothing was saved or changed.
+            Gambit’s local play runs entirely in this browser — no account needed, and nothing was saved or changed
+            here. (Online play — which this browser also cannot start — would additionally connect two players through
+            a server using anonymous guest sessions.)
           </p>
           <ul className="compat-list">
             {missing.map((feature) => (
