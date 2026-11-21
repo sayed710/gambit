@@ -557,6 +557,11 @@ try {
         `select id from rematch_requests where game_id = '${rmId2}' and status = 'pending' order by created_at desc limit 1`,
       );
       check('RM-RENEW: the server holds a fresh pending id distinct from the stale one', /^[0-9a-f-]{36}$/.test(newReqId) && newReqId !== staleReqId);
+      // A's poll refreshes its held request every 2s — wait out one FULL
+      // cycle after the renewal commit so the click deterministically
+      // carries the NEW id (the enabled-Accept precondition alone cannot
+      // distinguish the rows; the CI run caught the pre-refresh click)
+      await wait(2600);
       let acceptPayload = null;
       await pA.route('**/functions/v1/rematch', async (route) => {
         try {
