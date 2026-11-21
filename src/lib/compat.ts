@@ -8,11 +8,11 @@
    - BOOT BLOCKERS (probed): a browser may EXPOSE Worker while
      only running classic workers — the bundled engine constructs
      a MODULE worker, so mere existence is not proof. Before the
-     app mounts, a tiny self-test worker built from a blob (its
-     source uses `export {}` — valid ONLY as a module) proves the
-     browser can actually start the worker type the engine needs.
-     The probe is bounded by a timeout and its worker is always
-     terminated and its blob revoked afterwards.
+     app mounts, a tiny SAME-ORIGIN self-test worker (a public/
+     asset whose source uses `export {}` — valid ONLY as a
+     module) proves the browser can actually start the worker
+     type the engine needs. The probe is bounded by a timeout and
+     its worker is always terminated afterwards.
    - DEGRADATIONS: missing WebAssembly still boots — the app
      automatically falls back to the built-in lightweight
      JavaScript engine (and says so). Never a blocker.
@@ -113,22 +113,22 @@ export async function detectCompat(opts: DetectOptions = {}): Promise<CompatRepo
 
 /**
  * Prove this browser can START a module worker — the worker type the
- * engine needs — with a bounded, self-cleaning self-test. A tiny
- * throwaway module worker is built from a blob whose source uses
- * `export {}`: valid module syntax that a classic-only browser (one
- * that silently treats the type option as classic) cannot parse, so
- * such browsers fail the probe instead of passing it falsely.
+ * engine needs — with a bounded, self-cleaning self-test. The probe
+ * loads `public/module-probe.js` from the SAME ORIGIN (exactly like the
+ * real engine workers, so any site policy that allows them allows the
+ * probe — no blob: dependency). That file's source uses `export {}`:
+ * valid module syntax that a classic-only browser (one that silently
+ * treats the type option as classic) cannot parse, so such browsers
+ * fail the probe instead of passing it falsely.
  *
  * Resolves true only when the worker starts and answers; every other
  * outcome (construction throw, load error, silence) resolves false
- * after `timeoutMs`. The worker is terminated and the blob revoked in
- * all cases.
+ * after `timeoutMs`. The worker is always terminated afterwards.
  */
 export function probeModuleWorker(timeoutMs = 3000): Promise<boolean> {
   return new Promise((resolve) => {
     let settled = false;
     let worker: Worker | null = null;
-    let url = '';
     let timer = 0;
 
     const finish = (ok: boolean) => {
@@ -140,17 +140,12 @@ export function probeModuleWorker(timeoutMs = 3000): Promise<boolean> {
       } catch {
         /* already gone */
       }
-      if (url) URL.revokeObjectURL(url);
       resolve(ok);
     };
 
     timer = window.setTimeout(() => finish(false), timeoutMs);
     try {
-      // `export {}` is valid module syntax and a syntax error as a classic
-      // script — a classic-only browser cannot pass this source
-      const source = "export {};\nself.postMessage('module-ok');";
-      url = URL.createObjectURL(new Blob([source], { type: 'text/javascript' }));
-      worker = new Worker(url, { type: 'module' });
+      worker = new Worker(new URL('module-probe.js', document.baseURI), { type: 'module' });
       worker.addEventListener('message', (e: MessageEvent<string>) => {
         if (e.data === 'module-ok') finish(true);
       });
