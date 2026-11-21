@@ -1300,3 +1300,34 @@ textarea.input { font-family: var(--mono); font-size: 0.82rem; line-height: 1.5;
 .online-result-overlay { position: fixed; inset: 0; background: rgba(15, 23, 32, 0.55); display: flex; align-items: center; justify-content: center; z-index: 60; padding: 1rem; }
 .online-result-card { background: var(--bg-raised); border: 1px solid var(--gold-deep); border-radius: var(--radius-lg); max-width: 420px; width: 100%; box-shadow: var(--shadow-md); display: flex; flex-direction: column; gap: 0.4rem; }
 .online-result-title { font-family: var(--serif); font-size: 2rem; margin: 0; color: var(--ink); }
+
+/* ---------- PR-E · Onboarding (first-run welcome) ---------- */
+.onboarding { background: var(--bg-raised); border-bottom: 1px solid var(--border); padding: 1.4rem 0 1.2rem; }
+.onboarding-head { margin-bottom: 0.9rem; }
+.onboarding-head h2 { font-family: var(--serif); margin: 0; }
+.onboarding-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0.9rem; }
+.onboarding-card { background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 1rem 1.1rem; display: flex; flex-direction: column; gap: 0.45rem; }
+.onboarding-card h3 { margin: 0; font-size: 1.05rem; }
+.onboarding-card p { margin: 0; font-size: 0.9rem; color: var(--muted); flex-grow: 1; }
+.onboarding-icon { font-size: 1.4rem; line-height: 1; }
+.onboarding-card .btn { align-self: flex-start; }
+.onboarding-actions { margin-top: 0.9rem; }
+@media (max-width: 900px) { .onboarding-grid { grid-template-columns: 1fr; } }
+
+/* ---------- PR-E · Compat gate ---------- */
+.compat-gate { min-height: 100vh; display: flex; align-items: center; padding: 2rem 0; }
+.compat-panel { max-width: 560px; margin: 0 auto; display: flex; flex-direction: column; gap: 0.6rem; }
+.compat-panel h1 { font-family: var(--serif); margin: 0; font-size: 1.7rem; }
+.compat-panel p { margin: 0; }
+.compat-mark { color: var(--gold-deep); width: 44px; display: inline-block; }
+.compat-list { margin: 0; padding-left: 1.1rem; display: flex; flex-direction: column; gap: 0.35rem; }
+
+/* ---------- PR-E · User guide ---------- */
+.guide-head { margin: 1.2rem 0 1rem; }
+.guide-head h1 { font-family: var(--serif); margin: 0.2rem 0 0.4rem; }
+.guide-body { display: flex; flex-direction: column; gap: 1.2rem; max-width: 760px; }
+.guide-section { background: var(--bg-raised); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 1.1rem 1.2rem; }
+.guide-section h2 { font-family: var(--serif); font-size: 1.35rem; margin: 0 0 0.5rem; }
+.guide-section p, .guide-section li { font-size: 0.95rem; line-height: 1.55; }
+.guide-section code { font-family: var(--mono); background: var(--surface); padding: 0.05rem 0.35rem; border-radius: 6px; }
+.guide-back { margin: 1rem 0 2rem; }

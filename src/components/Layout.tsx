@@ -224,7 +224,10 @@ export default function Layout() {
           </span>
           <span>
             Everything runs in your browser, no account, no server ·{' '}
-            {new Date().getFullYear()}
+            <Link to="/guide" className="footer-link">
+              User guide
+            </Link>{' '}
+            · {new Date().getFullYear()}
           </span>
         </div>
       </footer>

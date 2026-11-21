@@ -3,6 +3,7 @@ import { usePageTitle } from '../hooks/usePageTitle';
 import { Chess } from 'chess.js';
 import { Chessboard } from 'react-chessboard';
 import { ArrowRight } from '../components/Icons';
+import OnboardingCards from '../components/OnboardingCards';
 
 /* ------------------------------------------------------------------
    Home — the APPROVED design (owner reference, 2026-10-31).
@@ -239,6 +240,7 @@ export default function Home() {
 
   return (
     <div className="home">
+      <OnboardingCards />
       <Hero onExplore={exploreFeatures} />
 
       <section id="features" className="features">

@@ -1,7 +1,9 @@
-import { Suspense, lazy } from 'react';
+import { Suspense, lazy, useMemo } from 'react';
 import { Route, Routes } from 'react-router-dom';
 import Layout from './components/Layout';
+import CompatGate from './components/CompatGate';
 import { KnightMark } from './components/Icons';
+import { detectCompat } from './lib/compat';
 import { useUnsavedUnloadGuard } from './lib/persistStatus';
 import Home from './pages/Home';
 import Play from './pages/Play';
@@ -23,11 +25,17 @@ const Analysis = lazy(() => import('./pages/Analysis'));
 const Profile = lazy(() => import('./pages/Profile'));
 const Review = lazy(() => import('./pages/Review'));
 const Blindfold = lazy(() => import('./pages/Blindfold'));
+const Guide = lazy(() => import('./pages/Guide'));
 
 export default function App() {
   // App-level unload guard: finished games that never persisted keep warning
   // across SPA navigation (the game screen unmounts; the session store does not).
   useUnsavedUnloadGuard();
+  // Compat gate (PR-E): when a required capability is missing, the app is
+  // replaced by an honest explanation — never booted half-broken. Feature
+  // detection is cheap and stable per page load; memoized for clarity.
+  const compat = useMemo(() => detectCompat(), []);
+  if (!compat.ok) return <CompatGate missing={compat.missing} />;
   return (
     <Routes>
       <Route element={<Layout />}>
@@ -161,6 +169,14 @@ export default function App() {
           element={
             <Suspense fallback={<PageLoading label="Loading game…" />}>
               <Review />
+            </Suspense>
+          }
+        />
+        <Route
+          path="/guide"
+          element={
+            <Suspense fallback={<PageLoading label="Loading the guide…" />}>
+              <Guide />
             </Suspense>
           }
         />

@@ -235,6 +235,16 @@ export default function Profile() {
         <BackupRestore />
 
         <div className="panel panel-pad">
+          <div className="section-label">Learn more</div>
+          <p className="small muted" style={{ margin: '0 0 0.4rem' }}>
+            How your data is stored, what backups contain, how online rooms work, and which browsers run the app.
+          </p>
+          <Link className="btn btn-ghost btn-sm" to="/guide">
+            Open the user guide
+          </Link>
+        </div>
+
+        <div className="panel panel-pad">
           <div className="section-label">Breakdowns</div>
           <div className="row wrap" style={{ gap: '1.5rem' }}>
             <div>
