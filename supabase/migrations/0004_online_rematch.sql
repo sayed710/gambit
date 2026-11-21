@@ -63,41 +63,28 @@ revoke insert, update, delete on public.rematch_requests from anon;
 -- accepted/declined without polling.
 alter publication supabase_realtime add table public.rematch_requests;
 
--- Expiry adjudication with the DATABASE clock: the offer handler calls
--- this before inserting so the 10-minute window is measured by the same
--- clock as accept_rematch (never by a possibly-skewed Edge runtime).
-create or replace function public.expire_stale_rematch(p_game_id uuid)
-returns void
-language sql
-security definer
-set search_path = public
-as $$
-  update public.rematch_requests
-  set status = 'expired', version = version + 1
-  where game_id = p_game_id
-    and status = 'pending'
-    and created_at < now() - interval '10 minutes';
-$$;
-
-revoke all on function public.expire_stale_rematch(uuid) from public, anon, authenticated;
-grant execute on function public.expire_stale_rematch(uuid) to service_role;
-
 -- The OFFER, made atomic against acceptance by locking the parent game
 -- row: the existence check for an already-accepted rematch and the
 -- pending insert share that lock with accept_rematch, so an offer that
 -- overlaps an acceptance can never insert a stray pending row that
 -- would hide the accepted destination from the offerer's polling.
 create or replace function public.offer_rematch(p_game_id uuid, p_requester uuid)
-returns uuid -- the pending request id (NULL when already rematched)
+returns table (request_id uuid, rematch_game_id uuid) -- rematch_game_id NOT NULL = parent already rematched
 language plpgsql
 security definer
 set search_path = public
 as $$
 declare
   old public.online_games;
-  existing uuid;
+  existing_accepted uuid;
+  existing_pending uuid;
   new_id uuid;
 begin
+  -- LOCK ORDER (deadlock-free): the PARENT game row is locked FIRST in
+  -- both offer_rematch and accept_rematch; every rematch_requests row
+  -- lock is taken only afterwards, while holding the parent lock. The
+  -- request's game_id never changes, so accept can locate the parent
+  -- without locking the request row first.
   select * into old from public.online_games
     where id = p_game_id for update;
   if old.status <> 'completed' then
@@ -107,25 +94,39 @@ begin
     raise exception 'FORBIDDEN';
   end if;
 
+  -- adjudicate an expired pending request in THIS transaction (database
+  -- clock): a never-touched expired offer frees the slot immediately,
+  -- without waiting for the opponent to attempt acceptance
+  update public.rematch_requests
+    set status = 'expired', version = version + 1
+    where game_id = old.id
+      and status = 'pending'
+      and created_at < now() - interval '10 minutes';
+
   -- blocker-2: at most one ACCEPTED rematch per parent — return the
   -- existing destination so the caller navigates there instead of
   -- branching a second game
-  select id into existing from public.rematch_requests
+  select id into existing_accepted from public.rematch_requests
     where game_id = old.id and status = 'accepted' limit 1;
-  if existing is not null then
-    return null; -- caller re-reads the accepted row for the destination
+  if existing_accepted is not null then
+    return query
+      select null::uuid, r.rematch_game_id
+      from public.rematch_requests r
+      where r.id = existing_accepted;
+    return;
   end if;
 
-  -- a pending request already exists (raced another offer): return it
-  select id into existing from public.rematch_requests
+  -- a live (non-expired) pending request exists: return it idempotently
+  select id into existing_pending from public.rematch_requests
     where game_id = old.id and status = 'pending' limit 1;
-  if existing is not null then
-    return existing;
+  if existing_pending is not null then
+    return query select existing_pending, null::uuid;
+    return;
   end if;
 
   insert into public.rematch_requests (game_id, requester_id)
     values (p_game_id, p_requester) returning id into new_id;
-  return new_id;
+  return query select new_id, null::uuid;
 end $$;
 
 revoke all on function public.offer_rematch(uuid, uuid) from public, anon, authenticated;
@@ -136,61 +137,39 @@ grant execute on function public.offer_rematch(uuid, uuid) to service_role;
 -- per-creator advisory quota lock make concurrent acceptances resolve
 -- to exactly one new game; the loser re-reads and gets the rematch id.
 create or replace function public.accept_rematch(p_request_id uuid, p_acceptor uuid)
-returns table (new_game_id uuid, new_token text)
+returns table (new_game_id uuid, new_token text) -- NULLs = the request was adjudicated expired
 language plpgsql
 security definer
 set search_path = public
 as $$
 declare
-  req public.rematch_requests;
+  v_game_id uuid;
   old public.online_games;
+  req public.rematch_requests;
+  accepted_existing uuid;
   open_count integer;
   new_id uuid;
-  raw_token text;
-  new_token text;
+  -- new_token comes from RETURNS TABLE (an OUT parameter); the token
+  -- hash needs its own local
   new_hash text;
 begin
-  -- lock the request row: concurrent acceptances serialize here
+  -- LOCK ORDER (deadlock-free, identical to offer_rematch): the PARENT
+  -- game row is locked FIRST (the request's game_id never changes, so
+  -- locating it without a lock is safe), then the request row.
+  select game_id into v_game_id from public.rematch_requests
+    where id = p_request_id;
+  if v_game_id is null then
+    raise exception 'NOT_FOUND';
+  end if;
+  select * into old from public.online_games
+    where id = v_game_id for update;
   select * into req from public.rematch_requests
     where id = p_request_id for update;
   if not found then
     raise exception 'NOT_FOUND';
   end if;
-  if req.status <> 'pending' then
-    raise exception 'NOT_PENDING';
-  end if;
-  if req.created_at < now() - interval '10 minutes' then
-    -- adjudicate expired and return NULLs: a raise here would ROLL BACK
-    -- the expiry update (the caller reads the request row to see it)
-    update public.rematch_requests
-      set status = 'expired', version = version + 1
-      where id = req.id;
-    return query select null::uuid, null::text;
-    return;
-  end if;
-
-  -- lock the parent game: seats, colors and time control come from it.
-  -- The row lock also SERIALIZES acceptances racing on the same parent
-  -- (both requests target this one row), so the accepted-rematch check
-  -- below is race-free.
-  select * into old from public.online_games
-    where id = req.game_id for update;
   if old.status <> 'completed' then
     raise exception 'STATE';
-  end if;
-  -- blocker-2: exactly one accepted rematch per original game. A later
-  -- pending request against an already-rematched parent returns the
-  -- EXISTING destination idempotently instead of branching another game
-  if exists (
-    select 1 from public.rematch_requests
-    where game_id = old.id and status = 'accepted' and id <> req.id
-  ) then
-    return query
-      select r.rematch_game_id, null::text
-      from public.rematch_requests r
-      where r.game_id = old.id and r.status = 'accepted'
-      limit 1;
-    return;
   end if;
   -- only the NON-requester participant may accept
   if p_acceptor = req.requester_id
@@ -198,19 +177,39 @@ begin
     raise exception 'FORBIDDEN';
   end if;
 
+  -- blocker-2: exactly one accepted rematch per parent. A concurrent or
+  -- earlier acceptance returns its destination idempotently; a stale
+  -- pending request (10-minute window) is adjudicated expired and the
+  -- acceptance is refused — with NO game created either way.
+  select id into accepted_existing from public.rematch_requests
+    where game_id = old.id and status = 'accepted' and id <> req.id limit 1;
+  if accepted_existing is not null then
+    return query
+      select r.rematch_game_id, null::text
+      from public.rematch_requests r
+      where r.id = accepted_existing;
+    return;
+  end if;
+  if req.status <> 'pending' then
+    raise exception 'NOT_PENDING';
+  end if;
+  if req.created_at < now() - interval '10 minutes' then
+    update public.rematch_requests
+      set status = 'expired', version = version + 1
+      where id = req.id;
+    return query select null::uuid, null::text;
+    return;
+  end if;
+
   -- the acceptor becomes the creator of the new game: enforce their
   -- open-room quota atomically (same advisory lock as create-game),
-  -- INCLUDING the 24h inactivity reclaim of stale rooms (same policy as
-  -- create_online_game) — a guest with forgotten invitations can still
-  -- accept a rematch
+  -- including the 24h inactivity reclaim of stale rooms
   perform pg_advisory_xact_lock(hashtextextended(p_acceptor::text, 0));
-
   update public.online_games
   set status = 'abandoned', version = version + 1, updated_at = now()
   where creator_id = p_acceptor
     and status in ('waiting', 'ready')
     and updated_at < now() - interval '24 hours';
-
   select count(*) into open_count from public.online_games
     where creator_id = p_acceptor
       and status in ('waiting', 'ready', 'active');
@@ -230,14 +229,14 @@ begin
     white_ms_remaining, black_ms_remaining, turn
   ) values (
     p_acceptor,
-    old.black_id,          -- swapped seats
+    old.black_id,
     old.white_id,
-    old.black_name,        -- names swap with the seats
+    old.black_name,
     old.white_name,
     new_hash,
     'ready',
     now(),
-    old.base_ms,           -- original time control preserved
+    old.base_ms,
     old.increment_ms,
     old.base_ms,
     old.base_ms,

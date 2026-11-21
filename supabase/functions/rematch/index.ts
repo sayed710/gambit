@@ -77,7 +77,7 @@ Deno.serve(async (req) => {
     // second game. The parent row lock serializes this against racing
     // acceptances, so a pending insert can never hide an accepted
     // destination from the offerer's polling.
-    const { data: requestId, error: offerError } = await admin.rpc('offer_rematch', {
+    const { data, error: offerError } = await admin.rpc('offer_rematch', {
       p_game_id: gameId,
       p_requester: user.id,
     });
@@ -87,7 +87,10 @@ Deno.serve(async (req) => {
       if (msg.includes('FORBIDDEN')) return fail('forbidden', 'you are not a player in this game', 403);
       return fail('server', 'offer failed', 500);
     }
-    if (!requestId) {
+    // returns table(...) is a set-returning function — PostgREST wraps it
+    // as [{ request_id, rematch_game_id }]
+    const row = (Array.isArray(data) ? data[0] : data) as { request_id: string | null; rematch_game_id: string | null } | undefined;
+    if (!row?.request_id) {
       // already rematched — return the accepted destination explicitly
       const acceptedReq = await admin
         .from('rematch_requests')
@@ -96,9 +99,9 @@ Deno.serve(async (req) => {
         .eq('status', 'accepted')
         .maybeSingle();
       const accepted = acceptedReq.data as RematchRow | null;
-      return json({ ok: true, alreadyRematched: true, rematchGameId: accepted?.rematch_game_id ?? null, request: accepted ?? undefined });
+      return json({ ok: true, alreadyRematched: true, rematchGameId: accepted?.rematch_game_id ?? row?.rematch_game_id ?? null, request: accepted ?? undefined });
     }
-    const request = await loadRequest(admin, requestId as string);
+    const request = await loadRequest(admin, row.request_id);
     return json({ ok: true, offered: true, request });
   }
 
