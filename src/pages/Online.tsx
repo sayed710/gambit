@@ -8,12 +8,14 @@ import MoveList from '../components/MoveList';
 import { ToastProvider, useToast } from '../components/Toast';
 import {
   api,
+  latestRematchRequest,
   currentGuestId,
   ensureGuestSession,
   onlineConfigured,
   makeInviteLink,
   OnlineError,
   type OnlineGame,
+  type RematchRequest,
   supabase,
 } from '../lib/online/supabase';
 import { formatClock, formatTimeControl, projectClocks } from '../lib/online/clock';
@@ -51,10 +53,12 @@ function LiveGame({
   game: initial,
   me,
   onExit,
+  onRematch,
 }: {
   game: OnlineGame;
   me: string;
   onExit: () => void;
+  onRematch: (game: OnlineGame) => void;
 }) {
   const { toast } = useToast();
   const navigate = useNavigate();
@@ -126,6 +130,144 @@ function LiveGame({
   const lastMove = game.moves.length
     ? { from: game.moves[game.moves.length - 1].from as Square, to: game.moves[game.moves.length - 1].to as Square }
     : null;
+
+  /* ---- REMATCH lifecycle (completed games only) ----
+     The server owns the request row; this client polls it every 2s while
+     the game is finished so BOTH players learn about offer/accept/
+     decline/expired regardless of who acted. accepted -> both navigate
+     into the swapped-color game (the readiness protocol starts its clock). */
+  const [rematch, setRematch] = useState<RematchRequest | null>(null);
+  const [rematchBusy, setRematchBusy] = useState(false);
+  const finished2 = finished; // alias for effect deps readability
+  useEffect(() => {
+    if (!finished2 || !mySeat) return;
+    let dead = false;
+    const poll = async () => {
+      let req: RematchRequest | null = null;
+      try {
+        req = await latestRematchRequest(game.id); // THROWS on failure — the last known state is kept
+      } catch {
+        return; // transient read failure: keep whatever is on screen
+      }
+      if (dead) return;
+      setRematch(req);
+      // accepted -> navigate into the new game (a failed get-state
+      // retries on the next tick — the request status does not change)
+      if (req?.status === 'accepted' && req.rematch_game_id) {
+        try {
+          const res = await api.getState(req.rematch_game_id);
+          if (!dead && (res.game.white_id === me || res.game.black_id === me)) {
+            persistRematchGame(res.game); // BLOCKER-1: guarded by the on-screen game via the closure
+            onRematch(res.game);
+          }
+        } catch {
+          /* retried on the next tick */
+        }
+      }
+    };
+    void poll();
+    const t = window.setInterval(poll, 2000);
+    return () => {
+      dead = true;
+      window.clearInterval(t);
+    };
+  }, [finished2, mySeat, game.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const rematchPendingMine = rematch?.status === 'pending' && rematch.requester_id === me;
+  const rematchPendingTheirs = rematch?.status === 'pending' && rematch.requester_id !== me;
+  /* The requester can always RE-CHECK their pending offer — the renewal
+     affordance never depends on the local clock (a slow browser clock
+     must not hide the recovery path after the DATABASE already considers
+     the request expired). The renewal call is the same server-
+     authoritative offer operation: a still-live request returns
+     unchanged and idempotently; an expired one is adjudicated on the
+     database clock and replaced by a fresh pending request; an already-
+     accepted rematch returns its existing destination. */
+  // F4 — after a declined/expired request the slot is free: offer again
+  const canOfferRematch =
+    finished && game.status === 'completed' && (!rematch || rematch.status === 'declined' || rematch.status === 'expired');
+
+  /* BLOCKER-1 — persist the rematch session for THIS player when the
+     navigation lands. The saved record is what the reload-resume logic
+     reads; without this write a refresh during an active rematch would
+     resurrect the old completed game. The write is GUARDED: it lands
+     only when the saved record still points at the game on screen — a
+     stale asynchronous response can never overwrite a newer game
+     (e.g. a second rematch already navigated to). */
+  const persistRematchGame = (newGame: OnlineGame) => {
+    try {
+      const savedNow = JSON.parse(localStorage.getItem('gambit.onlineGame') ?? 'null') as { id?: string } | null;
+      if (savedNow && savedNow.id !== game.id) return; // a NEWER game already owns the record
+      localStorage.setItem(
+        'gambit.onlineGame',
+        JSON.stringify({ id: newGame.id, color: newGame.white_id === me ? 'white' : 'black' }),
+      );
+    } catch {
+      /* record unreadable — the resume path re-validates from the server */
+    }
+  };
+
+  const offerRematch = async () => {
+    setRematchBusy(true);
+    try {
+      await api.rematchOffer(game.id);
+      const req = await latestRematchRequest(game.id);
+      setRematch(req);
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'rematch offer failed');
+    } finally {
+      setRematchBusy(false);
+    }
+  };
+
+  const acceptRematch = async () => {
+    if (!rematch) return;
+    setRematchBusy(true);
+    try {
+      const res = await api.rematchAccept(game.id, rematch.id);
+      if (res.rematchGameId) {
+        const next = await api.getState(res.rematchGameId);
+        if (next.game.white_id === me || next.game.black_id === me) {
+          persistRematchGame(next.game); // BLOCKER-1: the reload-resume record follows the rematch
+          onRematch(next.game);
+          toast('Rematch accepted — the clock starts when both players are ready.');
+        }
+      }
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'could not accept the rematch');
+      void refetch();
+    } finally {
+      setRematchBusy(false);
+    }
+  };
+
+  const declineRematch = async () => {
+    if (!rematch) return;
+    setRematchBusy(true);
+    try {
+      await api.rematchDecline(game.id, rematch.id);
+      toast('Rematch declined.');
+      setRematch(await latestRematchRequest(game.id));
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'could not decline the rematch');
+    } finally {
+      setRematchBusy(false);
+    }
+  };
+
+  const cancelRematch = async () => {
+    if (!rematch) return;
+    setRematchBusy(true);
+    try {
+      await api.rematchCancel(game.id, rematch.id);
+      setRematch(null);
+      toast('Rematch request cancelled.');
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'could not cancel the rematch');
+    } finally {
+      setRematchBusy(false);
+    }
+  };
 
   /* completed games persist locally for the lobby history (never touches
      the offline profile or ratings) */
@@ -589,6 +731,42 @@ function LiveGame({
             <p className="closing-eyebrow">Game over</p>
             <h2 className="online-result-title">{resultText(game, me)}</h2>
             <p className="small muted">{reasonText(game.result_reason)} · {game.moves.length} plies</p>
+            {finished && (
+              <div className="status-banner mt-2" role="status">
+                {rematchPendingMine && (
+                  <>
+                    Rematch pending — waiting for {opponentName} to accept.
+                    <button className="btn btn-gold btn-sm" disabled={rematchBusy} onClick={() => void offerRematch()}>
+                      Renew offer
+                    </button>
+                    <button className="btn btn-ghost btn-sm" disabled={rematchBusy} onClick={() => void cancelRematch()}>
+                      Cancel request
+                    </button>
+                  </>
+                )}
+                {rematchPendingTheirs && (
+                  <>
+                    {opponentName} offers a rematch (colors swap).
+                    <button className="btn btn-gold btn-sm" disabled={rematchBusy} onClick={() => void acceptRematch()}>
+                      Accept
+                    </button>
+                    <button className="btn btn-ghost btn-sm" disabled={rematchBusy} onClick={() => void declineRematch()}>
+                      Decline
+                    </button>
+                  </>
+                )}
+                {canOfferRematch && (
+                  <>
+                    Want another game?
+                    <button className="btn btn-gold btn-sm" disabled={rematchBusy} onClick={() => void offerRematch()}>
+                      Rematch
+                    </button>
+                  </>
+                )}
+                {rematch?.status === 'declined' && <span>Rematch declined — you can offer a new one.</span>}
+                {rematch?.status === 'expired' && <span>Rematch offer expired — you can offer a new one.</span>}
+              </div>
+            )}
             <div className="row mt-2" style={{ gap: '0.5rem', flexWrap: 'wrap' }}>
               {game.pgn != null && (
                 <button className="btn btn-gold" onClick={() => navigate('/analysis', { state: { pgn: game.pgn ?? undefined } })}>
@@ -943,6 +1121,10 @@ function OnlineInner() {
           const meId = await currentGuestId();
           const res = await api.joinGame(liveFromJoin.joinedToken!, localStorage.getItem('gambit.onlineName')?.trim() || 'Player');
           if (!current) return; // stale: the user navigated away — land nothing
+          // clean the route: a reload of /online/live with the stale
+          // join state would replay joinGame against a possibly-finished
+          // room — the saved-record resume owns reloads from here on
+          navigate('/online', { replace: true });
           // the record carries the seat color — a later resume of the
           // same room must not relabel a Black creator as White
           localStorage.setItem('gambit.onlineGame', JSON.stringify({
@@ -965,8 +1147,28 @@ function OnlineInner() {
           }
         } catch (e) {
           if (!current) return;
-          if (e instanceof OnlineError) setPhase({ kind: 'failed', code: e.code, message: e.message });
-          else setPhase({ kind: 'failed', code: 'backend', message: 'could not reach the local backend — run `npx supabase start`' });
+          // a reload replays this effect with the stale join state: when
+          // the refusal is for a game that is NO LONGER the saved one
+          // (e.g. a rematch replaced it), do NOT fail — the saved-record
+          // resume effect owns navigation and will land on the real game.
+          // Narrowed to "the room is unavailable" errors only: a truly
+          // invalid invitation still surfaces as a failure, and the
+          // suppressed message is shown as a non-blocking toast.
+          const savedId = (() => {
+            try {
+              return JSON.parse(localStorage.getItem('gambit.onlineGame') ?? 'null')?.id ?? null;
+            } catch {
+              return null;
+            }
+          })();
+          const unavailableRoom = e instanceof OnlineError && ['expired', 'full', 'state', 'not-found'].includes(e.code);
+          const staleSeat = unavailableRoom && savedId && liveFromJoin.gameId && savedId !== liveFromJoin.gameId;
+          if (staleSeat) {
+            toast(`That invitation is no longer available (${e.message}) — you have been returned to your current game.`);
+          } else {
+            if (e instanceof OnlineError) setPhase({ kind: 'failed', code: e.code, message: e.message });
+            else setPhase({ kind: 'failed', code: 'backend', message: 'could not reach the local backend — run `npx supabase start`' });
+          }
         }
       })();
       return () => {
@@ -1056,7 +1258,13 @@ function OnlineInner() {
             </div>
           )}
           {phase.kind === 'live' && (
-            <LiveGame key={phase.game.id} game={phase.game} me={me ?? ''} onExit={exitToLobby} />
+            <LiveGame
+              key={phase.game.id}
+              game={phase.game}
+              me={me ?? ''}
+              onExit={exitToLobby}
+              onRematch={(g) => setPhase({ kind: 'live', game: g })}
+            />
           )}
         </>
       )}

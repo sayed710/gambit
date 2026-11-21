@@ -151,6 +151,16 @@ export class OnlineError extends Error {
   }
 }
 
+export interface RematchRequest {
+  id: string;
+  game_id: string;
+  requester_id: string;
+  status: 'pending' | 'accepted' | 'declined' | 'expired';
+  rematch_game_id: string | null;
+  created_at: string;
+  version: number;
+}
+
 export interface OnlineGame {
   id: string;
   status: 'waiting' | 'ready' | 'active' | 'completed' | 'abandoned';
@@ -205,7 +215,37 @@ export const api = {
     command<{ ok: true; activated?: boolean; alreadyReady?: boolean; alreadyActive?: boolean; game: OnlineGame }>('ready', { gameId }),
   draw: (gameId: string, action: 'offer' | 'accept' | 'decline') =>
     command<{ ok: true; game: OnlineGame }>('draw', { gameId, action }),
+  rematchOffer: (gameId: string) =>
+    command<{ ok: true; offered: boolean; request: RematchRequest }>('rematch', { gameId, action: 'offer' }),
+  rematchAccept: (gameId: string, requestId: string) =>
+    command<{ ok: true; accepted: boolean; rematchGameId: string; token: string; game: OnlineGame }>('rematch', {
+      gameId,
+      action: 'accept',
+      requestId,
+    }),
+  rematchDecline: (gameId: string, requestId: string) =>
+    command<{ ok: true; declined: boolean; request: RematchRequest }>('rematch', { gameId, action: 'decline', requestId }),
+  rematchCancel: (gameId: string, requestId: string) =>
+    command<{ ok: true; cancelled: boolean }>('rematch', { gameId, action: 'cancel', requestId }),
 };
+
+/** The latest rematch request for a game, read DIRECTLY through RLS
+    (participants only) — no Edge Function needed for reads. */
+/** The latest rematch request for a game, read DIRECTLY through RLS
+    (participants only). THROWS on a transport/RLS failure — callers must
+    not treat a failed read as "no request exists". */
+export async function latestRematchRequest(gameId: string): Promise<RematchRequest | null> {
+  const sb = supabase();
+  const { data, error } = await sb
+    .from('rematch_requests')
+    .select('*')
+    .eq('game_id', gameId)
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (error) throw new Error(`rematch read failed: ${error.message}`);
+  return (data as RematchRequest | null) ?? null;
+}
 
 /* ---- invite links ---- */
 

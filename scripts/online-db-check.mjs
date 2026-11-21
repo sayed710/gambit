@@ -136,5 +136,100 @@ check(
   }
 }
 
+/* ---- REMATCH expiry — a backdated offer is adjudicated 'expired'
+   and its acceptance is refused (real backend + real SQL) ---- */
+{
+  const { createClient } = await import('@supabase/supabase-js');
+  const URL_ = 'http://127.0.0.1:54321';
+  const ANON_ = 'sb_publishable_ACJWlzQHlZjBrEguHvfOxg_3BJgxAaH';
+  const guest = async () => {
+    const sb = createClient(URL_, ANON_, { auth: { persistSession: false } });
+    const { data, error } = await sb.auth.signInAnonymously();
+    if (error) throw error;
+    return { token: data.session.access_token };
+  };
+  const call = async (tok, name, body, signal) => {
+    const res = await fetch(`${URL_}/functions/v1/${name}`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', authorization: `Bearer ${tok}` },
+      body: JSON.stringify(body),
+      ...(signal ? { signal } : {}),
+    });
+    return { status: res.status, payload: await res.json().catch(() => ({})) };
+  };
+  try {
+    const a = await guest();
+    const b = await guest();
+    const create = await call(a.token, 'create-game', { name: 'Exp', baseMs: 600000, incrementMs: 0, color: 'white' });
+    const gameId = create.payload.gameId;
+    const j = await call(b.token, 'join-game', { token: create.payload.token, name: 'Nia' });
+    await call(a.token, 'ready', { gameId });
+    await call(b.token, 'ready', { gameId });
+    await call(a.token, 'make-move', { gameId, moveId: crypto.randomUUID(), from: 'e2', to: 'e4' });
+    await call(b.token, 'make-move', { gameId, moveId: crypto.randomUUID(), from: 'e7', to: 'e5' });
+    const rs = await call(a.token, 'resign', { gameId });
+    if (rs.status !== 200) throw new Error('resign failed');
+    const offer = await call(a.token, 'rematch', { gameId, action: 'offer' });
+    const reqId = offer.payload.request?.id;
+    if (!reqId) throw new Error('offer failed');
+    // backdate the request past the 10-minute window with REAL SQL
+    psql(`update rematch_requests set created_at = now() - interval '11 minutes' where id = '${reqId}'`);
+    // F-HIGH: the OFFERER alone can recover — a fresh offer, WITHOUT any
+    // accept attempt from the opponent, adjudicates the expired request on
+    // the DATABASE clock inside its own transaction and opens the slot
+    const offerFirst = await call(a.token, 'rematch', { gameId, action: 'offer' });
+    check('RM-EXPIRY: a fresh OFFER alone adjudicates the expired request (no accept needed)',
+      offerFirst.status === 200 && offerFirst.payload.request?.status === 'pending' && offerFirst.payload.request?.id !== reqId,
+      `status=${offerFirst.status} new=${offerFirst.payload.request?.id !== reqId}`);
+    const st = psql(`select status from rematch_requests where id = '${reqId}'`);
+    check('RM-EXPIRY: the request is adjudicated EXPIRED server-side', st === 'expired', `status=${st}`);
+    // accepting the now-expired request is refused (no state confusion)
+    const accept = await call(b.token, 'rematch', { gameId, action: 'accept', requestId: reqId });
+    check('RM-EXPIRY: accepting a backdated offer is REFUSED', accept.status === 409, `status=${accept.status}`);
+    // a further offer is idempotent against the LIVE pending request
+    const reOffer = await call(a.token, 'rematch', { gameId, action: 'offer' });
+    check('RM-EXPIRY: a fresh offer is allowed after the expiry',
+      reOffer.status === 200 && reOffer.payload.request?.id === offerFirst.payload.request?.id);
+
+    /* ---- RM-RACE — offer vs accept fired together at the expiry
+       boundary: the parent-row lock order makes both serialize with no
+       deadlock; the accept can never win on an expired request; and no
+       duplicate game is created either way. ---- */
+    const rCreate = await call(a.token, 'create-game', { name: 'Race', baseMs: 600000, incrementMs: 0, color: 'white' });
+    const raceGame = rCreate.payload.gameId;
+    await call(b.token, 'join-game', { token: rCreate.payload.token, name: 'Nia' });
+    await call(a.token, 'ready', { gameId: raceGame });
+    await call(b.token, 'ready', { gameId: raceGame });
+    await call(a.token, 'make-move', { gameId: raceGame, moveId: crypto.randomUUID(), from: 'e2', to: 'e4' });
+    await call(b.token, 'make-move', { gameId: raceGame, moveId: crypto.randomUUID(), from: 'e7', to: 'e5' });
+    await call(a.token, 'resign', { gameId: raceGame });
+    const raceOff = await call(a.token, 'rematch', { gameId: raceGame, action: 'offer' });
+    const raceReq = raceOff.payload.request?.id;
+    if (!raceReq) throw new Error('race setup: offer failed');
+    psql(`update rematch_requests set created_at = now() - interval '11 minutes' where id = '${raceReq}'`);
+    const gamesBefore = Number(psql('select count(*) from online_games'));
+    // 15s ceiling on both calls, ENFORCED with an abort signal: a hung
+    // request rejects (TimeoutError) instead of leaving an unresolved
+    // promise, and the rejection lands as an explicit check failure
+    const timedCall = (tok, body) =>
+      call(tok, 'rematch', body, AbortSignal.timeout(15000)).then(
+        (r) => ({ ok: true, r }),
+        (e) => ({ ok: false, err: `${e?.name ?? 'Error'}: ${String(e).slice(0, 90)}` }),
+      );
+    const [off, acc] = await Promise.all([
+      timedCall(a.token, { gameId: raceGame, action: 'offer' }),
+      timedCall(b.token, { gameId: raceGame, action: 'accept', requestId: raceReq }),
+    ]);
+    check('RM-RACE: both racing calls resolve inside 15s (no deadlock)', off.ok && acc.ok, `${off.ok}/${acc.ok} ${!off.ok ? off.err : ''}${!acc.ok ? acc.err : ''}`);
+    check('RM-RACE: the racing offer opens a FRESH pending request', off.ok && off.r.status === 200 && off.r.payload.request?.id !== raceReq,
+      `status=${off.r?.status}`);
+    check('RM-RACE: the racing accept on the expired request is REFUSED', acc.ok && acc.r.status === 409, `status=${acc.r?.status}`);
+    const gamesAfter = Number(psql('select count(*) from online_games'));
+    check('RM-RACE: the race created NO duplicate game', gamesAfter === gamesBefore, `before=${gamesBefore} after=${gamesAfter}`);
+  } catch (e) {
+    check('RM-EXPIRY: the scenario ran', false, String(e).slice(0, 140));
+  }
+}
+
 console.log(failures === 0 ? 'DB CHECK: ALL PASS' : `DB CHECK: ${failures} FAILURES`);
 process.exit(failures === 0 ? 0 : 1);
