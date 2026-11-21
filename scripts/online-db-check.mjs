@@ -148,11 +148,12 @@ check(
     if (error) throw error;
     return { token: data.session.access_token };
   };
-  const call = async (tok, name, body) => {
+  const call = async (tok, name, body, signal) => {
     const res = await fetch(`${URL_}/functions/v1/${name}`, {
       method: 'POST',
       headers: { 'content-type': 'application/json', authorization: `Bearer ${tok}` },
       body: JSON.stringify(body),
+      ...(signal ? { signal } : {}),
     });
     return { status: res.status, payload: await res.json().catch(() => ({})) };
   };
@@ -207,9 +208,14 @@ check(
     if (!raceReq) throw new Error('race setup: offer failed');
     psql(`update rematch_requests set created_at = now() - interval '11 minutes' where id = '${raceReq}'`);
     const gamesBefore = Number(psql('select count(*) from online_games'));
-    // 15s ceiling on both calls: a lock-order deadlock would surface here
+    // 15s ceiling on both calls, ENFORCED with an abort signal: a hung
+    // request rejects (TimeoutError) instead of leaving an unresolved
+    // promise, and the rejection lands as an explicit check failure
     const timedCall = (tok, body) =>
-      call(tok, 'rematch', body).then((r) => ({ ok: true, r }), (e) => ({ ok: false, err: String(e).slice(0, 80) }));
+      call(tok, 'rematch', body, AbortSignal.timeout(15000)).then(
+        (r) => ({ ok: true, r }),
+        (e) => ({ ok: false, err: `${e?.name ?? 'Error'}: ${String(e).slice(0, 90)}` }),
+      );
     const [off, acc] = await Promise.all([
       timedCall(a.token, { gameId: raceGame, action: 'offer' }),
       timedCall(b.token, { gameId: raceGame, action: 'accept', requestId: raceReq }),
