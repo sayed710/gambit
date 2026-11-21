@@ -63,8 +63,9 @@ export default function Guide() {
               You never need an account. Local play and training keep everything on this device (see{' '}
               <Link to="/guide#storage">where your data lives</Link>). <strong>Online rooms are the one exception</strong>:
               an anonymous guest session and a server hold the shared game — moves, clocks, and results — so two
-              browsers can play each other. The server stores only what the room needs, including the{' '}
-              <em>display name you choose</em> (any name you like) — never an account, email, or identity.
+              browsers can play each other. Online play needs no personal account or email, but the server does keep an{' '}
+              <strong>anonymous guest identifier</strong> alongside the display name you choose (any name you like) and
+              the room's activity.
             </p>
           </Section>
 
@@ -133,10 +134,11 @@ export default function Guide() {
               background worker, and without one no engine can run, so the app explains that instead of booting into a
               broken board. Missing <strong>WebAssembly</strong> does <em>not</em> block anything: the strong Stockfish
               engine needs it, and without it the app automatically falls back to the built-in lightweight engine. In
-              the rare browser that runs only classic (non-module) workers, the app boots normally and the engine
-              simply stays silent — every non-engine page still works. Storage problems never lock you out either — a
-              full or read-only store can still be read and exported, and the storage banner explains any write that
-              fails. Every current Chrome, Edge, Firefox, and Safari runs Gambit fully.
+              the rare browser that runs only classic (non-module) workers, Stockfish itself still works where
+              WebAssembly is available (it uses a classic worker) — only the built-in fallback engine is unavailable
+              there. Storage problems never lock you out either — a full or read-only store can still be read and
+              exported, and the storage banner explains any write that fails. Every current Chrome, Edge, Firefox, and
+              Safari runs Gambit fully.
             </p>
           </Section>
 

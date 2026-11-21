@@ -1,12 +1,22 @@
 import type { ReactElement } from 'react';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import Guide from './Guide';
 import CompatGate from '../components/CompatGate';
 
+/* Guide renders under REAL routes with a catch-all sentinel: a link that
+   navigates away from /guide unmounts it (rendering the sentinel) — a
+   plain element wrapper could never observe that regression. */
 const renderWithRouter = (ui: ReactElement, { route = '/guide' } = {}) =>
-  render(<MemoryRouter initialEntries={[route]}>{ui}</MemoryRouter>);
+  render(
+    <MemoryRouter initialEntries={[route]}>
+      <Routes>
+        <Route path="/guide" element={ui} />
+        <Route path="*" element={<div data-testid="not-found">nothing here</div>} />
+      </Routes>
+    </MemoryRouter>,
+  );
 
 afterEach(() => cleanup());
 
@@ -36,7 +46,7 @@ describe('Guide page', () => {
     expect(text).not.toContain('No personal data'); // removed absolute claim
   });
 
-  it('an in-guide cross-reference stays ON the guide (raw # anchors would break HashRouter)', () => {
+  it('an in-guide cross-reference stays ON the guide (raw # anchors would break HashRouter)', async () => {
     const spy = vi.fn();
     const original = Element.prototype.scrollIntoView;
     Element.prototype.scrollIntoView = spy;
@@ -44,9 +54,9 @@ describe('Guide page', () => {
       renderWithRouter(<Guide />, { route: '/guide' });
       fireEvent.click(screen.getByRole('link', { name: 'where your data lives' }));
       // the guide REMAINS mounted (never routed away) and the hash effect scrolls
-      expect(document.getElementById('storage')).toBeTruthy();
+      await vi.waitFor(() => expect(spy).toHaveBeenCalled());
+      expect(screen.queryByTestId('not-found')).toBeNull();
       expect(screen.getByRole('heading', { name: 'A quiet place to play chess — how it works' })).toBeTruthy();
-      vi.waitFor(() => expect(spy).toHaveBeenCalled());
     } finally {
       Element.prototype.scrollIntoView = original;
     }
@@ -57,20 +67,17 @@ describe('Guide page', () => {
     expect(screen.getByRole('link', { name: 'Back to the board' })).toBeTruthy();
   });
 
-  it('honors a section hash after the lazy page mounts', () => {
+  it('honors a section hash after the lazy page mounts', async () => {
     const spy = vi.fn();
     const original = Element.prototype.scrollIntoView;
     Element.prototype.scrollIntoView = spy;
     try {
       renderWithRouter(<Guide />, { route: '/guide#storage' });
-      vi.waitFor(() => {
+      await vi.waitFor(() => {
         expect(spy).toHaveBeenCalled();
         const target = spy.mock.calls[0]?.[0] as { block?: string } | undefined;
         expect(target?.block).toBe('start');
       });
-      // the scrolled section is the one the hash named
-      const storageTop = document.getElementById('storage')!.getBoundingClientRect().top;
-      expect(storageTop).toBeLessThan(50);
     } finally {
       Element.prototype.scrollIntoView = original;
     }
