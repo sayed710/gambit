@@ -22,6 +22,11 @@ export const LEVEL_RATINGS: Record<Level, number> = { 1: 900, 2: 1400, 3: 1900, 
 const pending = new Map<number, Pending>();
 let nextId = 1;
 
+/** Set when the engine worker cannot start or dies (e.g. a browser
+    without module-worker support) — every request then fails fast
+    instead of hanging, and callers degrade gracefully. */
+let workerBroken = false;
+
 /**
  * Engine access for the app. Primary path is Stockfish 18 (WASM); the bundled
  * lightweight engine stays as an automatic fallback if Stockfish can't load.
@@ -30,7 +35,15 @@ export function useEngine() {
   const workerRef = useRef<Worker | null>(null);
 
   useEffect(() => {
-    const worker = new Worker(new URL('./engine.worker.ts', import.meta.url), { type: 'module' });
+    let worker: Worker;
+    try {
+      worker = new Worker(new URL('./engine.worker.ts', import.meta.url), { type: 'module' });
+    } catch {
+      // no Worker at all (the compat gate normally prevents this) or a
+      // construction failure — fail every request fast, never hang
+      workerBroken = true;
+      return;
+    }
     workerRef.current = worker;
     worker.addEventListener('message', (e: MessageEvent<EngineResponse>) => {
       const { requestId, payload } = e.data;
@@ -39,6 +52,13 @@ export function useEngine() {
         pending.delete(requestId);
         entry.resolve(payload);
       }
+    });
+    // module imports can fail at worker startup on browsers that only run
+    // classic workers — surface that as clean rejections, not a hang
+    worker.addEventListener('error', () => {
+      workerBroken = true;
+      for (const entry of pending.values()) entry.reject(new Error('engine worker failed'));
+      pending.clear();
     });
     return () => {
       worker.terminate();
@@ -50,8 +70,8 @@ export function useEngine() {
   const legacyRequest = useCallback(<T,>(msg: LegacyCall): Promise<T> => {
     return new Promise<T>((resolve, reject) => {
       const worker = workerRef.current;
-      if (!worker) {
-        reject(new Error('engine not ready'));
+      if (!worker || workerBroken) {
+        reject(new Error('engine unavailable'));
         return;
       }
       const requestId = nextId++;
@@ -82,9 +102,13 @@ export function useEngine() {
       } catch {
         // Stockfish unavailable — fall through to the bundled engine
       }
-      const legacy = await legacyRequest<SearchResult | null>({ type: 'search', fen, level, recentFens });
-      if (legacy) return { ...legacy, engine: 'legacy' as const }; // honesty: no persona styling applies
-      return legacy;
+      try {
+        const legacy = await legacyRequest<SearchResult | null>({ type: 'search', fen, level, recentFens });
+        if (legacy) return { ...legacy, engine: 'legacy' as const }; // honesty: no persona styling applies
+        return legacy;
+      } catch {
+        return null; // engine fully unavailable — the caller degrades gracefully
+      }
     },
     [legacyRequest],
   );
@@ -110,7 +134,11 @@ export function useEngine() {
       } catch {
         // fall through
       }
-      return legacyRequest<EvalResult | null>({ type: 'eval', fen, depth: Math.min(depth, 3) });
+      try {
+        return await legacyRequest<EvalResult | null>({ type: 'eval', fen, depth: Math.min(depth, 3) });
+      } catch {
+        return null; // engine fully unavailable — the caller degrades gracefully
+      }
     },
     [legacyRequest],
   );

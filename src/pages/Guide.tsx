@@ -1,5 +1,6 @@
+import { useEffect } from 'react';
 import type { ReactNode } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useLocation } from 'react-router-dom';
 import { usePageTitle } from '../hooks/usePageTitle';
 
 /* ============================================================
@@ -23,6 +24,21 @@ function Section({ id, title, children }: { id: string; title: string; children:
 
 export default function Guide() {
   usePageTitle('Gambit — User Guide');
+  const location = useLocation();
+  // Links point at /guide#section — honor the hash AFTER this lazily
+  // mounted page (and its sections) exist; Layout scrolls to top on
+  // route change first, so this runs deliberately later.
+  useEffect(() => {
+    const id = location.hash.replace(/^#/, '');
+    if (!id) return;
+    const reduce =
+      typeof window.matchMedia === 'function' && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const timer = window.setTimeout(() => {
+      document.getElementById(id)?.scrollIntoView({ behavior: reduce ? 'auto' : 'smooth', block: 'start' });
+    }, 60);
+    return () => window.clearTimeout(timer);
+  }, [location.hash]);
+
   return (
     <div className="guide">
       <div className="container">
@@ -44,7 +60,10 @@ export default function Guide() {
               full move-by-move review with classifications and coach notes.
             </p>
             <p>
-              You never need an account. Nothing you do here is sent anywhere — see <a href="#storage">where your data lives</a>.
+              You never need an account. Local play and training keep everything on this device (see{' '}
+              <a href="#storage">where your data lives</a>). <strong>Online rooms are the one exception</strong>: an
+              anonymous guest session and a server hold the shared game — moves, clocks, and results — so two browsers
+              can play each other. No personal data is collected there either.
             </p>
           </Section>
 
@@ -55,14 +74,20 @@ export default function Guide() {
             </p>
             <ul>
               <li>Clearing site data <em>deletes everything</em> — export a backup first (Profile → Backup &amp; Restore).</li>
-              <li>Browser storage has a real ceiling (a few megabytes). If a save fails, a{' '}
-                <strong>storage banner</strong> appears on every page naming exactly what did not save, with recovery
-                routes — it never silently drops data.
+              <li>Browser storage has a real ceiling (a few megabytes). Your <strong>profile and finished games</strong>{' '}
+                are saved with verified read-back writes: when one fails, a <strong>storage banner</strong> appears on
+                every page naming exactly what did not save, with recovery routes.
+              </li>
+              <li>
+                Some secondary stores (studies, repertoires, training progress) are written without that verification
+                today — on a completely full browser their latest change can be lost quietly. Moving them to verified
+                writes is on the durability roadmap.
               </li>
               <li>
                 A <strong>backup file</strong> is a complete, checksummed export you own. An{' '}
                 <strong>emergency game file</strong> (offered when a finished game could not be saved) is a single-game
-                rescue — explicitly not a complete backup.
+                rescue — explicitly not a complete backup. A storage problem never locks you out of these exports: even
+                a full store can still be read and exported.
               </li>
               <li>Two tabs of the app share one storage: the last write wins. Avoid playing in two tabs at once.</li>
             </ul>
@@ -103,11 +128,13 @@ export default function Guide() {
 
           <Section id="compat" title="Browsers that run Gambit">
             <p>
-              Gambit needs three things from a browser: <strong>local storage</strong> (to save anything at all),{' '}
-              <strong>Web Workers</strong> and <strong>WebAssembly</strong> (the engine is a WASM module that thinks in a
-              background worker). Every current Chrome, Edge, Firefox, and Safari has them. If one is missing — hardened
-              private modes can disable site data — the app shows a plain explanation instead of half-working, and
-              nothing is saved or changed behind your back.
+              One capability is required to start: <strong>Web Workers</strong> — both chess engines think in a
+              background worker, and without one no engine can run, so the app explains that instead of booting into a
+              broken board. Missing <strong>WebAssembly</strong> does <em>not</em> block anything: the strong Stockfish
+              engine needs it, and without it the app automatically falls back to the built-in lightweight engine.
+              Storage problems never lock you out either — a full or read-only store can still be read and exported, and
+              the storage banner explains any write that fails. Every current Chrome, Edge, Firefox, and Safari runs
+              Gambit fully.
             </p>
           </Section>
 

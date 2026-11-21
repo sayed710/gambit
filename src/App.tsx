@@ -1,9 +1,7 @@
-import { Suspense, lazy, useMemo } from 'react';
+import { Suspense, lazy } from 'react';
 import { Route, Routes } from 'react-router-dom';
 import Layout from './components/Layout';
-import CompatGate from './components/CompatGate';
 import { KnightMark } from './components/Icons';
-import { detectCompat } from './lib/compat';
 import { useUnsavedUnloadGuard } from './lib/persistStatus';
 import Home from './pages/Home';
 import Play from './pages/Play';
@@ -30,12 +28,9 @@ const Guide = lazy(() => import('./pages/Guide'));
 export default function App() {
   // App-level unload guard: finished games that never persisted keep warning
   // across SPA navigation (the game screen unmounts; the session store does not).
+  // The compatibility gate lives one level up (AppGate) — it must decide
+  // BEFORE these routes (and their providers) ever mount.
   useUnsavedUnloadGuard();
-  // Compat gate (PR-E): when a required capability is missing, the app is
-  // replaced by an honest explanation — never booted half-broken. Feature
-  // detection is cheap and stable per page load; memoized for clarity.
-  const compat = useMemo(() => detectCompat(), []);
-  if (!compat.ok) return <CompatGate missing={compat.missing} />;
   return (
     <Routes>
       <Route element={<Layout />}>

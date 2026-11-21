@@ -24,7 +24,7 @@ const CARDS = [
     to: '/guide#storage',
     icon: '⛁',
     title: 'Your games stay on this device',
-    body: 'Everything is saved in this browser — no account, no server. Backups export as a file you own; the storage guide explains exactly what is kept where.',
+    body: 'Local games and training are saved in this browser — no account needed. Online rooms run on a server so two browsers can play, using an anonymous guest session. Backups export as a file you own.',
     cta: 'How storage works',
   },
   {

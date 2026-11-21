@@ -1,39 +1,42 @@
 import { describe, expect, it } from 'vitest';
-import { COMPAT_FEATURES, COMPAT_LABELS, detectCompat } from './compat';
+import { BOOT_BLOCKERS, COMPAT_LABELS, DEGRADATIONS, detectCompat } from './compat';
 
-describe('detectCompat', () => {
-  it('every capability present -> ok with no missing entries', () => {
-    const report = detectCompat({ 'local-storage': true, 'web-worker': true, webassembly: true });
-    expect(report).toEqual({ ok: true, missing: [] });
+describe('detectCompat (two tiers)', () => {
+  it('workers present -> the app boots; missing WASM only degrades', () => {
+    const report = detectCompat({ 'web-worker': true, webassembly: false });
+    expect(report.ok).toBe(true);
+    expect(report.missing).toEqual([]);
+    expect(report.degraded).toEqual(['webassembly']);
   });
 
-  it('each capability is REQUIRED — removing any one fails the gate', () => {
-    for (const dropped of COMPAT_FEATURES) {
-      const probe = Object.fromEntries(COMPAT_FEATURES.map((f) => [f, f !== dropped])) as Record<
-        typeof dropped,
-        boolean
-      >;
-      const report = detectCompat(probe);
-      expect(report.ok, dropped).toBe(false);
-      expect(report.missing, dropped).toEqual([dropped]);
-    }
+  it('a missing Worker is a BOOT BLOCKER (no engine can run at all)', () => {
+    const report = detectCompat({ 'web-worker': false, webassembly: true });
+    expect(report.ok).toBe(false);
+    expect(report.missing).toEqual(['web-worker']);
+    expect(report.degraded).toEqual([]);
   });
 
-  it('all capabilities missing -> every entry reported in the stable order', () => {
-    const report = detectCompat({ 'local-storage': false, 'web-worker': false, webassembly: false });
-    expect(report).toEqual({ ok: false, missing: [...COMPAT_FEATURES] });
+  it('both missing -> blocked with the blocker reported (wasm stays a degradation)', () => {
+    const report = detectCompat({ 'web-worker': false, webassembly: false });
+    expect(report).toEqual({ ok: false, missing: ['web-worker'], degraded: ['webassembly'] });
   });
 
   it('keys left out of the probe fall through to the real runtime check', () => {
-    // jsdom has no Worker implementation but does have localStorage and
-    // (via the Node runtime) WebAssembly — only the worker can be missing
+    // jsdom has no Worker implementation but does have (via the Node
+    // runtime) WebAssembly — the default runtime must NOT boot here
     const report = detectCompat({ webassembly: true });
     expect(report.ok).toBe(false);
     expect(report.missing).toEqual(['web-worker']);
   });
 
+  it('local storage is deliberately NOT a boot requirement (quota-full stores must keep their export path)', () => {
+    expect(BOOT_BLOCKERS).not.toContain('local-storage');
+    expect(DEGRADATIONS).not.toContain('local-storage');
+    expect(Object.keys(COMPAT_LABELS)).not.toContain('local-storage');
+  });
+
   it('every feature carries a plain-language label and reason', () => {
-    for (const feature of COMPAT_FEATURES) {
+    for (const feature of [...BOOT_BLOCKERS, ...DEGRADATIONS]) {
       expect(COMPAT_LABELS[feature].label.length).toBeGreaterThan(0);
       expect(COMPAT_LABELS[feature].why.length).toBeGreaterThan(0);
     }

@@ -1,49 +1,45 @@
 /* ============================================================
    compat — the browser-compatibility gate (stabilization PR-E).
 
-   Feature-DETECT, never user-agent sniffing: the three
-   capabilities below are the app's true minimum (settings and
-   games persist through localStorage; the engine runs in a Web
-   Worker compiled to WebAssembly). Each check is a pure function
-   of the runtime, and every check can be overridden through the
-   `probe` argument so tests can simulate partial browsers.
+   Feature-DETECT, never user-agent sniffing. Two tiers, so the
+   gate never blocks a browser the app can actually serve:
 
-   Missing ANY required capability renders CompatGate instead of
-   the app — an honest, quiet explanation, never a silent crash.
+   - BOOT BLOCKERS: a browser without Workers cannot run ANY
+     chess engine (both the Stockfish path and the built-in
+     fallback live in a module worker), and an exception at
+     Play mount would crash the app — these gate the boot.
+   - DEGRADATIONS: missing WebAssembly still boots — the app
+     automatically falls back to the built-in lightweight
+     JavaScript engine (and says so). Never a blocker.
+   - Local storage is deliberately NOT gated: a quota-full or
+     read-only store can still READ and EXPORT existing data,
+     and the storage-failure banner (PR-A) owns that truth with
+     recovery routes. Hard-gating on it would lock users out of
+     their own backups.
+
+   Every check is overridable through the `probe` argument so
+   tests can simulate partial browsers.
    ============================================================ */
 
-export type CompatFeature = 'local-storage' | 'web-worker' | 'webassembly';
+export type CompatFeature = 'web-worker' | 'webassembly';
 
-export const COMPAT_FEATURES: readonly CompatFeature[] = ['local-storage', 'web-worker', 'webassembly'];
+/** capabilities without which the app cannot boot at all */
+export const BOOT_BLOCKERS: readonly CompatFeature[] = ['web-worker'];
 
-/** Plain-language label + why the capability matters (guide-linked). */
+/** capabilities whose absence merely degrades the experience */
+export const DEGRADATIONS: readonly CompatFeature[] = ['webassembly'];
+
+/** Plain-language label + what changes when it is missing. */
 export const COMPAT_LABELS: Record<CompatFeature, { label: string; why: string }> = {
-  'local-storage': {
-    label: 'Local storage',
-    why: 'Your settings, games, and training progress are saved in the browser.',
-  },
   'web-worker': {
     label: 'Web Workers',
-    why: 'The chess engine thinks in a background worker so the board never freezes.',
+    why: 'Both chess engines think in a background worker so the board never freezes — without one no engine can run.',
   },
   webassembly: {
     label: 'WebAssembly',
-    why: 'The engine itself is a WebAssembly module — the same technology every modern chess site runs on.',
+    why: 'The strong Stockfish engine is a WebAssembly module. Without it the app still runs and falls back to the built-in lightweight engine.',
   },
 };
-
-function hasWritableLocalStorage(): boolean {
-  try {
-    const key = 'gambit.compat.probe';
-    window.localStorage.setItem(key, '1');
-    window.localStorage.removeItem(key);
-    return true;
-  } catch {
-    // private-mode quotas, disabled storage, or a hardened profile —
-    // all of them mean the app cannot save anything, ever
-    return false;
-  }
-}
 
 function hasWebWorker(): boolean {
   return typeof Worker !== 'undefined';
@@ -54,16 +50,17 @@ function hasWebAssembly(): boolean {
 }
 
 const DETECTORS: Record<CompatFeature, () => boolean> = {
-  'local-storage': hasWritableLocalStorage,
   'web-worker': hasWebWorker,
   webassembly: hasWebAssembly,
 };
 
 export interface CompatReport {
-  /** true when every required capability is present */
+  /** true when every boot blocker is present — the app may mount */
   ok: boolean;
-  /** the required capabilities that are missing (empty when ok) */
+  /** boot blockers that are missing (empty when ok) */
   missing: CompatFeature[];
+  /** present-tier degradations: missing but non-blocking */
+  degraded: CompatFeature[];
 }
 
 /**
@@ -73,9 +70,12 @@ export interface CompatReport {
  */
 export function detectCompat(probe?: Partial<Record<CompatFeature, boolean>>): CompatReport {
   const missing: CompatFeature[] = [];
-  for (const feature of COMPAT_FEATURES) {
-    const result = probe?.[feature] ?? DETECTORS[feature]();
-    if (!result) missing.push(feature);
+  const degraded: CompatFeature[] = [];
+  for (const feature of BOOT_BLOCKERS) {
+    if (!(probe?.[feature] ?? DETECTORS[feature]())) missing.push(feature);
   }
-  return { ok: missing.length === 0, missing };
+  for (const feature of DEGRADATIONS) {
+    if (!(probe?.[feature] ?? DETECTORS[feature]())) degraded.push(feature);
+  }
+  return { ok: missing.length === 0, missing, degraded };
 }
