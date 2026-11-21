@@ -50,12 +50,13 @@ const check = (name, ok, detail = '') => {
 };
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 
-/* real SQL against the local stack (same pattern as online-db-check):
-   used to backdate a rematch request past its 10-minute window */
+/* real SQL against the local stack (same pattern as online-db-check,
+   which also targets the container ID, not its name): used to backdate a
+   rematch request past its 10-minute window */
 const PSQL_CONTAINER = (() => {
   try {
-    const names = execSync('docker ps --format "{{.Names}}"', { encoding: 'utf8', shell: true });
-    return names.split(/\r?\n/).find((n) => n.includes('_db_'))?.trim() ?? null;
+    const rows = execSync('docker ps --format "{{.ID}}  {{.Names}}"', { encoding: 'utf8', shell: true });
+    return rows.split(/\r?\n/).find((n) => n.includes('_db_'))?.split(/\s+/)[0]?.trim() ?? null;
   } catch {
     return null;
   }
@@ -483,10 +484,11 @@ try {
 
     /* RENEWAL (F-HIGH recovery path): a pending offer whose 10-minute
        window has passed must be recoverable by the OFFERER alone. The UI
-       shows a Renew affordance (gated by the local clock) and the renewal
-       call is the same server-authoritative offer operation, which
-       adjudicates the stale request on the DATABASE clock. The opponent
-       takes NO action in this whole scenario. */
+       keeps a Renew affordance available WHILE the request is pending —
+       never gated by the local clock — and the renewal call is the same
+       server-authoritative offer operation, which adjudicates the stale
+       request on the DATABASE clock. The opponent takes NO action until
+       the RENEWED offer is presented to them. */
     {
       // rematch #2 is still ACTIVE here — complete it first (B resigns)
       await pB.locator('button:has-text("Resign")').first().click();
@@ -513,12 +515,14 @@ try {
       check('RM-RENEW: the pending offer was backdated 11 minutes (real SQL)', /^[0-9a-f-]{36}$/.test(staleReqId), staleReqId.slice(0, 8));
       psql(`update rematch_requests set created_at = now() - interval '11 minutes' where id = '${staleReqId}'`);
 
-      // the offerer's UI surfaces the renewal affordance (local-clock gate)
+      // the offerer's UI surfaces the renewal affordance — it is ALWAYS
+      // available while the request is pending, never gated by the local
+      // clock (a slow clock must not hide the recovery path)
       const renewBtn = await pollUntil(pB, () => {
         const btn = [...document.querySelectorAll('.status-banner button')].find((x) => x.textContent?.includes('Renew offer'));
         return btn ? !btn.disabled : false;
       }, 15000);
-      check('RM-RENEW: the RENEW affordance appears for the stale pending offer', !!renewBtn);
+      check('RM-RENEW: the RENEW affordance is available while pending (clock-independent)', !!renewBtn);
       await pB.locator('.status-banner button:has-text("Renew offer")').click();
 
       // server truth: the stale row is EXPIRED and a FRESH pending exists
@@ -531,29 +535,53 @@ try {
       check('RM-RENEW: the renewal adjudicated the stale offer EXPIRED and created a FRESH pending',
         renewedState.includes('expired') && renewedState.includes('pending'), `rows=${renewedState}`);
 
-      // the fresh request restarts the window — the affordance disappears
-      const renewGone = await pollUntil(pB, () => {
+      // the offerer's banner keeps tracking the LATEST request (the UI
+      // re-reads it right after the renewal call)
+      const stillPending = await pollUntil(pB, () => {
         const banner = document.querySelector('.status-banner')?.textContent ?? '';
-        const renewStill = [...document.querySelectorAll('.status-banner button')].some((x) => x.textContent?.includes('Renew offer'));
-        return banner.includes('Rematch pending') && !renewStill;
+        return banner.includes('Rematch pending');
       }, 15000);
-      check('RM-RENEW: the fresh pending offer restarted the window (renew button gone)', !!renewGone);
+      check('RM-RENEW: the offerer keeps a pending banner across the renewal', !!stillPending);
 
       // BOTH participants hold the correct state: the opponent — idle all
-      // along — sees the RENEWED offer with an enabled Accept
+      // along — must receive the NEW request id, not the stale one. The
+      // decisive proof is behavioral: intercept the UI-initiated accept
+      // and compare its payload against the latest server-created id
+      // (accepting the STALE id would be refused 409 — it is expired).
       const aSeesRenewed = await pollUntil(pA, () => {
         const accept = [...document.querySelectorAll('.status-banner button')].find((x) => x.textContent?.includes('Accept'));
         return accept ? !accept.disabled : false;
       }, 15000);
       check('RM-RENEW: the idle opponent sees the RENEWED offer (correct state both sides)', !!aSeesRenewed);
-
-      // leave a clean state: the offerer withdraws the renewed request
-      await pB.locator('.status-banner button:has-text("Cancel request")').click();
-      const offerBack = await pollUntil(pB, () => {
-        const btn = [...document.querySelectorAll('.online-result-card button')].find((x) => x.textContent?.includes('Rematch'));
-        return btn ? !btn.disabled : false;
-      }, 15000);
-      check('RM-RENEW: cancelling the renewed offer returns the offer action', !!offerBack);
+      const newReqId = psql(
+        `select id from rematch_requests where game_id = '${rmId2}' and status = 'pending' order by created_at desc limit 1`,
+      );
+      check('RM-RENEW: the server holds a fresh pending id distinct from the stale one', /^[0-9a-f-]{36}$/.test(newReqId) && newReqId !== staleReqId);
+      let acceptPayload = null;
+      await pA.route('**/functions/v1/rematch', async (route) => {
+        try {
+          acceptPayload = JSON.parse(route.request().postData() ?? '{}');
+        } catch { /* not the acceptance call */ }
+        await route.continue();
+      });
+      await pA.locator('.status-banner button:has-text("Accept")').click();
+      const aLive3 = await pollUntil(pA, () => {
+        const overlayGone = !document.querySelector('.online-result-overlay');
+        const liveMounted = !!document.querySelector('.online-live');
+        return overlayGone && liveMounted;
+      }, 30000);
+      check('RM-RENEW: the idle opponent ACCEPTS the renewed offer (lands on the new game)', !!aLive3);
+      check('RM-RENEW: the acceptance carried the NEW request id from the opponent UI',
+        acceptPayload?.requestId === newReqId && newReqId !== staleReqId,
+        `sent=${String(acceptPayload?.requestId ?? 'none').slice(0, 8)} new=${newReqId.slice(0, 8)}`);
+      await pA.unroute('**/functions/v1/rematch');
+      // the offerer is pulled into the accepted game by the same poll
+      const bLive3 = await pollUntil(pB, () => {
+        const overlayGone = !document.querySelector('.online-result-overlay');
+        const liveMounted = !!document.querySelector('.online-live');
+        return overlayGone && liveMounted;
+      }, 30000);
+      check('RM-RENEW: the offerer follows into the accepted game (both participants converge)', !!bLive3);
     }
   }
 

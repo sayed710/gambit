@@ -180,23 +180,3 @@ export function expiryOutcome(
     ...timeoutResult(c, clock.turn),
   };
 }
-
-/** The rematch offer acceptance window. Server truth is the DATABASE
-    clock inside the offer/accept transactions (10 minutes); this mirror
-    exists only for the client's renewal-affordance gate and the tests. */
-export const REMATCH_WINDOW_MS = 10 * 60 * 1000;
-
-/**
- * Whether a PENDING rematch offer is past its acceptance window per ONE
- * timestamp reading. The client uses this ONLY to show the renewal
- * affordance — a browser clock is never proof of expiration: the same
- * authoritative offer operation adjudicates the request server-side (a
- * still-live offer returns unchanged and idempotent; an expired one is
- * adjudicated and replaced by a fresh pending request).
- */
-export function rematchWindowElapsed(createdAtIso: string | null, nowMs: number): boolean {
-  if (!createdAtIso) return false;
-  const created = new Date(createdAtIso).getTime();
-  if (Number.isNaN(created)) return false; // unreadable timestamp — never claim expiry
-  return nowMs - created >= REMATCH_WINDOW_MS;
-}

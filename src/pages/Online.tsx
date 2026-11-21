@@ -20,7 +20,6 @@ import {
 } from '../lib/online/supabase';
 import { formatClock, formatTimeControl, projectClocks } from '../lib/online/clock';
 import { createReadinessScheduler } from '../lib/online/readinessScheduler';
-import { rematchWindowElapsed } from '../../supabase/functions/_shared/serverRules.ts';
 import { useClickToMove } from '../hooks/useClickToMove';
 import { playSound } from '../lib/sound';
 import type { PendingPromotion } from '../hooks/useGame';
@@ -176,15 +175,14 @@ function LiveGame({
 
   const rematchPendingMine = rematch?.status === 'pending' && rematch.requester_id === me;
   const rematchPendingTheirs = rematch?.status === 'pending' && rematch.requester_id !== me;
-  /* A pending offer of OURS past the 10-minute window per the LOCAL clock
-     shows the renewal affordance — the browser clock only GATES the
-     button and is never proof of expiration: the renewal call is the same
-     server-authoritative offer operation, which adjudicates the request
-     on the DATABASE clock (a still-live offer returns unchanged; an
-     expired one is replaced by a fresh pending request). The 2s poll
-     re-renders this read, so the button appears without its own timer. */
-  const rematchOfferStale =
-    rematchPendingMine && !!rematch && rematchWindowElapsed(rematch.created_at, Date.now());
+  /* The requester can always RE-CHECK their pending offer — the renewal
+     affordance never depends on the local clock (a slow browser clock
+     must not hide the recovery path after the DATABASE already considers
+     the request expired). The renewal call is the same server-
+     authoritative offer operation: a still-live request returns
+     unchanged and idempotently; an expired one is adjudicated on the
+     database clock and replaced by a fresh pending request; an already-
+     accepted rematch returns its existing destination. */
   // F4 — after a declined/expired request the slot is free: offer again
   const canOfferRematch =
     finished && game.status === 'completed' && (!rematch || rematch.status === 'declined' || rematch.status === 'expired');
@@ -738,11 +736,9 @@ function LiveGame({
                 {rematchPendingMine && (
                   <>
                     Rematch pending — waiting for {opponentName} to accept.
-                    {rematchOfferStale && (
-                      <button className="btn btn-gold btn-sm" disabled={rematchBusy} onClick={() => void offerRematch()}>
-                        Renew offer
-                      </button>
-                    )}
+                    <button className="btn btn-gold btn-sm" disabled={rematchBusy} onClick={() => void offerRematch()}>
+                      Renew offer
+                    </button>
                     <button className="btn btn-ghost btn-sm" disabled={rematchBusy} onClick={() => void cancelRematch()}>
                       Cancel request
                     </button>
