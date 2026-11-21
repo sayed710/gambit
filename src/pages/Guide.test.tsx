@@ -1,5 +1,5 @@
 import type { ReactElement } from 'react';
-import { cleanup, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import Guide from './Guide';
@@ -27,11 +27,29 @@ describe('Guide page', () => {
     expect(text).toContain('still be read and exported');
   });
 
-  it('distinguishes the local device truth from the online server truth', () => {
+  it('distinguishes the local device truth from the online server truth (no absolute privacy claim)', () => {
     renderWithRouter(<Guide />);
     const text = document.body.textContent ?? '';
     expect(text).toContain('the one exception');
     expect(text).toContain('anonymous guest session');
+    expect(text).toContain('display name you choose'); // the server stores the chosen name
+    expect(text).not.toContain('No personal data'); // removed absolute claim
+  });
+
+  it('an in-guide cross-reference stays ON the guide (raw # anchors would break HashRouter)', () => {
+    const spy = vi.fn();
+    const original = Element.prototype.scrollIntoView;
+    Element.prototype.scrollIntoView = spy;
+    try {
+      renderWithRouter(<Guide />, { route: '/guide' });
+      fireEvent.click(screen.getByRole('link', { name: 'where your data lives' }));
+      // the guide REMAINS mounted (never routed away) and the hash effect scrolls
+      expect(document.getElementById('storage')).toBeTruthy();
+      expect(screen.getByRole('heading', { name: 'A quiet place to play chess — how it works' })).toBeTruthy();
+      vi.waitFor(() => expect(spy).toHaveBeenCalled());
+    } finally {
+      Element.prototype.scrollIntoView = original;
+    }
   });
 
   it('is reachable content, not an empty shell (back link present)', () => {

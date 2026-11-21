@@ -13,12 +13,9 @@ import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import AppGate from './AppGate';
 import './index.css';
-import { initPwa } from './lib/pwa';
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <AppGate />
   </StrictMode>,
 );
-
-initPwa();
