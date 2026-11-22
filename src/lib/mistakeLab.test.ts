@@ -654,6 +654,32 @@ describe('report cache verification (shared by Review fast path + Lab harvest)',
     expect(isReportCacheUsable(allFailed, rec.moves, rec.initialFen)).toBe(false);
   });
 
+  it('COMPLETENESS: malformed EVAL SHAPES (empty object, non-numeric cp, fractional mateIn) are unusable', () => {
+    const { rec, report } = gameWithMistake();
+    const withEvalAt = (shape: unknown): GameReport => ({
+      ...report,
+      evals: report.evals.map((e, i) => (i === 2 ? (shape as typeof e) : e)),
+    });
+
+    // (1) an EMPTY eval object — no cp, no mateIn, no bestSan at all
+    const empty: GameReport = withEvalAt({});
+    expect(verifyReportAgainstGame(empty, rec.moves, rec.initialFen).ok).toBe(false);
+    expect(isReportCacheUsable(empty, rec.moves, rec.initialFen)).toBe(false);
+
+    // (2) a NON-NUMERIC cp (a string where the engine must produce a number)
+    const stringCp: GameReport = withEvalAt({ cp: '250' as unknown as number, mateIn: null, bestSan: null });
+    expect(verifyReportAgainstGame(stringCp, rec.moves, rec.initialFen).ok).toBe(false);
+    expect(isReportCacheUsable(stringCp, rec.moves, rec.initialFen)).toBe(false);
+
+    // (3) a FRACTIONAL mateIn — mate depth is an integer, never 1.5 moves
+    const fractionalMate: GameReport = withEvalAt({ cp: 0, mateIn: 1.5 as unknown as number, bestSan: null });
+    expect(verifyReportAgainstGame(fractionalMate, rec.moves, rec.initialFen).ok).toBe(false);
+    expect(isReportCacheUsable(fractionalMate, rec.moves, rec.initialFen)).toBe(false);
+
+    // control: the untouched healthy cache still verifies (fast path preserved)
+    expect(isReportCacheUsable(report, rec.moves, rec.initialFen)).toBe(true);
+  });
+
   it('COMPLETENESS: a complete healthy report verifies with every FEN present', () => {
     const { rec, report } = gameWithMistake();
     const v = verifyReportAgainstGame(report, rec.moves, rec.initialFen);
