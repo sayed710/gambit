@@ -11,6 +11,7 @@ import {
   dueExercises,
   emptyLabState,
   gradeLabMove,
+  loadLab,
   harvestAll,
   harvestFromGame,
   isMastered,
@@ -162,6 +163,22 @@ describe('harvestFromGame', () => {
     };
     const harvest = harvestFromGame(rec, reportFor(GAME_MOVES, both), NOW);
     expect(harvest.exercises.map((x) => x.ply)).toEqual([4]); // only the solvable one
+  });
+
+  it('ADVERSARIAL: a CUSTOM-START game harvests from its real replay', () => {
+    // K+R vs K drill start; white wastes time with Kd1?? instead of
+    // cutting with Ra7 — the before-position must come from the CUSTOM
+    // start, never the standard one
+    const initialFen = '4k3/8/8/8/8/8/8/R3K3 w - - 0 1';
+    const moves = ['Kd1', 'Kd7'];
+    const rec = makeRecord({ moves, initialFen, playerColor: 'w' });
+    const report = reportFor(moves, { 0: { classification: 'blunder', cpl: 250, bestSan: 'Ra7' } });
+    const harvest = harvestFromGame(rec, report, NOW);
+    expect(harvest.status).toBe('ok');
+    expect(harvest.exercises).toHaveLength(1);
+    const ex = harvest.exercises[0];
+    expect(ex.fenBefore).toBe(initialFen); // the CUSTOM start, not the standard one
+    expect(ex.bestSan).toBe('Ra7'); // legal from the custom position (rook a1 -> a7)
   });
 
   it('REGRESSION: a NONCANONICAL stored move still replays (zeros-style castling)', () => {
@@ -331,6 +348,30 @@ describe('sessions (resumable)', () => {
     const exercises = ids.map((id, i) => ({ ...ex, id, gameId: `g${i}` }));
     return { ...emptyLabState(), exercises };
   }
+
+  it('ADVERSARIAL: a persisted session referencing MISSING exercises is sanitized on load (no UI deadlock)', () => {
+    // a corrupt/partial write left a queue entry whose exercise is gone:
+    // loadLab must reconcile, or the page deadlocks between runner and summary
+    const state = stateWith(['real-a', 'real-b']);
+    const corrupted = {
+      ...state,
+      session: { queue: ['ghost', 'real-a', 'real-b'], index: 0, startedAt: NOW, results: [], flags: { ghost: { assisted: true, firstTry: false } } },
+    };
+    localStorage.setItem('gambit.mistakeLab.v1', JSON.stringify(corrupted));
+    const loaded = loadLab();
+    expect(loaded.session?.queue).toEqual(['real-a', 'real-b']);
+    expect(currentExercise(loaded)?.id).toBe('real-a'); // serves a LIVE exercise
+  });
+
+  it('ADVERSARIAL: a session whose ENTIRE queue is missing is dropped on load', () => {
+    const state = stateWith(['real-a']);
+    const corrupted = {
+      ...state,
+      session: { queue: ['ghost-1', 'ghost-2'], index: 1, startedAt: NOW, results: [], flags: {} },
+    };
+    localStorage.setItem('gambit.mistakeLab.v1', JSON.stringify(corrupted));
+    expect(loadLab().session).toBeNull(); // back to a clean, startable state
+  });
 
   it('startSession queues due exercises (capped) and currentExercise serves them in order', () => {
     const state = stateWith(['a', 'b', 'c']);

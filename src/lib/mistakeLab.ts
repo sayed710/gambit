@@ -107,10 +107,14 @@ function normalizeState(raw: unknown): MistakeLabState {
           flags: state.session.flags && typeof state.session.flags === 'object' ? state.session.flags : {},
         }
       : null;
+  // a persisted session may reference exercises that failed normalization
+  // (corrupt/partial write) — without sanitizing, the page would deadlock:
+  // an active session whose current exercise can never render
+  const saneSession = sanitizeSession(session, exercises);
   return {
     version: 1,
     exercises,
-    session,
+    session: saneSession,
     lastHarvestAt: typeof state.lastHarvestAt === 'number' ? state.lastHarvestAt : null,
   };
 }

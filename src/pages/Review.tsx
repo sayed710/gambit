@@ -143,6 +143,17 @@ export default function Review() {
         },
         onComplete: (rep) => {
           if (isStale()) return;
+          // a run where the engine answered NOTHING (every evaluation
+          // failed) is a FAILED analysis, not a clean 100%-accuracy game:
+          // reporting it would be a false success and would overwrite the
+          // cached report with unusable data the Mistake Lab can never
+          // harvest. The old cache stays; the user is told to retry.
+          if (rep.evals.every((e) => e === null)) {
+            setAnalyzing(false);
+            setReport(null);
+            toast('The engine could not analyze this game — nothing was saved. Please try again.');
+            return;
+          }
           setReport(rep);
           setAnalyzing(false);
           if (record?.id) saveJSON(`review.${record.id}`, rep);
