@@ -17,6 +17,7 @@ import type { GameRecord } from '../lib/types';
 import { evalToUnit } from '../lib/review';
 import { runGameAnalysis, plyEvalFromEngineResult } from '../lib/reviewRunner';
 import { criticalMoments, refineGreatMoves, CLASSIFICATION_META, CLASSIFICATION_GLYPH, CRITICAL_CLASSES } from '../lib/review';
+import { harvestAll, loadLab, saveLab } from '../lib/mistakeLab';
 import { pressureCorrelation, timingStats } from '../lib/timeAnalytics';
 import { buildCoachLessons, type CoachLesson } from '../lib/coachEngine';
 import { contributeGameMotifs, motifAnalysisForReport } from '../lib/motifReview';
@@ -810,6 +811,21 @@ export default function Review() {
                 </p>
                 <button className="btn btn-accent btn-sm mt-2" onClick={startDrill} disabled={!report || analyzing}>
                   Learn from your mistakes
+                </button>
+                <button
+                  className="btn btn-ghost btn-sm mt-2"
+                  onClick={() => {
+                    if (!report || !record) return;
+                    const result = saveLab(harvestAll({ games: [record] }, loadLab(), Date.now()).state);
+                    toast(
+                      result.state.exercises.some((x) => x.gameId === record.id)
+                        ? 'Mistakes sent to the Lab — find them under Train → Mistake Lab.'
+                        : 'Nothing to send — the review found no critical decisions with a verified best move.',
+                    );
+                  }}
+                  disabled={!report || analyzing}
+                >
+                  Send mistakes to the Lab
                 </button>
               </>
             )}

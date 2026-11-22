@@ -23,6 +23,7 @@ const Analysis = lazy(() => import('./pages/Analysis'));
 const Profile = lazy(() => import('./pages/Profile'));
 const Review = lazy(() => import('./pages/Review'));
 const Blindfold = lazy(() => import('./pages/Blindfold'));
+const MistakeLab = lazy(() => import('./pages/MistakeLab'));
 const Guide = lazy(() => import('./pages/Guide'));
 
 export default function App() {
@@ -84,6 +85,14 @@ export default function App() {
           element={
             <Suspense fallback={<PageLoading label="Loading today’s training…" />}>
               <Training />
+            </Suspense>
+          }
+        />
+        <Route
+          path="/lab"
+          element={
+            <Suspense fallback={<PageLoading label="Loading the Mistake Lab…" />}>
+              <MistakeLab />
             </Suspense>
           }
         />
