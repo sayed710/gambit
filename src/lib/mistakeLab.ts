@@ -1,11 +1,10 @@
 import { checkedSetJSON } from './persist';
 import { reportPersistFailure, clearPersistStatus } from './persistStatus';
 import { loadJSON } from './storage';
-import { CRITICAL_CLASSES, type GameReport, type MoveClass } from './review';
+import { Chess } from 'chess.js';
+import { CRITICAL_CLASSES, verifyReportAgainstGame, type GameReport, type MoveClass } from './review';
 import type { GameRecord } from './types';
 import { normalizeSrRecord, scheduleSr, type SrGrade, type SrRecord } from './trainingStore';
-import { Chess } from 'chess.js';
-import type { Move } from 'chess.js';
 
 /* ============================================================
    mistakeLab — Personal Mistake Lab (Gambit 2.0, milestone 1).
@@ -171,49 +170,30 @@ export interface GameHarvest {
 }
 
 export function harvestFromGame(record: GameRecord, report: GameReport, now: number): GameHarvest {
-  if (record.moves.length !== report.reviews.length) return { status: 'rejected', exercises: [] }; // cache/game mismatch
-  // the cached evaluations must cover every replayed ply — a short evals
-  // array means the cache cannot be fully verified, so nothing is accepted
-  if (!Array.isArray(report.evals) || report.evals.length < record.moves.length) return { status: 'rejected', exercises: [] };
-  let game: Chess;
-  try {
-    game = new Chess(record.initialFen ?? undefined);
-  } catch {
-    return { status: 'rejected', exercises: [] };
-  }
-  // candidates are held back until the WHOLE game verifies: a divergence
-  // discovered at ANY later ply rejects the harvest entirely — a partially
-  // verified game never contributes exercises
+  // ONE shared, chess-backed verification (review.ts): lengths agree,
+  // every stored move replays legally (noncanonical spellings allowed),
+  // and each cached review names the same canonical move + mover color.
+  // No chess validation is duplicated here.
+  const verification = verifyReportAgainstGame(report, record.moves, record.initialFen);
+  if (!verification.ok || !verification.fensBefore) return { status: 'rejected', exercises: [] };
+  const fensBefore = verification.fensBefore;
+  // the full replay verified — candidates are filtered from trusted data:
   const candidates: LabExercise[] = [];
   for (let ply = 0; ply < record.moves.length; ply++) {
-    // the REPLAY advances for EVERY ply — exercise filtering must never
-    // skip moves, or the position drifts out of alignment with the report
-    const fenBefore = game.fen();
-    let played: Move;
-    try {
-      played = game.move(record.moves[ply]);
-    } catch {
-      return { status: 'rejected', exercises: [] }; // stored text does not replay
-    }
-    if (!played) return { status: 'rejected', exercises: [] };
-    // the STORED text may spell the move noncanonically (restored games,
-    // zero-style castling) — legality is what matters: the CANONICAL SAN
-    // from the replay is what the cached review must describe
     const review = report.reviews[ply];
     const evalBefore = report.evals[ply];
-    if (!review || review.san !== played.san || review.color !== played.color) return { status: 'rejected', exercises: [] };
     if (!evalBefore?.bestSan) continue; // no verified best move -> no exercise
     // a personal-mistake lab trains THE PLAYER's decisions only
-    if (played.color !== record.playerColor) continue;
+    if (review.color !== record.playerColor) continue;
     if (!isCritical(review.classification)) continue;
-    if (evalBefore.bestSan === played.san) continue; // played the best move — not a mistake to retry
+    if (evalBefore.bestSan === review.san) continue; // played the best move — not a mistake to retry
     // the verified answer must be PLAYABLE in the presented position AND
     // canonically identical to what the board will submit: a legal move
     // whose canonical SAN differs from the cached text (a dropped check/
-    // mate suffix) would make the exercise unsolvable — skip it (the
-    // replay itself is unaffected, no substitute is invented)
+    // mate suffix) would make the exercise unsolvable — skip it (no
+    // substitute is invented)
     try {
-      const best = new Chess(fenBefore).move(evalBefore.bestSan);
+      const best = new Chess(fensBefore[ply]).move(evalBefore.bestSan);
       if (!best || best.san !== evalBefore.bestSan) continue;
     } catch {
       continue;
@@ -224,9 +204,9 @@ export function harvestFromGame(record: GameRecord, report: GameReport, now: num
       opponent: record.opponentName,
       playedAt: record.date,
       ply,
-      fenBefore,
+      fenBefore: fensBefore[ply],
       side: review.color,
-      playedSan: played.san,
+      playedSan: review.san,
       bestSan: evalBefore.bestSan,
       classification: review.classification,
       cpl: review.cpl,
@@ -237,8 +217,7 @@ export function harvestFromGame(record: GameRecord, report: GameReport, now: num
       sr: freshSrRecord(now),
     });
   }
-  // the full replay verified — worst first, then cap: the lab trains the
-  // sharpest mistakes
+  // worst first, then cap: the lab trains the sharpest mistakes
   return { status: 'ok', exercises: candidates.sort((a, b) => b.cpl - a.cpl).slice(0, MAX_PER_GAME) };
 }
 

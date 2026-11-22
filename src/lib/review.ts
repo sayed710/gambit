@@ -304,3 +304,68 @@ export function evalToUnit(cp: number): number {
   // logistic-ish curve so small advantages stay readable
   return 1 / (1 + Math.exp(-v / 380));
 }
+
+
+/* ============================================================
+   Cache verification (Gambit 2.0 M1) — one shared, chess-backed
+   check that a cached GameReport really describes the game it
+   claims: same length, every move replays legally from the start,
+   and each cached review names THE SAME canonical move and mover
+   color in that position. Review's fast path and the Mistake
+   Lab's harvest both consume this — chess validation lives here,
+   never duplicated.
+   ============================================================ */
+
+export interface ReportVerification {
+  ok: boolean;
+  /** canonical FEN before each ply — present only when ok */
+  fensBefore: string[] | null;
+}
+
+export function verifyReportAgainstGame(
+  report: GameReport,
+  moves: string[],
+  initialFen?: string,
+): ReportVerification {
+  if (!report || !Array.isArray(report.reviews) || report.reviews.length !== moves.length) {
+    return { ok: false, fensBefore: null };
+  }
+  if (!Array.isArray(report.evals) || report.evals.length < moves.length) {
+    return { ok: false, fensBefore: null };
+  }
+  let game: Chess;
+  try {
+    game = new Chess(initialFen ?? undefined);
+  } catch {
+    return { ok: false, fensBefore: null };
+  }
+  const fensBefore: string[] = [];
+  for (let ply = 0; ply < moves.length; ply++) {
+    const fenBefore = game.fen();
+    let played: import('chess.js').Move | null = null;
+    try {
+      played = game.move(moves[ply]);
+    } catch {
+      return { ok: false, fensBefore: null }; // the listed SAN does not replay
+    }
+    if (!played) return { ok: false, fensBefore: null };
+    const review = report.reviews[ply];
+    if (!review || review.san !== played.san || review.color !== played.color) {
+      return { ok: false, fensBefore: null }; // the cache describes a different game
+    }
+    fensBefore.push(fenBefore);
+  }
+  return { ok: true, fensBefore };
+}
+
+/** The Review cache fast path: a cache is trusted only when it is
+    semantically aligned with the actual game — a same-length but
+    mismatched cache must trigger reanalysis, never reuse. */
+export function isReportCacheUsable(
+  report: GameReport | null | undefined,
+  moves: string[],
+  initialFen?: string,
+): report is GameReport {
+  if (!report) return false;
+  return verifyReportAgainstGame(report, moves, initialFen).ok;
+}

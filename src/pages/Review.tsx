@@ -16,7 +16,7 @@ import type { GameReport, MoveClass, PlyEval } from '../lib/review';
 import type { GameRecord } from '../lib/types';
 import { evalToUnit } from '../lib/review';
 import { runGameAnalysis, plyEvalFromEngineResult } from '../lib/reviewRunner';
-import { criticalMoments, refineGreatMoves, CLASSIFICATION_META, CLASSIFICATION_GLYPH, CRITICAL_CLASSES } from '../lib/review';
+import { criticalMoments, isReportCacheUsable, refineGreatMoves, CLASSIFICATION_META, CLASSIFICATION_GLYPH, CRITICAL_CLASSES } from '../lib/review';
 import { harvestFromGame, loadLab, saveLab, sendGameToLab } from '../lib/mistakeLab';
 import { pressureCorrelation, timingStats } from '../lib/timeAnalytics';
 import { buildCoachLessons, type CoachLesson } from '../lib/coachEngine';
@@ -110,18 +110,13 @@ export default function Review() {
   const runAnalysis = useCallback(async () => {
     if (plies.length === 0 || analyzing) return;
     // finished games are immutable, cache the report so revisits are instant.
-    // A cache is only trusted when it is STRUCTURALLY complete (reviews AND
-    // a full evaluations array): a damaged cache would otherwise be reloaded
-    // forever, and the Mistake Lab would reject it on every send with no
-    // way to refresh — ignore it and regenerate instead.
+    // The fast path trusts a cache only when it is SEMANTICALLY aligned with
+    // this game (shared chess-backed verification — the same check the
+    // Mistake Lab applies): a same-length but mismatched cache would be
+    // rejected by the Lab on every send with no way to refresh — bypass it
+    // and regenerate instead.
     const cached = loadJSON<GameReport | null>(`review.${record?.id}`, null);
-    const cachedUsable =
-      cached &&
-      Array.isArray(cached.reviews) &&
-      cached.reviews.length === plies.length &&
-      Array.isArray(cached.evals) &&
-      cached.evals.length >= plies.length;
-    if (cached && cachedUsable) {
+    if (isReportCacheUsable(cached, plies.map((p) => p.san), record?.initialFen)) {
       setReport(cached);
       contributeMotifs(cached); // backfill caches saved before contributions existed (idempotent)
       return;

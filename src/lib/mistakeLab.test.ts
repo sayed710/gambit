@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { Chess } from 'chess.js';
-import type { GameReport, MoveClass } from './review';
+import { isReportCacheUsable, verifyReportAgainstGame, type GameReport, type MoveClass } from './review';
 import type { GameRecord } from './types';
 import type { SrRecord } from './trainingStore';
 import {
@@ -379,5 +379,45 @@ describe('sessions (resumable)', () => {
     const state = stateWith(['a', 'b']);
     const stats = labStats(state, NOW);
     expect(stats).toEqual({ total: 2, due: 2, mastered: 0, sources: 2 });
+  });
+});
+
+
+describe('report cache verification (shared by Review fast path + Lab harvest)', () => {
+  it('a healthy cache verifies and yields the canonical before-FENs', () => {
+    const { rec, report } = gameWithMistake();
+    const v = verifyReportAgainstGame(report, rec.moves, rec.initialFen);
+    expect(v.ok).toBe(true);
+    const probe = new Chess();
+    probe.move('e4');
+    probe.move('e5');
+    expect(v.fensBefore?.[2]).toBe(probe.fen());
+    // fast path preserved: a healthy cache avoids redundant engine analysis
+    expect(isReportCacheUsable(report, rec.moves, rec.initialFen)).toBe(true);
+  });
+
+  it('REGRESSION: a same-length cache with an INCORRECT SAN fails verification (reanalysis, not reuse)', () => {
+    const { rec, report } = gameWithMistake();
+    const mismatched: GameReport = {
+      ...report,
+      reviews: report.reviews.map((r, i) => (i === 4 ? { ...r, san: 'Qf3' } : r)), // wrong SAN, same length
+    };
+    expect(verifyReportAgainstGame(mismatched, rec.moves, rec.initialFen).ok).toBe(false);
+    expect(isReportCacheUsable(mismatched, rec.moves, rec.initialFen)).toBe(false); // -> fresh analysis runs
+  });
+
+  it('REGRESSION: a same-length cache with a WRONG MOVER COLOR fails verification', () => {
+    const { rec, report } = gameWithMistake();
+    const mismatched: GameReport = {
+      ...report,
+      reviews: report.reviews.map((r, i) => (i === 2 ? { ...r, color: 'b' as const } : r)),
+    };
+    expect(isReportCacheUsable(mismatched, rec.moves, rec.initialFen)).toBe(false);
+  });
+
+  it('a cache whose moves do not replay is unusable', () => {
+    const { report } = gameWithMistake();
+    expect(verifyReportAgainstGame(report, ['e4', 'e5', 'Qh5', 'Nc6', 'Bc4', 'Nf6', 'Qxf7#', 'Ke7'], undefined).ok).toBe(false);
+    expect(verifyReportAgainstGame(report, ['e4', 'Zz9'], undefined).ok).toBe(false);
   });
 });
