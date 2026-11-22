@@ -160,14 +160,19 @@ function isCritical(c: MoveClass): c is LabExercise['classification'] {
  */
 export function harvestFromGame(record: GameRecord, report: GameReport, now: number): LabExercise[] {
   if (record.moves.length !== report.reviews.length) return []; // cache/game mismatch — refuse, never guess
-  if (!Array.isArray(report.evals)) return []; // malformed cache — refuse (finding: sync must not throw)
+  // the cached evaluations must cover every replayed ply — a short evals
+  // array means the cache cannot be fully verified, so nothing is accepted
+  if (!Array.isArray(report.evals) || report.evals.length < record.moves.length) return [];
   let game: Chess;
   try {
     game = new Chess(record.initialFen ?? undefined);
   } catch {
     return [];
   }
-  const found: LabExercise[] = [];
+  // candidates are held back until the WHOLE game verifies: a divergence
+  // discovered at ANY later ply rejects the harvest entirely — a partially
+  // verified game never contributes exercises
+  const candidates: LabExercise[] = [];
   for (let ply = 0; ply < record.moves.length; ply++) {
     // the REPLAY advances for EVERY ply — exercise filtering must never
     // skip moves, or the position drifts out of alignment with the report
@@ -176,21 +181,29 @@ export function harvestFromGame(record: GameRecord, report: GameReport, now: num
     try {
       played = game.move(record.moves[ply]);
     } catch {
-      return found; // replay diverged — keep only what was verified so far
+      return []; // replay diverged — the whole game is refused
     }
-    if (!played || played.san !== record.moves[ply]) return found;
+    if (!played || played.san !== record.moves[ply]) return [];
     const review = report.reviews[ply];
     const evalBefore = report.evals[ply];
     // the cache must describe THIS move in THIS position — a same-length
     // cache from different moves is a mismatch, not a harvest (finding:
     // stale reviews create mismatched exercises)
-    if (!review || review.san !== played.san || review.color !== played.color) return found;
+    if (!review || review.san !== played.san || review.color !== played.color) return [];
     if (!evalBefore?.bestSan) continue; // no verified best move -> no exercise
     // a personal-mistake lab trains THE PLAYER's decisions only
     if (played.color !== record.playerColor) continue;
     if (!isCritical(review.classification)) continue;
     if (evalBefore.bestSan === played.san) continue; // played the best move — not a mistake to retry
-    found.push({
+    // the verified answer must be PLAYABLE in the presented position — an
+    // illegal bestSan would make the exercise unsolvable (skip it; the
+    // replay itself is unaffected)
+    try {
+      new Chess(fenBefore).move(evalBefore.bestSan);
+    } catch {
+      continue;
+    }
+    candidates.push({
       id: exerciseId(record.id, ply),
       gameId: record.id,
       opponent: record.opponentName,
@@ -209,8 +222,9 @@ export function harvestFromGame(record: GameRecord, report: GameReport, now: num
       sr: freshSrRecord(now),
     });
   }
-  // worst first, then cap — the lab trains the sharpest mistakes
-  return found.sort((a, b) => b.cpl - a.cpl).slice(0, MAX_PER_GAME);
+  // the full replay verified — worst first, then cap: the lab trains the
+  // sharpest mistakes
+  return candidates.sort((a, b) => b.cpl - a.cpl).slice(0, MAX_PER_GAME);
 }
 
 /**

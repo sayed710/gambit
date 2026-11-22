@@ -144,6 +144,33 @@ describe('harvestFromGame', () => {
     expect(harvestFromGame(rec, report, NOW)).toEqual([]);
   });
 
+  it("REGRESSION: a divergence found LATER rejects the WHOLE game — no partial harvest", () => {
+    // a valid mistake at ply 2, then the record's ply-5 move differs from
+    // the cached review (same length) — nothing from this game is accepted
+    const moves = [...GAME_MOVES];
+    moves[5] = 'Ke2'; // legal from the position, but NOT what the cache describes
+    const rec = makeRecord({ moves, playerColor: 'w' });
+    const report = reportFor(GAME_MOVES, { 2: MISTAKE_AT_2 }); // cache built for the ORIGINAL line
+    expect(harvestFromGame(rec, report, NOW)).toEqual([]); // not [ply-2 exercise]
+  });
+
+  it('REGRESSION: an illegal bestSan is rejected as UNSOLVABLE (legal answers still harvest)', () => {
+    // the eval claims Qxg7 — the queen on h5 has no line to g7: illegal in
+    // the presented position, so the exercise would be unsolvable
+    const mistakes: Record<number, { classification: MoveClass; cpl: number; bestSan: string }> = {
+      2: { classification: 'blunder', cpl: 320, bestSan: 'Qxg7' },
+    };
+    const rec = makeRecord({ moves: GAME_MOVES, playerColor: 'w' });
+    expect(harvestFromGame(rec, reportFor(GAME_MOVES, mistakes), NOW)).toEqual([]);
+    // a legal best move beside it still harvests — skip, not abort
+    const both: Record<number, { classification: MoveClass; cpl: number; bestSan: string }> = {
+      2: { classification: 'blunder', cpl: 320, bestSan: 'Qxg7' },
+      4: { classification: 'mistake', cpl: 180, bestSan: 'Qf3' }, // before Bc4, Qf3 is legal for white
+    };
+    const exercises = harvestFromGame(rec, reportFor(GAME_MOVES, both), NOW);
+    expect(exercises.map((x) => x.ply)).toEqual([4]); // only the solvable one
+  });
+
   it('caps the harvest per game at the worst MAX_PER_GAME mistakes', () => {
     const moves: string[] = [];
     const mistakes: Record<number, { classification: MoveClass; cpl: number; bestSan: string }> = {};
