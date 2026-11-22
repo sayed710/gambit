@@ -817,15 +817,20 @@ export default function Review() {
                   onClick={() => {
                     if (!report || !record) return;
                     // single-game merge — never orphan-reconciles other games' exercises
-                    const harvest = sendGameToLab(loadLab(), harvestFromGame(record, report, Date.now()), Date.now());
-                    const saved = saveLab(harvest.state);
+                    const verified = harvestFromGame(record, report, Date.now());
+                    if (verified.status === 'rejected') {
+                      toast('This game’s cached review could not be verified against the game record — nothing was sent. Re-run the Review to refresh it.');
+                      return;
+                    }
+                    const merge = sendGameToLab(loadLab(), verified.exercises, Date.now());
+                    const saved = saveLab(merge.state);
                     if (!saved.ok) {
                       toast('Could not save to the Lab — storage rejected the write. The storage banner has details.');
                       return;
                     }
                     toast(
-                      harvest.added > 0
-                        ? `Sent ${harvest.added} mistake${harvest.added === 1 ? '' : 's'} to the Lab — Train → Mistake Lab.`
+                      merge.added > 0
+                        ? `Sent ${merge.added} mistake${merge.added === 1 ? '' : 's'} to the Lab — Train → Mistake Lab.`
                         : 'Nothing new to send — this game’s review has no critical decisions with a verified best move (or they are already in the Lab).',
                     );
                   }}

@@ -240,10 +240,16 @@ export default function MistakeLab() {
     // snapshot (a failed write must not be overwritten by older data)
     const result = harvestAll(profile, state, Date.now());
     persist(result.state);
+    if (result.gamesScanned === 0) {
+      setSyncNote('No reviewed games found — run a Review on a finished game first. The Lab only uses verified analysis.');
+      return;
+    }
+    const rejected =
+      result.gamesRejected > 0
+        ? ` ${result.gamesRejected} game${result.gamesRejected === 1 ? ' was' : 's were'} skipped — the cached review could not be verified against the game record (re-run its Review).`
+        : '';
     setSyncNote(
-      result.gamesScanned === 0
-        ? 'No reviewed games found — run a Review on a finished game first. The Lab only uses verified analysis.'
-        : `Added ${result.added} exercise${result.added === 1 ? '' : 's'} from ${result.gamesScanned} reviewed game${result.gamesScanned === 1 ? '' : 's'}.`,
+      `Added ${result.added} exercise${result.added === 1 ? '' : 's'} from ${result.gamesScanned} reviewed game${result.gamesScanned === 1 ? '' : 's'}.${rejected}`,
     );
   };
 

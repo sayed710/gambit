@@ -18,6 +18,7 @@ import {
   MASTERED_INTERVAL_DAYS,
   MAX_PER_GAME,
   outcomeToGrade,
+  promotionPieceFor,
   startSession,
   type LabExercise,
   type MistakeLabState,
@@ -46,28 +47,19 @@ function makeRecord(overrides: Partial<GameRecord> = {}): GameRecord {
   };
 }
 
-/** A real 3-ply game: 1. e4 (blunder: plays f3?) — use a legal short line
-    where white's 2nd move is a genuine mistake with a verified best move. */
+/** A real 7-ply game; the fixture replays it for REAL mover colors. */
 const GAME_MOVES = ['e4', 'e5', 'Qh5', 'Nc6', 'Bc4', 'Nf6', 'Qxf7#'];
 
 function reportFor(moves: string[], mistakes: Record<number, { classification: MoveClass; cpl: number; bestSan: string }>): GameReport {
-  // replay for real so evals/fens line up with an actual engine pass
-  const reviews = moves.map((san, i) => {
-    const m = mistakes[i];
-    const classification: MoveClass = m?.classification ?? 'best';
-    return { san, color: (i % 2 === 0 ? 'w' : 'b') as 'w' | 'b', cpl: m?.cpl ?? 0, classification };
-  });
-  // build evals BEFORE each ply by replaying step by step
+  const reviews = moves.map((san, i) => ({
+    san,
+    color: (i % 2 === 0 ? 'w' : 'b') as 'w' | 'b',
+    cpl: mistakes[i]?.cpl ?? 0,
+    classification: (mistakes[i]?.classification ?? 'best') as MoveClass,
+  }));
   const evals: GameReport['evals'] = [];
-  const probe = new Chess();
   for (let i = 0; i <= moves.length; i++) {
-    const m = mistakes[i];
-    evals.push({
-      cp: 0,
-      mateIn: null,
-      bestSan: m?.bestSan ?? null,
-    });
-    if (i < moves.length) probe.move(moves[i]);
+    evals.push({ cp: 0, mateIn: null, bestSan: mistakes[i]?.bestSan ?? null });
   }
   return {
     reviews,
@@ -94,9 +86,10 @@ beforeEach(() => {
 describe('harvestFromGame', () => {
   it('extracts ONLY critical plies with a verified, different best move', () => {
     const { rec, report } = gameWithMistake();
-    const exercises = harvestFromGame(rec, report, NOW);
-    expect(exercises).toHaveLength(1);
-    const ex = exercises[0];
+    const harvest = harvestFromGame(rec, report, NOW);
+    expect(harvest.status).toBe('ok');
+    expect(harvest.exercises).toHaveLength(1);
+    const ex = harvest.exercises[0];
     expect(ex.id).toBe('g1:2');
     expect(ex.playedSan).toBe('Qh5');
     expect(ex.bestSan).toBe('Nf3'); // the verified engine move from the report
@@ -109,10 +102,10 @@ describe('harvestFromGame', () => {
     expect(ex.fenBefore).toBe(probe.fen());
   });
 
-  it('refuses a game whose SAN replay diverges from the cached report', () => {
+  it('refuses a game whose SAN list length diverges from the cached report', () => {
     const { rec, report } = gameWithMistake();
-    const corrupted = { ...rec, moves: ['e4', 'e5', 'Qh5', 'Nc6', 'Bc4', 'Nf6', 'Qxf7#', 'Ke7'] }; // extra move
-    expect(harvestFromGame(corrupted, report, NOW)).toEqual([]);
+    const corrupted = { ...rec, moves: [...GAME_MOVES, 'Ke7'] }; // extra move
+    expect(harvestFromGame(corrupted, report, NOW)).toEqual({ status: 'rejected', exercises: [] });
   });
 
   it('skips plies whose eval has no verified best move (no fabrication)', () => {
@@ -121,7 +114,7 @@ describe('harvestFromGame', () => {
       ...report,
       evals: report.evals.map((e) => (e ? { ...e, bestSan: null } : e)),
     };
-    expect(harvestFromGame(rec, noBest, NOW)).toEqual([]);
+    expect(harvestFromGame(rec, noBest, NOW)).toEqual({ status: 'ok', exercises: [] });
   });
 
   it("REGRESSION: the OPPONENT's critical moves are never harvested (personal lab)", () => {
@@ -132,8 +125,8 @@ describe('harvestFromGame', () => {
     };
     const rec = makeRecord({ moves: GAME_MOVES, playerColor: 'w' });
     const report = reportFor(GAME_MOVES, mistakes);
-    const exercises = harvestFromGame(rec, report, NOW);
-    expect(exercises.map((x) => x.ply)).toEqual([2]);
+    const harvest = harvestFromGame(rec, report, NOW);
+    expect(harvest.exercises.map((x) => x.ply)).toEqual([2]);
   });
 
   it('REGRESSION: a same-length cache from DIFFERENT moves is rejected (SAN+color verified per ply)', () => {
@@ -141,17 +134,17 @@ describe('harvestFromGame', () => {
     // same length, but the cached review describes a different game
     const otherMoves = ['d4', 'd5', 'Bf4', 'Nf6', 'e3', 'e6', 'Nf3'];
     const report = reportFor(otherMoves, { 2: MISTAKE_AT_2 });
-    expect(harvestFromGame(rec, report, NOW)).toEqual([]);
+    expect(harvestFromGame(rec, report, NOW).status).toBe('rejected');
   });
 
-  it("REGRESSION: a divergence found LATER rejects the WHOLE game — no partial harvest", () => {
+  it('REGRESSION: a divergence found LATER rejects the WHOLE game — no partial harvest', () => {
     // a valid mistake at ply 2, then the record's ply-5 move differs from
     // the cached review (same length) — nothing from this game is accepted
     const moves = [...GAME_MOVES];
     moves[5] = 'Ke2'; // legal from the position, but NOT what the cache describes
     const rec = makeRecord({ moves, playerColor: 'w' });
     const report = reportFor(GAME_MOVES, { 2: MISTAKE_AT_2 }); // cache built for the ORIGINAL line
-    expect(harvestFromGame(rec, report, NOW)).toEqual([]); // not [ply-2 exercise]
+    expect(harvestFromGame(rec, report, NOW)).toEqual({ status: 'rejected', exercises: [] });
   });
 
   it('REGRESSION: an illegal bestSan is rejected as UNSOLVABLE (legal answers still harvest)', () => {
@@ -161,14 +154,43 @@ describe('harvestFromGame', () => {
       2: { classification: 'blunder', cpl: 320, bestSan: 'Qxg7' },
     };
     const rec = makeRecord({ moves: GAME_MOVES, playerColor: 'w' });
-    expect(harvestFromGame(rec, reportFor(GAME_MOVES, mistakes), NOW)).toEqual([]);
+    expect(harvestFromGame(rec, reportFor(GAME_MOVES, mistakes), NOW)).toEqual({ status: 'ok', exercises: [] });
     // a legal best move beside it still harvests — skip, not abort
     const both: Record<number, { classification: MoveClass; cpl: number; bestSan: string }> = {
       2: { classification: 'blunder', cpl: 320, bestSan: 'Qxg7' },
       4: { classification: 'mistake', cpl: 180, bestSan: 'Qf3' }, // before Bc4, Qf3 is legal for white
     };
-    const exercises = harvestFromGame(rec, reportFor(GAME_MOVES, both), NOW);
-    expect(exercises.map((x) => x.ply)).toEqual([4]); // only the solvable one
+    const harvest = harvestFromGame(rec, reportFor(GAME_MOVES, both), NOW);
+    expect(harvest.exercises.map((x) => x.ply)).toEqual([4]); // only the solvable one
+  });
+
+  it('REGRESSION: a NONCANONICAL stored move still replays (zeros-style castling)', () => {
+    // the STORED text uses '0-0' (zeros — a restored/legacy game); the
+    // review cache describes the CANONICAL replay ('O-O'), exactly like a
+    // real review cache would. The stored spelling must not reject the
+    // game: legality + canonical-vs-cache is the contract.
+    const stored = ['e4', 'e5', 'Nf3', 'Nc6', 'Bc4', 'Bc5', '0-0'];
+    const canonical = ['e4', 'e5', 'Nf3', 'Nc6', 'Bc4', 'Bc5', 'O-O'];
+    const mistakes: Record<number, { classification: MoveClass; cpl: number; bestSan: string }> = {
+      2: { classification: 'mistake', cpl: 150, bestSan: 'Bb5' }, // Bb5 is legal before Nf3
+    };
+    const rec = makeRecord({ moves: stored, playerColor: 'w' });
+    const report = reportFor(canonical, mistakes);
+    const harvest = harvestFromGame(rec, report, NOW);
+    expect(harvest.status).toBe('ok');
+    expect(harvest.exercises.map((x) => x.ply)).toEqual([2]);
+  });
+
+  it('REGRESSION: a legal-but-NONCANONICAL bestSan (dropped mate suffix) is not harvestable', () => {
+    // the cached answer says Qxf7 — legal, but the canonical SAN here is
+    // Qxf7# (mate): grading is exact-SAN, so the answer as stored would be
+    // unenterable — the exercise is skipped rather than made unsolvable
+    const mistakes: Record<number, { classification: MoveClass; cpl: number; bestSan: string }> = {
+      6: { classification: 'blunder', cpl: 300, bestSan: 'Qxf7' }, // canonical: Qxf7#
+    };
+    const rec = makeRecord({ moves: GAME_MOVES, playerColor: 'w' });
+    const harvest = harvestFromGame(rec, reportFor(GAME_MOVES, mistakes), NOW);
+    expect(harvest).toEqual({ status: 'ok', exercises: [] });
   });
 
   it('caps the harvest per game at the worst MAX_PER_GAME mistakes', () => {
@@ -191,23 +213,23 @@ describe('harvestFromGame', () => {
       }
       sans.push(chosen);
       if (game.turn() === 'b') {
-        mistakes[ply] = { classification: 'mistake', cpl: 100 + ply, bestSan: (legal.find((l) => l !== chosen) ?? chosen) };
+        mistakes[ply] = { classification: 'mistake', cpl: 100 + ply, bestSan: legal.find((l) => l !== chosen) ?? chosen };
       }
       ply += 1;
     }
     moves.push(...sans);
     const rec = makeRecord({ moves, pgn: moves.join(' ') });
     const report = reportFor(moves, mistakes);
-    const exercises = harvestFromGame(rec, report, NOW);
-    expect(exercises.length).toBeLessThanOrEqual(MAX_PER_GAME);
+    const harvest = harvestFromGame(rec, report, NOW);
+    expect(harvest.exercises.length).toBeLessThanOrEqual(MAX_PER_GAME);
     // worst-cpl first
-    for (let i = 1; i < exercises.length; i++) {
-      expect(exercises[i - 1].cpl).toBeGreaterThanOrEqual(exercises[i].cpl);
+    for (let i = 1; i < harvest.exercises.length; i++) {
+      expect(harvest.exercises[i - 1].cpl).toBeGreaterThanOrEqual(harvest.exercises[i].cpl);
     }
   });
 });
 
-describe('harvestAll + dedupe', () => {
+describe('harvestAll + dedupe + reconcile', () => {
   it('adds new (game,ply) pairs once; re-harvest never duplicates or resets SR', () => {
     const { rec, report } = gameWithMistake();
     localStorage.setItem('gambit.review.g1', JSON.stringify(report));
@@ -262,9 +284,16 @@ describe('harvestAll + dedupe', () => {
 describe('practice semantics', () => {
   it('grading is exact-SAN against the verified best move', () => {
     const { rec, report } = gameWithMistake();
-    const [ex] = harvestFromGame(rec, report, NOW);
+    const [ex] = harvestFromGame(rec, report, NOW).exercises;
     expect(gradeLabMove(ex, 'Nf3')).toBe('correct');
     expect(gradeLabMove(ex, 'Qxf7')).toBe('wrong');
+  });
+
+  it('the promotion piece follows the VERIFIED answer', () => {
+    expect(promotionPieceFor('g8=N')).toBe('n');
+    expect(promotionPieceFor('axb1=R')).toBe('r');
+    expect(promotionPieceFor('g8=Q+')).toBe('q');
+    expect(promotionPieceFor('Nf3')).toBe('q'); // no promotion -> queen default
   });
 
   it('outcomes map to honest SR grades', () => {
@@ -275,7 +304,7 @@ describe('practice semantics', () => {
 
   it('applyOutcome records the attempt and schedules SR', () => {
     const { rec, report } = gameWithMistake();
-    const [ex] = harvestFromGame(rec, report, NOW);
+    const [ex] = harvestFromGame(rec, report, NOW).exercises;
     let state: MistakeLabState = { ...emptyLabState(), exercises: [ex] };
     state = applyOutcome(state, ex.id, 'clean', NOW);
     expect(state.exercises[0].attempts).toBe(1);
@@ -286,7 +315,7 @@ describe('practice semantics', () => {
 
   it('mastery is interval-based, never a fake counter', () => {
     const { rec, report } = gameWithMistake();
-    const [ex] = harvestFromGame(rec, report, NOW);
+    const [ex] = harvestFromGame(rec, report, NOW).exercises;
     expect(isMastered(ex)).toBe(false);
     const mastered: LabExercise = { ...ex, sr: { ...ex.sr, interval: MASTERED_INTERVAL_DAYS } };
     expect(isMastered(mastered)).toBe(true);
@@ -296,7 +325,7 @@ describe('practice semantics', () => {
 describe('sessions (resumable)', () => {
   function stateWith(ids: string[]): MistakeLabState {
     const { rec, report } = gameWithMistake();
-    const [ex] = harvestFromGame(rec, report, NOW);
+    const [ex] = harvestFromGame(rec, report, NOW).exercises;
     const exercises = ids.map((id, i) => ({ ...ex, id, gameId: `g${i}` }));
     return { ...emptyLabState(), exercises };
   }

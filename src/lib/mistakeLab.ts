@@ -140,6 +140,8 @@ export interface HarvestResult {
   added: number;
   /** games scanned (those with a review cache) */
   gamesScanned: number;
+  /** games whose cached review could not be verified against the record */
+  gamesRejected: number;
 }
 
 function exerciseId(gameId: string, ply: number): string {
@@ -158,16 +160,26 @@ function isCritical(c: MoveClass): c is LabExercise['classification'] {
  * exact before-positions; a replay that diverges from the cached
  * report aborts the game's harvest (never fabricate alignment).
  */
-export function harvestFromGame(record: GameRecord, report: GameReport, now: number): LabExercise[] {
-  if (record.moves.length !== report.reviews.length) return []; // cache/game mismatch — refuse, never guess
+export type GameHarvestStatus = 'ok' | 'rejected';
+
+export interface GameHarvest {
+  /** 'rejected' = the cached review could not be verified against the game
+      record (length/evals mismatch, illegal replay, or SAN/color drift) —
+      distinguishable from a clean game with no eligible mistakes */
+  status: GameHarvestStatus;
+  exercises: LabExercise[];
+}
+
+export function harvestFromGame(record: GameRecord, report: GameReport, now: number): GameHarvest {
+  if (record.moves.length !== report.reviews.length) return { status: 'rejected', exercises: [] }; // cache/game mismatch
   // the cached evaluations must cover every replayed ply — a short evals
   // array means the cache cannot be fully verified, so nothing is accepted
-  if (!Array.isArray(report.evals) || report.evals.length < record.moves.length) return [];
+  if (!Array.isArray(report.evals) || report.evals.length < record.moves.length) return { status: 'rejected', exercises: [] };
   let game: Chess;
   try {
     game = new Chess(record.initialFen ?? undefined);
   } catch {
-    return [];
+    return { status: 'rejected', exercises: [] };
   }
   // candidates are held back until the WHOLE game verifies: a divergence
   // discovered at ANY later ply rejects the harvest entirely — a partially
@@ -181,25 +193,28 @@ export function harvestFromGame(record: GameRecord, report: GameReport, now: num
     try {
       played = game.move(record.moves[ply]);
     } catch {
-      return []; // replay diverged — the whole game is refused
+      return { status: 'rejected', exercises: [] }; // stored text does not replay
     }
-    if (!played || played.san !== record.moves[ply]) return [];
+    if (!played) return { status: 'rejected', exercises: [] };
+    // the STORED text may spell the move noncanonically (restored games,
+    // zero-style castling) — legality is what matters: the CANONICAL SAN
+    // from the replay is what the cached review must describe
     const review = report.reviews[ply];
     const evalBefore = report.evals[ply];
-    // the cache must describe THIS move in THIS position — a same-length
-    // cache from different moves is a mismatch, not a harvest (finding:
-    // stale reviews create mismatched exercises)
-    if (!review || review.san !== played.san || review.color !== played.color) return [];
+    if (!review || review.san !== played.san || review.color !== played.color) return { status: 'rejected', exercises: [] };
     if (!evalBefore?.bestSan) continue; // no verified best move -> no exercise
     // a personal-mistake lab trains THE PLAYER's decisions only
     if (played.color !== record.playerColor) continue;
     if (!isCritical(review.classification)) continue;
     if (evalBefore.bestSan === played.san) continue; // played the best move — not a mistake to retry
-    // the verified answer must be PLAYABLE in the presented position — an
-    // illegal bestSan would make the exercise unsolvable (skip it; the
-    // replay itself is unaffected)
+    // the verified answer must be PLAYABLE in the presented position AND
+    // canonically identical to what the board will submit: a legal move
+    // whose canonical SAN differs from the cached text (a dropped check/
+    // mate suffix) would make the exercise unsolvable — skip it (the
+    // replay itself is unaffected, no substitute is invented)
     try {
-      new Chess(fenBefore).move(evalBefore.bestSan);
+      const best = new Chess(fenBefore).move(evalBefore.bestSan);
+      if (!best || best.san !== evalBefore.bestSan) continue;
     } catch {
       continue;
     }
@@ -224,7 +239,7 @@ export function harvestFromGame(record: GameRecord, report: GameReport, now: num
   }
   // the full replay verified — worst first, then cap: the lab trains the
   // sharpest mistakes
-  return candidates.sort((a, b) => b.cpl - a.cpl).slice(0, MAX_PER_GAME);
+  return { status: 'ok', exercises: candidates.sort((a, b) => b.cpl - a.cpl).slice(0, MAX_PER_GAME) };
 }
 
 /**
@@ -236,17 +251,23 @@ export function harvestAll(profile: { games: GameRecord[] }, state: MistakeLabSt
   const byId = new Map(state.exercises.map((x) => [x.id, x]));
   let added = 0;
   let gamesScanned = 0;
+  let gamesRejected = 0;
   for (const record of profile.games) {
     const report = loadJSON<unknown>(`review.${record.id}`, null) as GameReport | null;
     if (!report || !Array.isArray(report.reviews) || !Array.isArray(report.evals)) continue;
     gamesScanned += 1;
-    let harvested: LabExercise[];
+    let harvest: GameHarvest;
     try {
-      harvested = harvestFromGame(record, report, now);
+      harvest = harvestFromGame(record, report, now);
     } catch {
+      gamesRejected += 1;
       continue; // a damaged cache never blocks the remaining games
     }
-    for (const ex of harvested) {
+    if (harvest.status === 'rejected') {
+      gamesRejected += 1;
+      continue;
+    }
+    for (const ex of harvest.exercises) {
       if (!byId.has(ex.id)) {
         byId.set(ex.id, ex);
         added += 1;
@@ -262,6 +283,7 @@ export function harvestAll(profile: { games: GameRecord[] }, state: MistakeLabSt
     state: { version: 1, exercises, session, lastHarvestAt: now },
     added,
     gamesScanned,
+    gamesRejected,
   };
 }
 
