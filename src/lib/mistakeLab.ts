@@ -108,6 +108,11 @@ function isUsableLabExercise(x: unknown): x is LabExercise {
   } catch {
     return false; // an unloadable position would crash the runner board
   }
+  // the exercise side must MATCH the position's turn: a black-flagged
+  // exercise in a white-to-move position enables the wrong color on the
+  // runner board while the move probe keeps enforcing the FEN's turn —
+  // an exercise that can never be completed
+  if (position.turn() !== v.side) return false;
   try {
     if (!position.move(v.bestSan)) return false; // an unplayable answer is unsolvable
   } catch {
@@ -344,18 +349,21 @@ export function sanitizeSession(
   let results: { id: string; outcome: LabOutcome }[];
   if (rawIndex !== null) {
     // the cursor names an exercise in the ORIGINAL persisted queue —
-    // re-anchor it onto the deduplicated queue: if that exercise survived,
-    // the cursor is its deduped position; if the entry at the cursor was
-    // dropped (invalid id), serve the next surviving exercise at or after
-    // it; a cursor at the very end stays completed
-    const currentId = rawIndex < session.queue.length ? session.queue[rawIndex] : null;
-    if (currentId !== null && queue.includes(currentId)) {
-      index = queue.indexOf(currentId);
-    } else if (currentId === null) {
-      index = queue.length; // was completed
+    // re-anchor it onto the deduplicated queue. FIRST decide whether the
+    // cursor ran past the ORIGINAL queue (genuinely completed) — only then
+    // read its entry: a malformed IN-RANGE entry (null/garbage) is not a
+    // completion, the next surviving exercise must still be served
+    const rawQueue = Array.isArray(session.queue) ? session.queue : [];
+    if (rawIndex >= rawQueue.length) {
+      index = queue.length; // past the original queue: completed
     } else {
-      const next = session.queue.slice(rawIndex + 1).find((id) => queue.includes(id));
-      index = next !== undefined ? queue.indexOf(next) : queue.length;
+      const currentId = rawQueue[rawIndex];
+      if (typeof currentId === 'string' && queue.includes(currentId)) {
+        index = queue.indexOf(currentId);
+      } else {
+        const next = rawQueue.slice(rawIndex + 1).find((id) => queue.includes(id));
+        index = next !== undefined ? queue.indexOf(next) : queue.length;
+      }
     }
     index = Math.max(0, Math.min(index, queue.length));
     // results may only claim exercises genuinely COMPLETED before the

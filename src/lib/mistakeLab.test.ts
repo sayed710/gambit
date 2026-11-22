@@ -383,12 +383,16 @@ describe('sessions (resumable)', () => {
     const [good] = harvestFromGame(rec, report, NOW).exercises;
     const brokenFen = { ...good, id: 'bad-fen', fenBefore: 'not-a-fen' };
     const badSide = { ...good, id: 'bad-side', side: 'x' as never };
+    // side that DISAGREES with the position's turn: fenBefore is WHITE to
+    // move, the exercise claims black — the runner would enable the wrong
+    // color while the move probe keeps enforcing the FEN's turn (unsolvable)
+    const wrongTurnSide = { ...good, id: 'bad-turn', side: 'b' as never };
     const badClass = { ...good, id: 'bad-class', classification: 'hacked-class' as never };
     const negativeCpl = { ...good, id: 'bad-cpl', cpl: -10 };
     const unplayableAnswer = { ...good, id: 'bad-answer', bestSan: 'Qxg7' }; // queen h5 has no line to g7
     const state: MistakeLabState = {
       ...emptyLabState(),
-      exercises: [brokenFen, badSide, badClass, negativeCpl, unplayableAnswer, good],
+      exercises: [brokenFen, badSide, wrongTurnSide, badClass, negativeCpl, unplayableAnswer, good],
     };
     localStorage.setItem('gambit.mistakeLab.v1', JSON.stringify(state));
     const loaded = loadLab();
@@ -481,6 +485,26 @@ describe('sessions (resumable)', () => {
     expect(loaded.session?.results).toEqual([]);
     // -> 'a' is served UNRESOLVED with its answer masked, no fake completion
     expect(currentExercise(loaded)?.id).toBe('a');
+  });
+
+  it('ADVERSARIAL: a NULL queue entry at the cursor does not fake completion', () => {
+    // corrupted persistence: queue [a, null, b] with the cursor ON the null
+    // entry — the entry must be SKIPPED, not mistaken for "the cursor ran
+    // past the end": 'b' still has to be served, with its answer masked
+    const state = stateWith(['a', 'b']);
+    const corrupted = {
+      ...state,
+      session: { queue: ['a', null, 'b'], index: 1, startedAt: NOW, results: [], flags: {} },
+    };
+    localStorage.setItem('gambit.mistakeLab.v1', JSON.stringify(corrupted));
+    const loaded = loadLab();
+    expect(loaded.session?.queue).toEqual(['a', 'b']); // the null entry collapsed
+    expect(loaded.session?.index).toBe(1); // NOT completed — 'b' remains
+    expect(currentExercise(loaded)?.id).toBe('b');
+    // nothing was resolved, so BOTH queued answers stay masked on the page
+    // (hidden = queued ids without a recorded outcome)
+    const hidden = loaded.session!.queue.filter((id) => !loaded.session!.results.some((r) => r.id === id));
+    expect(hidden).toEqual(['a', 'b']);
   });
 
 
@@ -581,6 +605,23 @@ describe('report cache verification (shared by Review fast path + Lab harvest)',
     };
     expect(verifyReportAgainstGame(hacked, rec.moves, rec.initialFen).ok).toBe(false);
     expect(isReportCacheUsable(hacked, rec.moves, rec.initialFen)).toBe(false);
+  });
+
+  it('METADATA: an INHERITED name (toString) is NOT accepted as a classification', () => {
+    const { rec, report } = gameWithMistake();
+    const spoofed: GameReport = {
+      ...report,
+      reviews: report.reviews.map((r, i) =>
+        i === 2 ? { ...r, classification: 'toString' as unknown as MoveClass } : r,
+      ),
+    };
+    // an OWN-key check is required: `in` walks the prototype chain, so
+    // Object.prototype.toString would pass as a "known" class and Review
+    // would then read its (missing) metadata label and crash
+    expect(verifyReportAgainstGame(spoofed, rec.moves, rec.initialFen).ok).toBe(false);
+    expect(isReportCacheUsable(spoofed, rec.moves, rec.initialFen)).toBe(false);
+    // control: the untouched healthy cache still verifies (fast path kept)
+    expect(isReportCacheUsable(report, rec.moves, rec.initialFen)).toBe(true);
   });
 
   it('METADATA: an INVALID cpl (negative / non-numeric) fails verification', () => {

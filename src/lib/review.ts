@@ -357,7 +357,10 @@ function isValidReviewEntry(review: unknown): boolean {
   if (typeof v.san !== 'string' || v.san.length === 0) return false;
   if (v.color !== 'w' && v.color !== 'b') return false;
   if (typeof v.cpl !== 'number' || !Number.isFinite(v.cpl) || v.cpl < 0) return false;
-  if (typeof v.classification !== 'string' || !(v.classification in CLASSIFICATION_META)) return false;
+  // OWN-key check (not `in`): inherited names like `toString` would pass
+  // a prototype-chain lookup, then Review would read their metadata and
+  // crash on the missing label instead of reanalysing
+  if (typeof v.classification !== 'string' || !Object.prototype.hasOwnProperty.call(CLASSIFICATION_META, v.classification)) return false;
   return true;
 }
 
