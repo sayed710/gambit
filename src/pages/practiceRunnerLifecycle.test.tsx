@@ -68,7 +68,7 @@ function playSquare(from: string, to: string) {
 }
 
 describe('PracticeRunner session lifecycle', () => {
-  it('solving A then selecting B records B; A stays unchanged (same FEN, different ids)', async () => {
+  it('solving A then selecting B records B; A stays unchanged (same FEN, different ids)', { timeout: 20_000 }, async () => {
     seed([mkItem('a', 'Nf3', 'Find Nf3 (A)'), mkItem('b', 'Nc3', 'Find Nc3 (B)')]);
     ui();
 

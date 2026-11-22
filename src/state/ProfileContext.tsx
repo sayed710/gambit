@@ -4,6 +4,7 @@ import type { GameRecord } from '../lib/types';
 import { loadJSON } from '../lib/storage';
 import { checkedSetJSON } from '../lib/persist';
 import { clearPersistStatus, pruneUnsavedGames, reportPersistFailure, removeUnsavedGame } from '../lib/persistStatus';
+import { emptyLabAfterReset, loadLab, purgeGame, saveLab } from '../lib/mistakeLab';
 
 interface PuzzleStats {
   rating: number;
@@ -195,6 +196,9 @@ export function ProfileProvider({ children }: { children: ReactNode }) {
 
   const deleteGame = useCallback((id: string) => {
     setProfile((p) => ({ ...p, games: p.games.filter((g) => g.id !== id) }));
+    // derived data reconciles too: a deleted game's lab exercises (and any
+    // session references) leave the Mistake Lab immediately
+    saveLab(purgeGame(loadLab(), id));
   }, []);
 
   const togglePin = useCallback((id: string) => {
@@ -206,6 +210,7 @@ export function ProfileProvider({ children }: { children: ReactNode }) {
 
   const resetAll = useCallback(() => {
     setProfile({ ...DEFAULT_PROFILE, joined: Date.now() });
+    saveLab(emptyLabAfterReset()); // a profile reset clears its derived lab
   }, []);
 
   const value = useMemo(() => ({ profile, recordGame, importGameRecord, recordPuzzle, deleteGame, togglePin, resetAll }), [profile, recordGame, importGameRecord, recordPuzzle, deleteGame, togglePin, resetAll]);

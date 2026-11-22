@@ -8,6 +8,7 @@ import { Link } from 'react-router-dom';
 
 export const TRAIN_TABS = [
   { to: '/training', label: 'Today' },
+  { to: '/lab', label: 'Mistake Lab' },
   { to: '/puzzles', label: 'Puzzles' },
   { to: '/repertoire', label: 'Repertoire' },
   { to: '/endgames', label: 'Endgames' },

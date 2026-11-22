@@ -28,7 +28,7 @@ describe('TrainTabs — single shared training navigation', () => {
     expect(active[0].getAttribute('href')).toBe('/endgames');
   });
 
-  it('covers the six documented training areas', () => {
-    expect(TRAIN_TABS.map((t) => t.to)).toEqual(['/training', '/puzzles', '/repertoire', '/endgames', '/coordinates', '/blindfold']);
+  it('covers the documented training areas (Mistake Lab included)', () => {
+    expect(TRAIN_TABS.map((t) => t.to)).toEqual(['/training', '/lab', '/puzzles', '/repertoire', '/endgames', '/coordinates', '/blindfold']);
   });
 });

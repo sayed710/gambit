@@ -98,7 +98,7 @@ const num = (v: unknown, fallback = 0): number => (typeof v === 'number' && Numb
 const int = (v: unknown, fallback = 0): number => Math.max(0, Math.round(num(v, fallback)));
 
 /** Shared SR-record normalization (repertoire scheduling + blindfold). */
-function normalizeSrRecord(raw: unknown): SrRecord | null {
+export function normalizeSrRecord(raw: unknown): SrRecord | null {
   if (!raw || typeof raw !== 'object' || typeof (raw as SrRecord).due !== 'number') return null;
   const rec = raw as SrRecord;
   return {

@@ -304,3 +304,144 @@ export function evalToUnit(cp: number): number {
   // logistic-ish curve so small advantages stay readable
   return 1 / (1 + Math.exp(-v / 380));
 }
+
+
+/* ============================================================
+   Cache verification (Gambit 2.0 M1) — one shared, chess-backed
+   check that a cached GameReport really describes the game it
+   claims: same length, every move replays legally from the start,
+   and each cached review names THE SAME canonical move and mover
+   color in that position. Review's fast path and the Mistake
+   Lab's harvest both consume this — chess validation lives here,
+   never duplicated.
+   ============================================================ */
+
+export interface ReportVerification {
+  ok: boolean;
+  /** canonical FEN before each ply — present only when ok */
+  fensBefore: string[] | null;
+}
+
+/** The honest report-completeness contract: EVERY evaluation entry is a
+    structurally valid engine reading. A null entry means that position
+    was never analysed; a malformed entry (e.g. `{}`) would feed garbage
+    into `evalToCp()`/`cplFor()` — which silently treats a missing
+    neighbour as zero loss and invents flattering classifications. An
+    incomplete or malformed report is never displayed, persisted, or
+    trusted as a cache. */
+export function isReportComplete(report: GameReport): boolean {
+  return (
+    Array.isArray(report.evals) &&
+    report.evals.length > 0 &&
+    report.evals.every((e) => {
+      if (!e || typeof e !== 'object') return false;
+      const v = e as PlyEval;
+      // cp: finite white-perspective centipawns (mates map to ±10000)
+      if (typeof v.cp !== 'number' || !Number.isFinite(v.cp)) return false;
+      // mateIn: a signed integer ply count, or null when no mate is seen
+      if (v.mateIn !== null && !Number.isInteger(v.mateIn)) return false;
+      // bestSan: the engine's best move in SAN, or null when unavailable
+      if (v.bestSan !== null && typeof v.bestSan !== 'string') return false;
+      return true;
+    })
+  );
+}
+
+/** A per-ply review entry is only trustworthy when its classification is a
+    KNOWN move class and its centipawn loss is a real, non-negative reading
+    — Review dereferences both (classification metadata lookup + the cpl
+    badge), and a malformed cache must reanalyse instead of rendering. */
+function isValidReviewEntry(review: unknown): boolean {
+  if (!review || typeof review !== 'object') return false;
+  const v = review as { san?: unknown; color?: unknown; cpl?: unknown; classification?: unknown };
+  if (typeof v.san !== 'string' || v.san.length === 0) return false;
+  if (v.color !== 'w' && v.color !== 'b') return false;
+  if (typeof v.cpl !== 'number' || !Number.isFinite(v.cpl) || v.cpl < 0) return false;
+  // OWN-key check (not `in`): inherited names like `toString` would pass
+  // a prototype-chain lookup, then Review would read their metadata and
+  // crash on the missing label instead of reanalysing
+  if (typeof v.classification !== 'string' || !Object.prototype.hasOwnProperty.call(CLASSIFICATION_META, v.classification)) return false;
+  return true;
+}
+
+/** The statistics Review dereferences on every render: per-side accuracy,
+    average CPL, and a full class-count table (a missing MoveClass key
+    renders as "undefined moves" in the report strip). */
+function hasValidReportStats(report: GameReport): boolean {
+  const finite = (n: unknown): n is number => typeof n === 'number' && Number.isFinite(n);
+  const countsSideValid = (side: unknown): boolean =>
+    !!side &&
+    typeof side === 'object' &&
+    (Object.keys(CLASSIFICATION_META) as (keyof typeof CLASSIFICATION_META)[]).every(
+      (cls) => finite((side as Record<string, unknown>)[cls]),
+    );
+  return (
+    !!report.accuracy &&
+    finite(report.accuracy.w) &&
+    finite(report.accuracy.b) &&
+    !!report.avgCpl &&
+    finite(report.avgCpl.w) &&
+    finite(report.avgCpl.b) &&
+    !!report.counts &&
+    countsSideValid(report.counts.w) &&
+    countsSideValid(report.counts.b)
+  );
+}
+
+export function verifyReportAgainstGame(
+  report: GameReport,
+  moves: string[],
+  initialFen?: string,
+): ReportVerification {
+  if (!report || !Array.isArray(report.reviews) || report.reviews.length !== moves.length) {
+    return { ok: false, fensBefore: null };
+  }
+  // the GameReport contract: an eval BEFORE each ply PLUS the final
+  // position's eval (length = moves.length + 1), and EVERY entry a real
+  // reading — a truncated or partially analysed report is damaged
+  if (!Array.isArray(report.evals) || report.evals.length !== moves.length + 1 || !isReportComplete(report)) {
+    return { ok: false, fensBefore: null };
+  }
+  // the statistics Review renders must be real numbers in a complete table
+  if (!hasValidReportStats(report)) {
+    return { ok: false, fensBefore: null };
+  }
+  let game: Chess;
+  try {
+    game = new Chess(initialFen ?? undefined);
+  } catch {
+    return { ok: false, fensBefore: null };
+  }
+  const fensBefore: string[] = [];
+  for (let ply = 0; ply < moves.length; ply++) {
+    const fenBefore = game.fen();
+    let played: import('chess.js').Move | null = null;
+    try {
+      played = game.move(moves[ply]);
+    } catch {
+      return { ok: false, fensBefore: null }; // the listed SAN does not replay
+    }
+    if (!played) return { ok: false, fensBefore: null };
+    const review = report.reviews[ply];
+    if (!review || review.san !== played.san || review.color !== played.color) {
+      return { ok: false, fensBefore: null }; // the cache describes a different game
+    }
+    if (!isValidReviewEntry(review)) {
+      return { ok: false, fensBefore: null }; // malformed classification/cpl — reanalyse
+    }
+    fensBefore.push(fenBefore);
+  }
+  return { ok: true, fensBefore };
+}
+
+/** The Review cache fast path: a cache is trusted only when it is
+    semantically aligned with the actual game — a same-length but
+    mismatched cache must trigger reanalysis, never reuse. */
+export function isReportCacheUsable(
+  report: GameReport | null | undefined,
+  moves: string[],
+  initialFen?: string,
+): report is GameReport {
+  if (!report) return false;
+  return verifyReportAgainstGame(report, moves, initialFen).ok;
+}

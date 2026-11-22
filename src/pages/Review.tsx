@@ -16,7 +16,8 @@ import type { GameReport, MoveClass, PlyEval } from '../lib/review';
 import type { GameRecord } from '../lib/types';
 import { evalToUnit } from '../lib/review';
 import { runGameAnalysis, plyEvalFromEngineResult } from '../lib/reviewRunner';
-import { criticalMoments, refineGreatMoves, CLASSIFICATION_META, CLASSIFICATION_GLYPH, CRITICAL_CLASSES } from '../lib/review';
+import { criticalMoments, isReportCacheUsable, isReportComplete, refineGreatMoves, CLASSIFICATION_META, CLASSIFICATION_GLYPH, CRITICAL_CLASSES } from '../lib/review';
+import { harvestFromGame, loadLab, saveLab, sendGameToLab } from '../lib/mistakeLab';
 import { pressureCorrelation, timingStats } from '../lib/timeAnalytics';
 import { buildCoachLessons, type CoachLesson } from '../lib/coachEngine';
 import { contributeGameMotifs, motifAnalysisForReport } from '../lib/motifReview';
@@ -108,9 +109,14 @@ export default function Review() {
 
   const runAnalysis = useCallback(async () => {
     if (plies.length === 0 || analyzing) return;
-    // finished games are immutable, cache the report so revisits are instant
+    // finished games are immutable, cache the report so revisits are instant.
+    // The fast path trusts a cache only when it is SEMANTICALLY aligned with
+    // this game (shared chess-backed verification — the same check the
+    // Mistake Lab applies): a same-length but mismatched cache would be
+    // rejected by the Lab on every send with no way to refresh — bypass it
+    // and regenerate instead.
     const cached = loadJSON<GameReport | null>(`review.${record?.id}`, null);
-    if (cached && cached.reviews.length === plies.length) {
+    if (isReportCacheUsable(cached, plies.map((p) => p.san), record?.initialFen)) {
       setReport(cached);
       contributeMotifs(cached); // backfill caches saved before contributions existed (idempotent)
       return;
@@ -137,6 +143,18 @@ export default function Review() {
         },
         onComplete: (rep) => {
           if (isStale()) return;
+          // the completeness contract: EVERY position must carry a real
+          // engine reading. A partially failed run would invent flattering
+          // classifications for the unanalysed moves (cpl 0) — reporting it
+          // would be a false success and would overwrite the cached report
+          // with data the Mistake Lab can never harvest. The old cache
+          // stays; the user is told to retry.
+          if (!isReportComplete(rep)) {
+            setAnalyzing(false);
+            setReport(null);
+            toast('The analysis did not complete for every position — nothing was saved. Please try again.');
+            return;
+          }
           setReport(rep);
           setAnalyzing(false);
           if (record?.id) saveJSON(`review.${record.id}`, rep);
@@ -765,11 +783,18 @@ export default function Review() {
               </p>
             )}
             {!report ? (
-              <p className="small muted m-0">
-                {analyzing
-                  ? 'Stockfish is walking through every move of the game. The full report appears here.'
-                  : 'The report will appear here once the engine has analyzed the game.'}
-              </p>
+              <div>
+                <p className="small muted m-0">
+                  {analyzing
+                    ? 'Stockfish is walking through every move of the game. The full report appears here.'
+                    : 'The report will appear here once the engine has analyzed the game.'}
+                </p>
+                {!analyzing && plies.length > 0 && (
+                  <button className="btn btn-ghost btn-sm mt-1" onClick={() => void runAnalysis()}>
+                    Retry analysis
+                  </button>
+                )}
+              </div>
             ) : (
               <>
                 <div className="report-accuracy">
@@ -810,6 +835,32 @@ export default function Review() {
                 </p>
                 <button className="btn btn-accent btn-sm mt-2" onClick={startDrill} disabled={!report || analyzing}>
                   Learn from your mistakes
+                </button>
+                <button
+                  className="btn btn-ghost btn-sm mt-2"
+                  onClick={() => {
+                    if (!report || !record) return;
+                    // single-game merge — never orphan-reconciles other games' exercises
+                    const verified = harvestFromGame(record, report, Date.now());
+                    if (verified.status === 'rejected') {
+                      toast('This game’s cached review could not be verified against the game record — nothing was sent. Re-run the Review to refresh it.');
+                      return;
+                    }
+                    const merge = sendGameToLab(loadLab(), verified.exercises, Date.now());
+                    const saved = saveLab(merge.state);
+                    if (!saved.ok) {
+                      toast('Could not save to the Lab — storage rejected the write. The storage banner has details.');
+                      return;
+                    }
+                    toast(
+                      merge.added > 0
+                        ? `Sent ${merge.added} mistake${merge.added === 1 ? '' : 's'} to the Lab — Train → Mistake Lab.`
+                        : 'Nothing new to send — this game’s review has no critical decisions with a verified best move (or they are already in the Lab).',
+                    );
+                  }}
+                  disabled={!report || analyzing}
+                >
+                  Send mistakes to the Lab
                 </button>
               </>
             )}
