@@ -177,6 +177,16 @@ describe('Review cache-recovery flow (real page, mocked engine seam)', () => {
     const stored = JSON.parse(localStorage.getItem('gambit.review.g1') ?? 'null') as GameReport | null;
     expect(stored?.reviews[4]?.san).toBe('Qf3'); // still the (damaged) original — untouched
     expect(screen.queryByRole('button', { name: 'Learn from your mistakes' })).toBeNull(); // no false success
+    // and an IN-PLACE retry control exists (no leave-and-reopen needed)
+    expect(screen.getByRole('button', { name: 'Retry analysis' })).toBeTruthy();
+    scriptEngine(); // the engine recovers...
+    fireEvent.click(screen.getByRole('button', { name: 'Retry analysis' }));
+    expect(await screen.findByRole('button', { name: 'Learn from your mistakes' }, { timeout: 10000 })).toBeTruthy();
+    // the retry replaced the damaged cache with a fresh, usable report
+    await waitFor(() => {
+      const stored = JSON.parse(localStorage.getItem('gambit.review.g1') ?? 'null') as GameReport | null;
+      expect(stored?.reviews[4]?.san).toBe('Bc4');
+    });
   });
 
   it('an INTERRUPTED reanalysis (unmount mid-run) leaves the cache untouched', async () => {
