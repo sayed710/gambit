@@ -1,3 +1,4 @@
+import { Link } from 'react-router-dom';
 import { clearAllUnsavedGames, clearPersistStatus, usePersistFailures, useUnsavedGames } from '../lib/persistStatus';
 import { buildEmergencyGameFile, emergencyFilename } from '../lib/persist';
 import { useToast } from './Toast';
@@ -82,6 +83,9 @@ export default function StorageBanner() {
           Import recovered files via Backup &amp; Restore. Recovered games are records-only: your rating is not recalculated.
         </p>
       )}
+      <p className="small" style={{ margin: '0.3rem 0 0' }}>
+        <Link to="/guide#storage">How storage works →</Link>
+      </p>
       {failures.length > 0 && (
         <>
           <div>

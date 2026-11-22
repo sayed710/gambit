@@ -23,10 +23,13 @@ const Analysis = lazy(() => import('./pages/Analysis'));
 const Profile = lazy(() => import('./pages/Profile'));
 const Review = lazy(() => import('./pages/Review'));
 const Blindfold = lazy(() => import('./pages/Blindfold'));
+const Guide = lazy(() => import('./pages/Guide'));
 
 export default function App() {
   // App-level unload guard: finished games that never persisted keep warning
   // across SPA navigation (the game screen unmounts; the session store does not).
+  // The compatibility gate lives one level up (AppGate) — it must decide
+  // BEFORE these routes (and their providers) ever mount.
   useUnsavedUnloadGuard();
   return (
     <Routes>
@@ -161,6 +164,14 @@ export default function App() {
           element={
             <Suspense fallback={<PageLoading label="Loading game…" />}>
               <Review />
+            </Suspense>
+          }
+        />
+        <Route
+          path="/guide"
+          element={
+            <Suspense fallback={<PageLoading label="Loading the guide…" />}>
+              <Guide />
             </Suspense>
           }
         />

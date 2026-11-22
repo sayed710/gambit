@@ -19,19 +19,33 @@ type EngineResponse = { requestId: number; payload: unknown };
 /** Human-equivalent ratings for the four Stockfish-based levels. */
 export const LEVEL_RATINGS: Record<Level, number> = { 1: 900, 2: 1400, 3: 1900, 4: 2400 };
 
-const pending = new Map<number, Pending>();
-let nextId = 1;
-
 /**
  * Engine access for the app. Primary path is Stockfish 18 (WASM); the bundled
  * lightweight engine stays as an automatic fallback if Stockfish can't load.
+ *
+ * Worker state is PER-INSTANCE (refs, not module scope): a transient worker
+ * failure marks only its own instance broken — a later, healthy instance
+ * accepts requests again — and every pending request is rejected by (and
+ * only by) the worker that owns it.
  */
 export function useEngine() {
   const workerRef = useRef<Worker | null>(null);
+  const pendingRef = useRef(new Map<number, Pending>());
+  const brokenRef = useRef(false);
+  const nextIdRef = useRef(1);
 
   useEffect(() => {
-    const worker = new Worker(new URL('./engine.worker.ts', import.meta.url), { type: 'module' });
+    let worker: Worker;
+    try {
+      worker = new Worker(new URL('./engine.worker.ts', import.meta.url), { type: 'module' });
+    } catch {
+      // no Worker at all (the compat gate normally prevents this) or a
+      // construction failure — fail this instance's requests fast, never hang
+      brokenRef.current = true;
+      return;
+    }
     workerRef.current = worker;
+    const pending = pendingRef.current;
     worker.addEventListener('message', (e: MessageEvent<EngineResponse>) => {
       const { requestId, payload } = e.data;
       const entry = pending.get(requestId);
@@ -39,6 +53,13 @@ export function useEngine() {
         pending.delete(requestId);
         entry.resolve(payload);
       }
+    });
+    // module imports can fail at worker startup on browsers that only run
+    // classic workers — surface that as clean rejections, not a hang
+    worker.addEventListener('error', () => {
+      brokenRef.current = true;
+      for (const entry of pending.values()) entry.reject(new Error('engine worker failed'));
+      pending.clear();
     });
     return () => {
       worker.terminate();
@@ -50,12 +71,12 @@ export function useEngine() {
   const legacyRequest = useCallback(<T,>(msg: LegacyCall): Promise<T> => {
     return new Promise<T>((resolve, reject) => {
       const worker = workerRef.current;
-      if (!worker) {
-        reject(new Error('engine not ready'));
+      if (!worker || brokenRef.current) {
+        reject(new Error('engine unavailable'));
         return;
       }
-      const requestId = nextId++;
-      pending.set(requestId, { resolve: resolve as (v: unknown) => void, reject });
+      const requestId = nextIdRef.current++;
+      pendingRef.current.set(requestId, { resolve: resolve as (v: unknown) => void, reject });
       worker.postMessage({ ...msg, requestId } satisfies EngineRequest);
     });
   }, []);
@@ -82,6 +103,9 @@ export function useEngine() {
       } catch {
         // Stockfish unavailable — fall through to the bundled engine
       }
+      // a worker failure REJECTS (never resolves null — null means "no
+      // move exists", which callers must not confuse with a broken engine);
+      // every consumer already handles rejection by standing down
       const legacy = await legacyRequest<SearchResult | null>({ type: 'search', fen, level, recentFens });
       if (legacy) return { ...legacy, engine: 'legacy' as const }; // honesty: no persona styling applies
       return legacy;
@@ -110,6 +134,8 @@ export function useEngine() {
       } catch {
         // fall through
       }
+      // rejections propagate: "engine down" must stay distinguishable
+      // from a completed evaluation
       return legacyRequest<EvalResult | null>({ type: 'eval', fen, depth: Math.min(depth, 3) });
     },
     [legacyRequest],

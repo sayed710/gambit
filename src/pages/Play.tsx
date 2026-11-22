@@ -533,10 +533,14 @@ function GameScreen({
 
   const requestHint = useCallback(async () => {
     if (over || !humanTurn) return;
-    const result = await engine.search(fen, 3, []);
-    if (result) {
-      setHintArrow([{ startSquare: result.from, endSquare: result.to, color: settings.resolvedTheme === 'dark' ? 'rgba(211, 165, 92, 0.8)' : 'rgba(138, 98, 36, 0.75)' }]);
-      toast(`Engine suggests ${result.san}`);
+    try {
+      const result = await engine.search(fen, 3, []);
+      if (result) {
+        setHintArrow([{ startSquare: result.from, endSquare: result.to, color: settings.resolvedTheme === 'dark' ? 'rgba(211, 165, 92, 0.8)' : 'rgba(138, 98, 36, 0.75)' }]);
+        toast(`Engine suggests ${result.san}`);
+      }
+    } catch {
+      toast('The engine is unavailable right now.');
     }
   }, [engine, fen, over, humanTurn, toast, settings.resolvedTheme]);
 
@@ -566,8 +570,13 @@ function GameScreen({
 
   const doOfferDraw = useCallback(async () => {
     setConfirm(null);
-    const accepted = await offerDraw((fen) => engine.evaluate(fen).then((r) => r?.cp ?? null));
-    if (accepted === false) toast('The engine declines, it likes its position.');
+    try {
+      const accepted = await offerDraw((fen) => engine.evaluate(fen).then((r) => r?.cp ?? null));
+      if (accepted === false) toast('The engine declines, it likes its position.');
+    } catch {
+      // the engine evaluates BEFORE any offer state changes — nothing was sent
+      toast('The engine is unavailable right now — the offer was not sent.');
+    }
   }, [offerDraw, engine, toast]);
 
   const { verdict, why } = verdictText(over, playerColor, config.mode);

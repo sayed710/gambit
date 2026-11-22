@@ -1,9 +1,10 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { NavLink, Link, Outlet, useLocation } from 'react-router-dom';
 import { useSettings } from '../state/SettingsContext';
 import { BrandMark, GearIcon, MenuIcon, XIcon } from './Icons';
 import { NAV_SECTIONS, sectionMatches } from '../lib/navSection';
 import { unlockAudio } from '../lib/sound';
+import { useDialogFocusTrap } from '../lib/useDialogFocusTrap';
 
 const BOARD_SWATCHES: { id: 'glacier' | 'seaice' | 'polarnight' | 'aurora' | 'frost' | 'walnut'; label: string; light: string; dark: string }[] = [
   { id: 'glacier', label: 'Glacier', light: '#C7D9E6', dark: '#3E637F' },
@@ -16,9 +17,13 @@ const BOARD_SWATCHES: { id: 'glacier' | 'seaice' | 'polarnight' | 'aurora' | 'fr
 
 function SettingsModal({ onClose }: { onClose: () => void }) {
   const settings = useSettings();
+  const dialogRef = useRef<HTMLDivElement | null>(null);
+  // a11y contract: focus enters the dialog, Tab stays inside, Escape closes,
+  // focus returns to the opener (documented in /guide#keyboard)
+  useDialogFocusTrap(dialogRef, onClose);
   return (
     <div className="modal-backdrop" onClick={(e) => e.target === e.currentTarget && onClose()}>
-      <div className="modal" role="dialog" aria-modal="true" aria-label="Settings">
+      <div className="modal" role="dialog" aria-modal="true" aria-label="Settings" ref={dialogRef}>
         <div className="modal-head">
           <h2>Settings</h2>
           <button className="icon-btn" onClick={onClose} aria-label="Close settings">
@@ -223,8 +228,11 @@ export default function Layout() {
             <BrandMark className="footer-brand" />
           </span>
           <span>
-            Everything runs in your browser, no account, no server ·{' '}
-            {new Date().getFullYear()}
+            Local-first chess · online rooms without accounts ·{' '}
+            <Link to="/guide" className="footer-link">
+              User guide
+            </Link>{' '}
+            · {new Date().getFullYear()}
           </span>
         </div>
       </footer>
