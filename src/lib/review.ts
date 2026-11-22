@@ -330,7 +330,10 @@ export function verifyReportAgainstGame(
   if (!report || !Array.isArray(report.reviews) || report.reviews.length !== moves.length) {
     return { ok: false, fensBefore: null };
   }
-  if (!Array.isArray(report.evals) || report.evals.length < moves.length) {
+  // the GameReport contract: an eval BEFORE each ply PLUS the final
+  // position's eval (length = moves.length + 1) — the last move's CPL
+  // cannot be computed without it, so a truncated report is damaged
+  if (!Array.isArray(report.evals) || report.evals.length !== moves.length + 1) {
     return { ok: false, fensBefore: null };
   }
   let game: Chess;

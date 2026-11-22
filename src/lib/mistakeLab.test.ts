@@ -415,6 +415,13 @@ describe('report cache verification (shared by Review fast path + Lab harvest)',
     expect(isReportCacheUsable(mismatched, rec.moves, rec.initialFen)).toBe(false);
   });
 
+  it('REGRESSION: a TRUNCATED report (no eval after the final move) is unusable', () => {
+    const { rec, report } = gameWithMistake();
+    const truncated: GameReport = { ...report, evals: report.evals.slice(0, report.evals.length - 1) };
+    expect(verifyReportAgainstGame(truncated, rec.moves, rec.initialFen).ok).toBe(false);
+    expect(isReportCacheUsable(truncated, rec.moves, rec.initialFen)).toBe(false); // reanalysis, not reuse
+  });
+
   it('a cache whose moves do not replay is unusable', () => {
     const { report } = gameWithMistake();
     expect(verifyReportAgainstGame(report, ['e4', 'e5', 'Qh5', 'Nc6', 'Bc4', 'Nf6', 'Qxf7#', 'Ke7'], undefined).ok).toBe(false);
