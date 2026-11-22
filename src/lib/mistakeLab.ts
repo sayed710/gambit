@@ -99,8 +99,10 @@ function normalizeState(raw: unknown): MistakeLabState {
       // an unreadable schedule means "unknown, treat as due now" — honest
       sr: normalizeSrRecord(x.sr) ?? freshSrRecord(0),
     }));
+  // the session object survives when its QUEUE is an array; the cursor
+  // itself is validated (and recovered) by sanitizeSession below
   const session =
-    state.session && Array.isArray(state.session.queue) && typeof state.session.index === 'number'
+    state.session && Array.isArray(state.session.queue)
       ? {
           ...state.session,
           results: Array.isArray(state.session.results) ? state.session.results : [],
@@ -287,20 +289,47 @@ export function sanitizeSession(
   if (!session) return null;
   const ids = new Set(exercises.map((x) => x.id));
   // every collection is defensively filtered: a malformed persisted entry
-  // (null, wrong shape) is discarded, never dereferenced
+  // (null, wrong shape, unknown outcome) is discarded, never dereferenced
   const queue = (Array.isArray(session.queue) ? session.queue : []).filter(
     (id): id is string => typeof id === 'string' && ids.has(id),
   );
-  const results = (Array.isArray(session.results) ? session.results : []).filter(
-    (r): r is MistakeLabState['session'] extends null ? never : NonNullable<MistakeLabState['session']>['results'][number] =>
-      !!r && typeof r === 'object' && typeof r.id === 'string' && ids.has(r.id),
+  const RECOGNIZED_OUTCOMES = ['clean', 'after-wrong', 'assisted'];
+  const rawResults = (Array.isArray(session.results) ? session.results : []).filter(
+    (r): r is { id: string; outcome: LabOutcome } =>
+      !!r && typeof r === 'object' && typeof r.id === 'string' && RECOGNIZED_OUTCOMES.includes(r.outcome),
   );
   if (queue.length === 0) return null;
-  const rawIndex = typeof session.index === 'number' ? session.index : 0;
-  const removedBefore = session.queue.slice(0, rawIndex).filter((id) => !ids.has(id)).length;
-  let index = rawIndex - removedBefore;
-  if (rawIndex >= session.queue.length) index = queue.length; // completed stays completed
-  index = Math.max(0, Math.min(index, queue.length));
+  // the cursor must be a FINITE NON-NEGATIVE INTEGER — a fractional/NaN/
+  // negative cursor cannot resolve an exercise and would deadlock the UI
+  // between runner and summary (an integer beyond the queue reads as
+  // COMPLETED — the long-standing interpretation)
+  const raw = session.index;
+  const rawIndex = typeof raw === 'number' && Number.isFinite(raw) && Number.isInteger(raw) && raw >= 0 ? raw : null;
+  let index: number;
+  let results: { id: string; outcome: LabOutcome }[];
+  if (rawIndex !== null) {
+    const removedBefore = session.queue.slice(0, rawIndex).filter((id) => !ids.has(id)).length;
+    index = rawIndex - removedBefore;
+    if (rawIndex >= session.queue.length) index = queue.length; // completed stays completed
+    index = Math.max(0, Math.min(index, queue.length));
+    // results may only claim exercises genuinely COMPLETED before the
+    // cursor — a corrupted entry naming the current unresolved exercise
+    // would otherwise unmask its answer in the exercise table
+    const resolvedIds = new Set(queue.slice(0, index));
+    const seen = new Set<string>();
+    results = [];
+    for (const r of rawResults) {
+      if (!resolvedIds.has(r.id) || seen.has(r.id)) continue;
+      seen.add(r.id);
+      results.push(r);
+    }
+  } else {
+    // an unusable cursor poisons every progress claim: restart the session
+    // honestly (exercises and their SR progress are untouched — the lost
+    // results were display-only for this run)
+    index = 0;
+    results = [];
+  }
   const flags: NonNullable<MistakeLabState['session']>['flags'] = {};
   for (const id of queue) {
     const f = session.flags?.[id];

@@ -323,12 +323,28 @@ export interface ReportVerification {
 }
 
 /** The honest report-completeness contract: EVERY evaluation entry is a
-    real engine reading. A single null means that position was never
-    analysed — `cplFor()` would silently treat it as zero loss and invent
-    a flattering classification, so an incomplete report is never
-    displayed, persisted, or trusted as a cache. */
+    structurally valid engine reading. A null entry means that position
+    was never analysed; a malformed entry (e.g. `{}`) would feed garbage
+    into `evalToCp()`/`cplFor()` — which silently treats a missing
+    neighbour as zero loss and invents flattering classifications. An
+    incomplete or malformed report is never displayed, persisted, or
+    trusted as a cache. */
 export function isReportComplete(report: GameReport): boolean {
-  return Array.isArray(report.evals) && report.evals.length > 0 && report.evals.every((e) => e !== null);
+  return (
+    Array.isArray(report.evals) &&
+    report.evals.length > 0 &&
+    report.evals.every((e) => {
+      if (!e || typeof e !== 'object') return false;
+      const v = e as PlyEval;
+      // cp: finite white-perspective centipawns (mates map to ±10000)
+      if (typeof v.cp !== 'number' || !Number.isFinite(v.cp)) return false;
+      // mateIn: a signed integer ply count, or null when no mate is seen
+      if (v.mateIn !== null && !Number.isInteger(v.mateIn)) return false;
+      // bestSan: the engine's best move in SAN, or null when unavailable
+      if (v.bestSan !== null && typeof v.bestSan !== 'string') return false;
+      return true;
+    })
+  );
 }
 
 export function verifyReportAgainstGame(

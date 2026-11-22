@@ -373,6 +373,81 @@ describe('sessions (resumable)', () => {
     expect(loadLab().session).toBeNull(); // back to a clean, startable state
   });
 
+  it('ADVERSARIAL: a FRACTIONAL cursor is recovered honestly (no deadlock, no fake completion)', () => {
+    const state = stateWith(['a', 'b', 'c']);
+    const corrupted = {
+      ...state,
+      session: { queue: ['a', 'b', 'c'], index: 0.5, startedAt: NOW, results: [], flags: {} },
+    };
+    localStorage.setItem('gambit.mistakeLab.v1', JSON.stringify(corrupted));
+    const loaded = loadLab();
+    // an unusable cursor restarts the session honestly: every exercise is
+    // due again and the FIRST live one is served — never undefined
+    expect(loaded.session?.index).toBe(0);
+    expect(currentExercise(loaded)?.id).toBe('a');
+    expect(loaded.session?.results).toEqual([]);
+  });
+
+  it('ADVERSARIAL: negative and out-of-range cursors are recovered safely', () => {
+    const negative = { ...stateWith(['a', 'b']), session: { queue: ['a', 'b'], index: -2, startedAt: NOW, results: [{ id: 'a', outcome: 'clean' as const }], flags: {} } };
+    localStorage.setItem('gambit.mistakeLab.v1', JSON.stringify(negative));
+    const loadedNegative = loadLab();
+    expect(loadedNegative.session?.index).toBe(0);
+    expect(loadedNegative.session?.results).toEqual([]); // an untrustworthy cursor voids progress claims
+
+    const outOfRange = { ...stateWith(['a', 'b']), session: { queue: ['a', 'b'], index: 99, startedAt: NOW, results: [], flags: {} } };
+    localStorage.setItem('gambit.mistakeLab.v1', JSON.stringify(outOfRange));
+    // 99 is an integer beyond the queue: the COMPLETED interpretation is the
+    // only sane one — index clamps to the queue length
+    expect(loadLab().session?.index).toBe(2);
+  });
+
+  it('ADVERSARIAL: a NaN-equivalent persisted cursor (null after JSON) is recovered', () => {
+    const state = stateWith(['a', 'b']);
+    const corrupted = { ...state, session: { queue: ['a', 'b'], index: null, startedAt: NOW, results: [], flags: {} } };
+    localStorage.setItem('gambit.mistakeLab.v1', JSON.stringify(corrupted)); // NaN serializes to null
+    const loaded = loadLab();
+    expect(loaded.session?.index).toBe(0);
+    expect(currentExercise(loaded)?.id).toBe('a');
+  });
+
+  it('ADVERSARIAL: malformed RESULTS cannot unmask answers or fake completion', () => {
+    const state = stateWith(['a', 'b', 'c']);
+    const started = startSession(state, NOW); // cursor 0 — NOTHING resolved yet
+    const poisoned = {
+      ...started,
+      session: {
+        ...started.session!,
+        // a corrupted writer claims the CURRENT exercise was solved (with a
+        // bogus outcome) and pads with an unrecognized outcome
+        results: [
+          { id: 'a', outcome: 'clean' as const }, // current/unresolved — must be dropped
+          { id: 'b', outcome: 'hacked' as never }, // unrecognized outcome — dropped
+        ],
+      },
+    };
+    localStorage.setItem('gambit.mistakeLab.v1', JSON.stringify(poisoned));
+    const loaded = loadLab();
+    expect(loaded.session?.results).toEqual([]); // no fake progress survives
+    expect(loaded.session?.index).toBe(0); // no fake completion
+    // and the page would keep BOTH answers masked (nothing was "resolved")
+    const hidden = loaded.session!.queue.filter((id) => !loaded.session!.results.some((r) => r.id === id));
+    expect(hidden).toEqual(['a', 'b', 'c']);
+  });
+
+  it('ADVERSARIAL: valid completed progress SURVIVES sanitation', () => {
+    const state = stateWith(['a', 'b', 'c']);
+    const started = startSession(state, NOW);
+    const partial = completeCurrent(completeCurrent(started, 'clean', NOW), 'after-wrong', NOW); // a, b resolved
+    localStorage.setItem('gambit.mistakeLab.v1', JSON.stringify(partial));
+    const loaded = loadLab();
+    expect(loaded.session?.index).toBe(2);
+    expect(loaded.session?.results).toEqual([
+      { id: 'a', outcome: 'clean' },
+      { id: 'b', outcome: 'after-wrong' },
+    ]);
+  });
+
   it('startSession queues due exercises (capped) and currentExercise serves them in order', () => {
     const state = stateWith(['a', 'b', 'c']);
     const started = startSession(state, NOW);
