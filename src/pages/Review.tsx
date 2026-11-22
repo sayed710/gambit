@@ -788,7 +788,7 @@ export default function Review() {
                     ? 'Stockfish is walking through every move of the game. The full report appears here.'
                     : 'The report will appear here once the engine has analyzed the game.'}
                 </p>
-                {!analyzing && (
+                {!analyzing && plies.length > 0 && (
                   <button className="btn btn-ghost btn-sm mt-1" onClick={() => void runAnalysis()}>
                     Retry analysis
                   </button>
