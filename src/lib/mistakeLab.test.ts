@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { Chess } from 'chess.js';
-import { isReportCacheUsable, verifyReportAgainstGame, type GameReport, type MoveClass } from './review';
+import { CLASSIFICATION_META, isReportCacheUsable, verifyReportAgainstGame, type GameReport, type MoveClass } from './review';
 import type { GameRecord } from './types';
 import type { SrRecord } from './trainingStore';
 import {
@@ -66,9 +66,14 @@ function reportFor(moves: string[], mistakes: Record<number, { classification: M
     reviews,
     evals,
     accuracy: { w: 90, b: 85 },
-    counts: { w: {}, b: {} } as GameReport['counts'],
+    counts: { w: fullCounts(), b: fullCounts() } as unknown as GameReport['counts'],
     avgCpl: { w: 10, b: 20 },
   };
+}
+
+
+function fullCounts(): Record<string, number> {
+  return Object.fromEntries(Object.keys(CLASSIFICATION_META).map((k) => [k, 0]));
 }
 
 const MISTAKE_AT_2 = { classification: 'blunder' as MoveClass, cpl: 320, bestSan: 'Nf3' };
@@ -373,6 +378,23 @@ describe('sessions (resumable)', () => {
     expect(loadLab().session).toBeNull(); // back to a clean, startable state
   });
 
+  it('ADVERSARIAL: malformed EXERCISES are quarantined individually — valid siblings survive', () => {
+    const { rec, report } = gameWithMistake();
+    const [good] = harvestFromGame(rec, report, NOW).exercises;
+    const brokenFen = { ...good, id: 'bad-fen', fenBefore: 'not-a-fen' };
+    const badSide = { ...good, id: 'bad-side', side: 'x' as never };
+    const badClass = { ...good, id: 'bad-class', classification: 'hacked-class' as never };
+    const negativeCpl = { ...good, id: 'bad-cpl', cpl: -10 };
+    const unplayableAnswer = { ...good, id: 'bad-answer', bestSan: 'Qxg7' }; // queen h5 has no line to g7
+    const state: MistakeLabState = {
+      ...emptyLabState(),
+      exercises: [brokenFen, badSide, badClass, negativeCpl, unplayableAnswer, good],
+    };
+    localStorage.setItem('gambit.mistakeLab.v1', JSON.stringify(state));
+    const loaded = loadLab();
+    expect(loaded.exercises.map((x) => x.id)).toEqual([good.id]); // ONLY the valid one survives
+  });
+
   it('ADVERSARIAL: a FRACTIONAL cursor is recovered honestly (no deadlock, no fake completion)', () => {
     const state = stateWith(['a', 'b', 'c']);
     const corrupted = {
@@ -434,6 +456,33 @@ describe('sessions (resumable)', () => {
     const hidden = loaded.session!.queue.filter((id) => !loaded.session!.results.some((r) => r.id === id));
     expect(hidden).toEqual(['a', 'b', 'c']);
   });
+
+  it('ADVERSARIAL: a DUPLICATE queue id cannot expose its answer via an earlier result', () => {
+    // corrupted persistence: queue [a, a, b], cursor 1 (the SECOND 'a' is
+    // unresolved), but a result claims 'a' was solved — the duplicate would
+    // let hiddenAnswers treat the unresolved copy as resolved
+    const state = stateWith(['a', 'a', 'b']);
+    const corrupted = {
+      ...state,
+      session: {
+        queue: ['a', 'a', 'b'],
+        index: 1,
+        startedAt: NOW,
+        results: [{ id: 'a', outcome: 'clean' as const }], // for the EARLIER 'a'
+        flags: {},
+      },
+    };
+    localStorage.setItem('gambit.mistakeLab.v1', JSON.stringify(corrupted));
+    const loaded = loadLab();
+    // the duplicate collapses; the cursor re-anchors onto the SAME exercise
+    expect(loaded.session?.queue).toEqual(['a', 'b']);
+    expect(loaded.session?.index).toBe(0);
+    // the corrupt result is DROPPED (it claimed the still-unresolved copy)
+    expect(loaded.session?.results).toEqual([]);
+    // -> 'a' is served UNRESOLVED with its answer masked, no fake completion
+    expect(currentExercise(loaded)?.id).toBe('a');
+  });
+
 
   it('ADVERSARIAL: valid completed progress SURVIVES sanitation', () => {
     const state = stateWith(['a', 'b', 'c']);
@@ -520,6 +569,54 @@ describe('report cache verification (shared by Review fast path + Lab harvest)',
     };
     expect(verifyReportAgainstGame(mismatched, rec.moves, rec.initialFen).ok).toBe(false);
     expect(isReportCacheUsable(mismatched, rec.moves, rec.initialFen)).toBe(false); // -> fresh analysis runs
+  });
+
+  it('METADATA: an UNKNOWN move classification fails verification (reanalysis, not reuse)', () => {
+    const { rec, report } = gameWithMistake();
+    const hacked: GameReport = {
+      ...report,
+      reviews: report.reviews.map((r, i) =>
+        i === 2 ? { ...r, classification: 'hacked-class' as MoveClass } : r,
+      ),
+    };
+    expect(verifyReportAgainstGame(hacked, rec.moves, rec.initialFen).ok).toBe(false);
+    expect(isReportCacheUsable(hacked, rec.moves, rec.initialFen)).toBe(false);
+  });
+
+  it('METADATA: an INVALID cpl (negative / non-numeric) fails verification', () => {
+    const { rec, report } = gameWithMistake();
+    const negative: GameReport = {
+      ...report,
+      reviews: report.reviews.map((r, i) => (i === 2 ? { ...r, cpl: -50 } : r)), // CPL is never negative
+    };
+    expect(verifyReportAgainstGame(negative, rec.moves, rec.initialFen).ok).toBe(false);
+    const nonNumeric: GameReport = {
+      ...report,
+      reviews: report.reviews.map((r, i) => (i === 2 ? { ...r, cpl: 'huge' as unknown as number } : r)),
+    };
+    expect(verifyReportAgainstGame(nonNumeric, rec.moves, rec.initialFen).ok).toBe(false);
+    expect(isReportCacheUsable(nonNumeric, rec.moves, rec.initialFen)).toBe(false);
+  });
+
+  it('METADATA: missing/malformed STATISTICS (counts, accuracy, avgCpl) fail verification', () => {
+    const { rec, report } = gameWithMistake();
+    const missingKey = {
+      ...report,
+      counts: { w: { brilliant: 0 }, b: fullCounts() }, // most MoveClass keys absent
+    } as unknown as GameReport;
+    expect(isReportCacheUsable(missingKey, rec.moves, rec.initialFen)).toBe(false);
+    const malformedAccuracy = {
+      ...report,
+      accuracy: { w: 'ninety', b: 85 },
+    } as unknown as GameReport;
+    expect(isReportCacheUsable(malformedAccuracy, rec.moves, rec.initialFen)).toBe(false);
+    const malformedAvg = {
+      ...report,
+      avgCpl: { w: Number.NaN, b: 20 },
+    } as unknown as GameReport;
+    expect(isReportCacheUsable(malformedAvg, rec.moves, rec.initialFen)).toBe(false);
+    // control: the untouched healthy cache is still usable (fast path preserved)
+    expect(isReportCacheUsable(report, rec.moves, rec.initialFen)).toBe(true);
   });
 
   it('REGRESSION: a same-length cache with a WRONG MOVER COLOR fails verification', () => {

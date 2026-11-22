@@ -7,7 +7,7 @@ import { SettingsProvider } from '../state/SettingsContext';
 import { ProfileProvider } from '../state/ProfileContext';
 import { ToastProvider } from '../components/Toast';
 import type { GameRecord } from '../lib/types';
-import type { GameReport } from '../lib/review';
+import { CLASSIFICATION_META, type GameReport } from '../lib/review';
 
 /* The full harness the page expects (providers + router), against REAL
    localStorage — the lab store is verified-persisted data. */
@@ -32,6 +32,10 @@ function gameRecord(): GameRecord {
   };
 }
 
+function fullCounts(): Record<string, number> {
+  return Object.fromEntries(Object.keys(CLASSIFICATION_META).map((k) => [k, 0]));
+}
+
 function reviewReport(): GameReport {
   const reviews = MOVES.map((san, i) => ({
     san,
@@ -40,7 +44,7 @@ function reviewReport(): GameReport {
     classification: (i === 2 ? 'blunder' : 'best') as never,
   }));
   const evals = Array.from({ length: MOVES.length + 1 }, (_, i) => ({ cp: 0, mateIn: null, bestSan: i === 2 ? 'Nf3' : null }));
-  return { reviews, evals, accuracy: { w: 90, b: 85 }, counts: { w: {}, b: {} }, avgCpl: { w: 10, b: 20 } } as unknown as GameReport;
+  return { reviews, evals, accuracy: { w: 90, b: 85 }, counts: { w: fullCounts(), b: fullCounts() }, avgCpl: { w: 10, b: 20 } } as unknown as GameReport;
 }
 
 function seedProfile() {
@@ -125,7 +129,7 @@ describe('MistakeLab page', () => {
       opponent: 'Engine',
       playedAt: 1,
       ply: 2,
-      fenBefore: new Chess('rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq - 0 2').fen(),
+      fenBefore: new Chess('rnbqkbnr/pppp1ppp/8/4p3/4P3/8/PPPP1PPP/RNBQKBNR w KQkq - 0 2').fen(),
       side: 'w',
       playedSan: 'Qh5',
       bestSan: 'Nf3',

@@ -7,7 +7,7 @@ import { ProfileProvider } from '../state/ProfileContext';
 import { ToastProvider } from '../components/Toast';
 import { Chess } from 'chess.js';
 import type { GameRecord } from '../lib/types';
-import type { GameReport } from '../lib/review';
+import { CLASSIFICATION_META, type GameReport } from '../lib/review';
 
 /* ============================================================
    Review cache-recovery integration (Gambit 2.0 M1 quality gate).
@@ -73,6 +73,10 @@ function gameRecord(): GameRecord {
 /** A structurally complete report for the REAL line (passes the old
     structural fast path); `corrupt` swaps one cached SAN so the shared
     semantic verification must reject it. */
+function fullCounts(): Record<string, number> {
+  return Object.fromEntries(Object.keys(CLASSIFICATION_META).map((k) => [k, 0]));
+}
+
 function healthyCache(corrupt = false): GameReport {
   const reviews = MOVES.map((san, i) => ({
     san: corrupt && i === 4 ? 'Qf3' : san,
@@ -85,7 +89,7 @@ function healthyCache(corrupt = false): GameReport {
     mateIn: null,
     bestSan: i === 2 ? 'Nf3' : null,
   }));
-  return { reviews, evals, accuracy: { w: 90, b: 85 }, counts: { w: {}, b: {} }, avgCpl: { w: 10, b: 20 } } as unknown as GameReport;
+  return { reviews, evals, accuracy: { w: 90, b: 85 }, counts: { w: fullCounts(), b: fullCounts() }, avgCpl: { w: 10, b: 20 } } as unknown as GameReport;
 }
 
 function seedGame() {

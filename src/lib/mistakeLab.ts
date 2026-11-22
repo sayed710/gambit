@@ -85,12 +85,43 @@ function freshSrRecord(now: number): SrRecord {
   return { due: now, interval: 0, reps: 0, ease: 2.5, lapses: 0, lastResult: null };
 }
 
+/** An exercise is only usable when its ESSENTIAL fields are real: a
+    loadable before-position, a valid side, a KNOWN critical
+    classification, a finite non-negative CPL, and a best move that is
+    actually LEGAL in that position (an unplayable answer is an
+    unsolvable exercise). Malformed exercises are QUARANTINED — dropped
+    individually, never discarding their valid siblings. */
+function isUsableLabExercise(x: unknown): x is LabExercise {
+  if (!x || typeof x !== 'object') return false;
+  const v = x as Partial<LabExercise>;
+  if (typeof v.id !== 'string' || v.id.length === 0) return false;
+  if (typeof v.gameId !== 'string' || v.gameId.length === 0) return false;
+  if (typeof v.fenBefore !== 'string') return false;
+  if (v.side !== 'w' && v.side !== 'b') return false;
+  if (typeof v.playedSan !== 'string' || v.playedSan.length === 0) return false;
+  if (typeof v.bestSan !== 'string' || v.bestSan.length === 0) return false;
+  if (typeof v.classification !== 'string' || !(CRITICAL_CLASSES as string[]).includes(v.classification)) return false;
+  if (typeof v.cpl !== 'number' || !Number.isFinite(v.cpl) || v.cpl < 0) return false;
+  let position: Chess;
+  try {
+    position = new Chess(v.fenBefore);
+  } catch {
+    return false; // an unloadable position would crash the runner board
+  }
+  try {
+    if (!position.move(v.bestSan)) return false; // an unplayable answer is unsolvable
+  } catch {
+    return false;
+  }
+  return true;
+}
+
 function normalizeState(raw: unknown): MistakeLabState {
   if (!raw || typeof raw !== 'object') return emptyLabState();
   const state = raw as Partial<MistakeLabState>;
   if (!Array.isArray(state.exercises)) return emptyLabState();
   const exercises = state.exercises
-    .filter((x): x is LabExercise => !!x && typeof x === 'object' && typeof x.id === 'string' && typeof x.fenBefore === 'string')
+    .filter(isUsableLabExercise)
     .map((x) => ({
       ...x,
       attempts: typeof x.attempts === 'number' ? x.attempts : 0,
@@ -290,9 +321,13 @@ export function sanitizeSession(
   const ids = new Set(exercises.map((x) => x.id));
   // every collection is defensively filtered: a malformed persisted entry
   // (null, wrong shape, unknown outcome) is discarded, never dereferenced
-  const queue = (Array.isArray(session.queue) ? session.queue : []).filter(
+  const validQueue = (Array.isArray(session.queue) ? session.queue : []).filter(
     (id): id is string => typeof id === 'string' && ids.has(id),
   );
+  // DUPLICATE ids are collapsed (first occurrence wins): a repeated
+  // exercise would let one persisted result unmask the answer of its
+  // still-unresolved duplicate
+  const queue = [...new Set(validQueue)];
   const RECOGNIZED_OUTCOMES = ['clean', 'after-wrong', 'assisted'];
   const rawResults = (Array.isArray(session.results) ? session.results : []).filter(
     (r): r is { id: string; outcome: LabOutcome } =>
@@ -308,9 +343,20 @@ export function sanitizeSession(
   let index: number;
   let results: { id: string; outcome: LabOutcome }[];
   if (rawIndex !== null) {
-    const removedBefore = session.queue.slice(0, rawIndex).filter((id) => !ids.has(id)).length;
-    index = rawIndex - removedBefore;
-    if (rawIndex >= session.queue.length) index = queue.length; // completed stays completed
+    // the cursor names an exercise in the ORIGINAL persisted queue —
+    // re-anchor it onto the deduplicated queue: if that exercise survived,
+    // the cursor is its deduped position; if the entry at the cursor was
+    // dropped (invalid id), serve the next surviving exercise at or after
+    // it; a cursor at the very end stays completed
+    const currentId = rawIndex < session.queue.length ? session.queue[rawIndex] : null;
+    if (currentId !== null && queue.includes(currentId)) {
+      index = queue.indexOf(currentId);
+    } else if (currentId === null) {
+      index = queue.length; // was completed
+    } else {
+      const next = session.queue.slice(rawIndex + 1).find((id) => queue.includes(id));
+      index = next !== undefined ? queue.indexOf(next) : queue.length;
+    }
     index = Math.max(0, Math.min(index, queue.length));
     // results may only claim exercises genuinely COMPLETED before the
     // cursor — a corrupted entry naming the current unresolved exercise

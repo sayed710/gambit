@@ -347,6 +347,44 @@ export function isReportComplete(report: GameReport): boolean {
   );
 }
 
+/** A per-ply review entry is only trustworthy when its classification is a
+    KNOWN move class and its centipawn loss is a real, non-negative reading
+    — Review dereferences both (classification metadata lookup + the cpl
+    badge), and a malformed cache must reanalyse instead of rendering. */
+function isValidReviewEntry(review: unknown): boolean {
+  if (!review || typeof review !== 'object') return false;
+  const v = review as { san?: unknown; color?: unknown; cpl?: unknown; classification?: unknown };
+  if (typeof v.san !== 'string' || v.san.length === 0) return false;
+  if (v.color !== 'w' && v.color !== 'b') return false;
+  if (typeof v.cpl !== 'number' || !Number.isFinite(v.cpl) || v.cpl < 0) return false;
+  if (typeof v.classification !== 'string' || !(v.classification in CLASSIFICATION_META)) return false;
+  return true;
+}
+
+/** The statistics Review dereferences on every render: per-side accuracy,
+    average CPL, and a full class-count table (a missing MoveClass key
+    renders as "undefined moves" in the report strip). */
+function hasValidReportStats(report: GameReport): boolean {
+  const finite = (n: unknown): n is number => typeof n === 'number' && Number.isFinite(n);
+  const countsSideValid = (side: unknown): boolean =>
+    !!side &&
+    typeof side === 'object' &&
+    (Object.keys(CLASSIFICATION_META) as (keyof typeof CLASSIFICATION_META)[]).every(
+      (cls) => finite((side as Record<string, unknown>)[cls]),
+    );
+  return (
+    !!report.accuracy &&
+    finite(report.accuracy.w) &&
+    finite(report.accuracy.b) &&
+    !!report.avgCpl &&
+    finite(report.avgCpl.w) &&
+    finite(report.avgCpl.b) &&
+    !!report.counts &&
+    countsSideValid(report.counts.w) &&
+    countsSideValid(report.counts.b)
+  );
+}
+
 export function verifyReportAgainstGame(
   report: GameReport,
   moves: string[],
@@ -359,6 +397,10 @@ export function verifyReportAgainstGame(
   // position's eval (length = moves.length + 1), and EVERY entry a real
   // reading — a truncated or partially analysed report is damaged
   if (!Array.isArray(report.evals) || report.evals.length !== moves.length + 1 || !isReportComplete(report)) {
+    return { ok: false, fensBefore: null };
+  }
+  // the statistics Review renders must be real numbers in a complete table
+  if (!hasValidReportStats(report)) {
     return { ok: false, fensBefore: null };
   }
   let game: Chess;
@@ -380,6 +422,9 @@ export function verifyReportAgainstGame(
     const review = report.reviews[ply];
     if (!review || review.san !== played.san || review.color !== played.color) {
       return { ok: false, fensBefore: null }; // the cache describes a different game
+    }
+    if (!isValidReviewEntry(review)) {
+      return { ok: false, fensBefore: null }; // malformed classification/cpl — reanalyse
     }
     fensBefore.push(fenBefore);
   }
