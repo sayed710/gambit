@@ -17,7 +17,9 @@ import {
   harvestAll,
   labStats,
   loadLab,
+  markFlags,
   MASTERED_INTERVAL_DAYS,
+  promotionPieceFor,
   saveLab,
   startSession,
   type LabExercise,
@@ -55,10 +57,17 @@ function LabRunner({
   const [hint, setHint] = useState(false);
   const [revealed, setRevealed] = useState(false);
   const [feedback, setFeedback] = useState<string | null>(null);
-  const assistedRef = useRef(false);
-  const firstTryRef = useRef(true);
+  // attempt-honesty flags start from the PERSISTED session flags: a reload
+  // mid-exercise must not turn a bungled start into a clean solve
+  const persistedFlags = state.session?.flags?.[exercise.id] ?? { assisted: false, firstTry: true };
+  const assistedRef = useRef(persistedFlags.assisted);
+  const firstTryRef = useRef(persistedFlags.firstTry);
   const resolvedRef = useRef(false);
   const [resolved, setResolved] = useState<LabOutcome | null>(null);
+
+  const persistFlags = useCallback(() => {
+    setState(markFlags(state, exercise.id, { assisted: assistedRef.current, firstTry: firstTryRef.current }));
+  }, [state, exercise.id, setState]);
 
   const settle = useCallback(
     (outcome: LabOutcome) => {
@@ -76,15 +85,19 @@ function LabRunner({
     (from: Square, to: Square): 'ok' | 'illegal' => {
       if (resolvedRef.current) return 'ok';
       const probe = new Chess(exercise.fenBefore);
+      // promotions enter the VERIFIED piece (from the answer's SAN), so a
+      // reviewed underpromotion is playable instead of impossible
+      const promo = promotionPieceFor(exercise.bestSan);
       let move;
       try {
-        move = probe.move({ from, to, promotion: 'q' }); // v1: auto-queen
+        move = probe.move({ from, to, promotion: promo });
       } catch {
         return 'illegal';
       }
       if (!move) return 'illegal';
       if (gradeLabMove(exercise, move.san) === 'wrong') {
         firstTryRef.current = false;
+        persistFlags(); // a wrong guess survives a reload
         setFeedback(`${move.san} is not it — the position calls for something better. Try again.`);
         return 'illegal';
       }
@@ -93,7 +106,7 @@ function LabRunner({
       settle(outcome);
       return 'ok';
     },
-    [exercise, settle],
+    [exercise, settle, persistFlags],
   );
 
   const click = useClickToMove({ fen: exercise.fenBefore, movableColor: exercise.side, tryMove: onMove });
@@ -120,6 +133,7 @@ function LabRunner({
             className="btn btn-ghost btn-sm"
             onClick={() => {
               assistedRef.current = true;
+              persistFlags();
               setHint((h) => !h);
             }}
           >
@@ -129,6 +143,7 @@ function LabRunner({
             className="btn btn-ghost btn-sm"
             onClick={() => {
               if (!revealed) assistedRef.current = true;
+              persistFlags();
               setRevealed((r) => !r);
             }}
           >
@@ -189,8 +204,7 @@ function LabRunner({
           </>
         ) : (
           <p className="small muted" style={{ margin: 0 }}>
-            Find a better move than {exercise.playedSan}. The exact engine move is the only accepted answer — near
-            misses count as wrong until a verified equivalence check exists.
+            Find a better move than {exercise.playedSan}. The exact engine move is the only accepted answer — near misses count as wrong until a verified equivalence check exists. Promotions are entered as the engine's verified piece.
           </p>
         )}
       </aside>
@@ -215,9 +229,16 @@ export default function MistakeLab() {
   const sessionDone = !!session && session.index >= session.queue.length;
   const cleanCount = session?.results.filter((r) => r.outcome === 'clean').length ?? 0;
   const dueNowIds = useMemo(() => new Set(dueExercises(state, Date.now()).map((x) => x.id)), [state]);
+  // answers of queued-but-unresolved exercises stay off the page during a session
+  const hiddenAnswers = useMemo(
+    () => new Set(session && !sessionDone ? session.queue.filter((id) => !session.results.some((r) => r.id === id)) : []),
+    [session, sessionDone],
+  );
 
   const sync = () => {
-    const result = harvestAll(profile, loadLab(), Date.now());
+    // harvest merges into the PAGE's current state — never a stale storage
+    // snapshot (a failed write must not be overwritten by older data)
+    const result = harvestAll(profile, state, Date.now());
     persist(result.state);
     setSyncNote(
       result.gamesScanned === 0
@@ -323,11 +344,14 @@ export default function MistakeLab() {
                 .sort((a, b) => Number(dueNowIds.has(b.id)) - Number(dueNowIds.has(a.id)) || b.cpl - a.cpl)
                 .map((x) => {
                   const meta = CLASSIFICATION_META[x.classification];
+                  // during a session the answers of UNRESOLVED exercises are
+                  // hidden — reading them here would fake a clean solve
+                  const answerHidden = hiddenAnswers.has(x.id);
                   return (
                     <tr key={x.id}>
                       <td className="small">vs {x.opponent || '?'} · move {Math.floor(x.ply / 2) + 1}{x.side === 'w' ? '.' : '…'}</td>
                       <td className="mono small" style={{ color: 'var(--clay-ink)' }}>{x.playedSan}</td>
-                      <td className="mono small">{x.bestSan}</td>
+                      <td className="mono small">{answerHidden ? '—' : x.bestSan}</td>
                       <td className="small">{meta.label}</td>
                       <td className="small">{x.attempts}</td>
                       <td className="small muted">{x.sr.interval >= 1 ? `in ${Math.max(0, Math.ceil((x.sr.due - Date.now()) / 86_400_000))}d` : 'due now'}</td>
@@ -337,6 +361,9 @@ export default function MistakeLab() {
             </tbody>
           </table>
           <p className="small muted" style={{ margin: '0.5rem 0 0' }}>
+            {hiddenAnswers.size > 0
+              ? 'Engine moves are hidden while their exercises wait in the active session — reveal them through Hint/Reveal on the board, which marks the attempt assisted. '
+              : ''}
             Mastered = the review interval reached {MASTERED_INTERVAL_DAYS}+ days of clean recalls. Wrong answers and
             hints are recorded as attempts, never as clean solves.
           </p>

@@ -63,6 +63,9 @@ export interface LabSession {
   startedAt: number;
   /** ids resolved so far in THIS session, with their outcomes */
   results: { id: string; outcome: 'clean' | 'after-wrong' | 'assisted' }[];
+  /** in-progress attempt flags per unresolved exercise — persisted so a
+      reload mid-exercise cannot turn a bungled start into a clean solve */
+  flags: Record<string, { assisted: boolean; firstTry: boolean }>;
 }
 
 export interface MistakeLabState {
@@ -99,7 +102,11 @@ function normalizeState(raw: unknown): MistakeLabState {
     }));
   const session =
     state.session && Array.isArray(state.session.queue) && typeof state.session.index === 'number'
-      ? { ...state.session, results: Array.isArray(state.session.results) ? state.session.results : [] }
+      ? {
+          ...state.session,
+          results: Array.isArray(state.session.results) ? state.session.results : [],
+          flags: state.session.flags && typeof state.session.flags === 'object' ? state.session.flags : {},
+        }
       : null;
   return {
     version: 1,
@@ -153,6 +160,7 @@ function isCritical(c: MoveClass): c is LabExercise['classification'] {
  */
 export function harvestFromGame(record: GameRecord, report: GameReport, now: number): LabExercise[] {
   if (record.moves.length !== report.reviews.length) return []; // cache/game mismatch — refuse, never guess
+  if (!Array.isArray(report.evals)) return []; // malformed cache — refuse (finding: sync must not throw)
   let game: Chess;
   try {
     game = new Chess(record.initialFen ?? undefined);
@@ -173,7 +181,13 @@ export function harvestFromGame(record: GameRecord, report: GameReport, now: num
     if (!played || played.san !== record.moves[ply]) return found;
     const review = report.reviews[ply];
     const evalBefore = report.evals[ply];
-    if (!review || !evalBefore?.bestSan) continue; // no verified best move -> no exercise
+    // the cache must describe THIS move in THIS position — a same-length
+    // cache from different moves is a mismatch, not a harvest (finding:
+    // stale reviews create mismatched exercises)
+    if (!review || review.san !== played.san || review.color !== played.color) return found;
+    if (!evalBefore?.bestSan) continue; // no verified best move -> no exercise
+    // a personal-mistake lab trains THE PLAYER's decisions only
+    if (played.color !== record.playerColor) continue;
     if (!isCritical(review.classification)) continue;
     if (evalBefore.bestSan === played.san) continue; // played the best move — not a mistake to retry
     found.push({
@@ -210,20 +224,61 @@ export function harvestAll(profile: { games: GameRecord[] }, state: MistakeLabSt
   let gamesScanned = 0;
   for (const record of profile.games) {
     const report = loadJSON<unknown>(`review.${record.id}`, null) as GameReport | null;
-    if (!report || !Array.isArray(report.reviews)) continue;
+    if (!report || !Array.isArray(report.reviews) || !Array.isArray(report.evals)) continue;
     gamesScanned += 1;
-    for (const ex of harvestFromGame(record, report, now)) {
+    let harvested: LabExercise[];
+    try {
+      harvested = harvestFromGame(record, report, now);
+    } catch {
+      continue; // a damaged cache never blocks the remaining games
+    }
+    for (const ex of harvested) {
       if (!byId.has(ex.id)) {
         byId.set(ex.id, ex);
         added += 1;
       }
     }
   }
+  // reconcile: exercises whose source game no longer exists (deleted game,
+  // profile reset) leave the lab — with their session references
+  const liveIds = new Set(profile.games.map((g) => g.id));
+  const exercises = [...byId.values()].filter((x) => liveIds.has(x.gameId));
+  const session = sanitizeSession(state.session, exercises);
   return {
-    state: { ...state, exercises: [...byId.values()], lastHarvestAt: now },
+    state: { version: 1, exercises, session, lastHarvestAt: now },
     added,
     gamesScanned,
   };
+}
+
+/** Drop session queue/results entries whose exercises no longer exist and
+    clamp the index so a reconciled session still points at a live item. */
+export function sanitizeSession(
+  session: MistakeLabState['session'],
+  exercises: LabExercise[],
+): MistakeLabState['session'] {
+  if (!session) return null;
+  const ids = new Set(exercises.map((x) => x.id));
+  const queue = session.queue.filter((id) => ids.has(id));
+  const results = session.results.filter((r) => ids.has(r.id));
+  if (queue.length === 0) return null;
+  const index = Math.min(session.index, queue.length - 1);
+  const flags: NonNullable<MistakeLabState['session']>['flags'] = {};
+  for (const id of queue) if (session.flags[id]) flags[id] = session.flags[id];
+  return { ...session, queue, results, index, flags };
+}
+
+/** Remove one game's exercises (Profile delete) — also drops its session
+    references. Pure; callers persist through saveLab. */
+export function purgeGame(state: MistakeLabState, gameId: string): MistakeLabState {
+  const exercises = state.exercises.filter((x) => x.gameId !== gameId);
+  if (exercises.length === state.exercises.length) return state;
+  return { ...state, exercises, session: sanitizeSession(state.session, exercises) };
+}
+
+/** Clear the whole lab (profile reset). */
+export function emptyLabAfterReset(): MistakeLabState {
+  return emptyLabState();
 }
 
 /* ---------------- practice semantics ---------------- */
@@ -235,6 +290,16 @@ export function gradeLabMove(exercise: LabExercise, san: string): 'correct' | 'w
 }
 
 export type LabOutcome = 'clean' | 'after-wrong' | 'assisted';
+
+/** The promotion piece the VERIFIED answer demands ('q' for a plain best
+    move or a queen promotion). The runner enters promotions with this
+    piece, so a verified underpromotion is playable instead of impossible
+    under auto-queen. */
+export function promotionPieceFor(bestSan: string): 'q' | 'r' | 'b' | 'n' {
+  const m = /=\s*([NBRQ])/.exec(bestSan);
+  if (!m) return 'q';
+  return ({ N: 'n', B: 'b', R: 'r', Q: 'q' } as Record<string, 'q' | 'r' | 'b' | 'n'>)[m[1]] ?? 'q';
+}
 
 /** outcome -> SR grade (honest: assistance and retries are never a full success) */
 export function outcomeToGrade(outcome: LabOutcome): SrGrade {
@@ -280,7 +345,26 @@ export function startSession(state: MistakeLabState, now: number): MistakeLabSta
     .slice(0, SESSION_SIZE)
     .map((x) => x.id);
   if (queue.length === 0) return state;
-  return { ...state, session: { queue, index: 0, startedAt: now, results: [] } };
+  return { ...state, session: { queue, index: 0, startedAt: now, results: [], flags: {} } };
+}
+
+/** Persist a mid-exercise event (wrong guess, hint, reveal) so a reload
+    cannot reset the attempt's honesty flags. Pure. */
+export function markFlags(
+  state: MistakeLabState,
+  id: string,
+  patch: { assisted?: boolean; firstTry?: boolean },
+): MistakeLabState {
+  const session = state.session;
+  if (!session) return state;
+  const current = session.flags[id] ?? { assisted: false, firstTry: true };
+  return {
+    ...state,
+    session: {
+      ...session,
+      flags: { ...session.flags, [id]: { assisted: patch.assisted ?? current.assisted, firstTry: patch.firstTry ?? current.firstTry } },
+    },
+  };
 }
 
 /** The exercise the session is currently asking about (null = done/none). */
@@ -291,16 +375,20 @@ export function currentExercise(state: MistakeLabState): LabExercise | null {
   return state.exercises.find((x) => x.id === id) ?? null;
 }
 
-/** Advance the session after recording an outcome. Pure. */
+/** Advance the session after recording an outcome. Pure. The resolved
+    exercise's in-progress flags are dropped with it. */
 export function completeCurrent(state: MistakeLabState, outcome: LabOutcome, now: number): MistakeLabState {
   const session = state.session;
   if (!session) return state;
   const id = session.queue[session.index];
   if (!id) return state;
+  const flags = { ...session.flags };
+  delete flags[id];
   const withOutcome: LabSession = {
     ...session,
     index: session.index + 1,
     results: [...session.results, { id, outcome }],
+    flags,
   };
   return applyOutcome({ ...state, session: withOutcome }, id, outcome, now);
 }

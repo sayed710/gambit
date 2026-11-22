@@ -52,11 +52,10 @@ const GAME_MOVES = ['e4', 'e5', 'Qh5', 'Nc6', 'Bc4', 'Nf6', 'Qxf7#'];
 
 function reportFor(moves: string[], mistakes: Record<number, { classification: MoveClass; cpl: number; bestSan: string }>): GameReport {
   // replay for real so evals/fens line up with an actual engine pass
-  const game = new Chess();
   const reviews = moves.map((san, i) => {
     const m = mistakes[i];
     const classification: MoveClass = m?.classification ?? 'best';
-    return { san, color: game.turn(), cpl: m?.cpl ?? 0, classification };
+    return { san, color: (i % 2 === 0 ? 'w' : 'b') as 'w' | 'b', cpl: m?.cpl ?? 0, classification };
   });
   // build evals BEFORE each ply by replaying step by step
   const evals: GameReport['evals'] = [];
@@ -70,7 +69,6 @@ function reportFor(moves: string[], mistakes: Record<number, { classification: M
     });
     if (i < moves.length) probe.move(moves[i]);
   }
-  void game;
   return {
     reviews,
     evals,
@@ -124,6 +122,26 @@ describe('harvestFromGame', () => {
       evals: report.evals.map((e) => (e ? { ...e, bestSan: null } : e)),
     };
     expect(harvestFromGame(rec, noBest, NOW)).toEqual([]);
+  });
+
+  it("REGRESSION: the OPPONENT's critical moves are never harvested (personal lab)", () => {
+    // black (the opponent) blunders at ply 3 — white's lab must not train it
+    const mistakes: Record<number, { classification: MoveClass; cpl: number; bestSan: string }> = {
+      2: { classification: 'blunder', cpl: 320, bestSan: 'Nf3' }, // white (player)
+      3: { classification: 'blunder', cpl: 400, bestSan: 'Qe7' }, // black (opponent)
+    };
+    const rec = makeRecord({ moves: GAME_MOVES, playerColor: 'w' });
+    const report = reportFor(GAME_MOVES, mistakes);
+    const exercises = harvestFromGame(rec, report, NOW);
+    expect(exercises.map((x) => x.ply)).toEqual([2]);
+  });
+
+  it('REGRESSION: a same-length cache from DIFFERENT moves is rejected (SAN+color verified per ply)', () => {
+    const { rec } = gameWithMistake();
+    // same length, but the cached review describes a different game
+    const otherMoves = ['d4', 'd5', 'Bf4', 'Nf6', 'e3', 'e6', 'Nf3'];
+    const report = reportFor(otherMoves, { 2: MISTAKE_AT_2 });
+    expect(harvestFromGame(rec, report, NOW)).toEqual([]);
   });
 
   it('caps the harvest per game at the worst MAX_PER_GAME mistakes', () => {
@@ -186,6 +204,31 @@ describe('harvestAll + dedupe', () => {
     const result = harvestAll({ games: [rec] }, emptyLabState(), NOW);
     expect(result.gamesScanned).toBe(0);
     expect(result.added).toBe(0);
+  });
+
+  it('a malformed cache (reviews but no evals) is SKIPPED — sync continues to the next game', () => {
+    const { rec, report } = gameWithMistake();
+    localStorage.setItem(
+      'gambit.review.gbad',
+      JSON.stringify({ reviews: [{ san: 'e4', color: 'w', cpl: 0, classification: 'blunder' }] }),
+    ); // no evals array
+    localStorage.setItem('gambit.review.g1', JSON.stringify(report));
+    const bad = makeRecord({ id: 'gbad', moves: ['e4'] });
+    const result = harvestAll({ games: [bad, rec] }, emptyLabState(), NOW);
+    expect(result.added).toBe(1); // the healthy game still harvested
+  });
+
+  it('REGRESSION: deleted games leave the Lab (sync reconciles orphans + session refs)', () => {
+    const { rec, report } = gameWithMistake();
+    localStorage.setItem('gambit.review.g1', JSON.stringify(report));
+    let state = harvestAll({ games: [rec] }, emptyLabState(), NOW).state;
+    expect(state.exercises).toHaveLength(1);
+    state = startSession(state, NOW);
+    const survivor = makeRecord({ id: 'other-game', moves: ['e4'] });
+    // g1 no longer exists in the profile — its exercises and session leave
+    const result = harvestAll({ games: [survivor] }, state, NOW);
+    expect(result.state.exercises).toEqual([]);
+    expect(result.state.session).toBeNull();
   });
 });
 
