@@ -463,6 +463,32 @@ describe('report cache verification (shared by Review fast path + Lab harvest)',
     expect(isReportCacheUsable(truncated, rec.moves, rec.initialFen)).toBe(false); // reanalysis, not reuse
   });
 
+  it('COMPLETENESS: ONE failed position (null eval) makes the report unusable', () => {
+    const { rec, report } = gameWithMistake();
+    const partial: GameReport = {
+      ...report,
+      evals: report.evals.map((e, i) => (i === 4 ? null : e)), // one position never analysed
+    };
+    expect(verifyReportAgainstGame(partial, rec.moves, rec.initialFen).ok).toBe(false);
+    expect(isReportCacheUsable(partial, rec.moves, rec.initialFen)).toBe(false); // reanalysis, not reuse
+    // and the lab refuses to harvest from it
+    expect(harvestFromGame(rec, partial, NOW).status).toBe('rejected');
+  });
+
+  it('COMPLETENESS: a report with EVERY evaluation failed is unusable', () => {
+    const { rec, report } = gameWithMistake();
+    const allFailed: GameReport = { ...report, evals: report.evals.map(() => null) };
+    expect(verifyReportAgainstGame(allFailed, rec.moves, rec.initialFen).ok).toBe(false);
+    expect(isReportCacheUsable(allFailed, rec.moves, rec.initialFen)).toBe(false);
+  });
+
+  it('COMPLETENESS: a complete healthy report verifies with every FEN present', () => {
+    const { rec, report } = gameWithMistake();
+    const v = verifyReportAgainstGame(report, rec.moves, rec.initialFen);
+    expect(v.ok).toBe(true);
+    expect(v.fensBefore).toHaveLength(rec.moves.length);
+  });
+
   it('a cache whose moves do not replay is unusable', () => {
     const { report } = gameWithMistake();
     expect(verifyReportAgainstGame(report, ['e4', 'e5', 'Qh5', 'Nc6', 'Bc4', 'Nf6', 'Qxf7#', 'Ke7'], undefined).ok).toBe(false);

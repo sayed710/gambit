@@ -286,15 +286,28 @@ export function sanitizeSession(
 ): MistakeLabState['session'] {
   if (!session) return null;
   const ids = new Set(exercises.map((x) => x.id));
-  const queue = session.queue.filter((id) => ids.has(id));
-  const results = session.results.filter((r) => ids.has(r.id));
+  // every collection is defensively filtered: a malformed persisted entry
+  // (null, wrong shape) is discarded, never dereferenced
+  const queue = (Array.isArray(session.queue) ? session.queue : []).filter(
+    (id): id is string => typeof id === 'string' && ids.has(id),
+  );
+  const results = (Array.isArray(session.results) ? session.results : []).filter(
+    (r): r is MistakeLabState['session'] extends null ? never : NonNullable<MistakeLabState['session']>['results'][number] =>
+      !!r && typeof r === 'object' && typeof r.id === 'string' && ids.has(r.id),
+  );
   if (queue.length === 0) return null;
-  const removedBefore = session.queue.slice(0, session.index).filter((id) => !ids.has(id)).length;
-  let index = session.index - removedBefore;
-  if (session.index >= session.queue.length) index = queue.length; // completed stays completed
+  const rawIndex = typeof session.index === 'number' ? session.index : 0;
+  const removedBefore = session.queue.slice(0, rawIndex).filter((id) => !ids.has(id)).length;
+  let index = rawIndex - removedBefore;
+  if (rawIndex >= session.queue.length) index = queue.length; // completed stays completed
   index = Math.max(0, Math.min(index, queue.length));
   const flags: NonNullable<MistakeLabState['session']>['flags'] = {};
-  for (const id of queue) if (session.flags[id]) flags[id] = session.flags[id];
+  for (const id of queue) {
+    const f = session.flags?.[id];
+    if (f && typeof f === 'object' && typeof f.assisted === 'boolean' && typeof f.firstTry === 'boolean') {
+      flags[id] = { assisted: f.assisted, firstTry: f.firstTry };
+    }
+  }
   return { ...session, queue, results, index, flags };
 }
 

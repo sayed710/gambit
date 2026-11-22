@@ -130,9 +130,12 @@ describe('Review cache-recovery flow (real page, mocked engine seam)', () => {
     harness();
     // the report renders straight from the cache
     expect(await screen.findByRole('button', { name: 'Learn from your mistakes' }, { timeout: 10000 })).toBeTruthy();
-    // the full analysis pass would call the engine plies+1 times; the fast
-    // path runs at most the single final-position live probe
+    // PROOF the full analysis pass was skipped: every evaluate call must be
+    // the final-position live probe (a real pass would visit ALL positions,
+    // starting from the initial FEN)
+    const finalFen = replayFens()[MOVES.length];
     expect(engineMock.evaluate.mock.calls.length).toBeLessThan(MOVES.length + 1);
+    expect(engineMock.evaluate.mock.calls.every(([calledFen]) => calledFen === finalFen)).toBe(true);
   });
 
   it('a same-length cache with an INCORRECT SAN is rejected: fresh analysis runs and REPLACES the cache', async () => {
@@ -172,7 +175,7 @@ describe('Review cache-recovery flow (real page, mocked engine seam)', () => {
     engineMock.evaluate.mockRejectedValue(new Error('engine down')); // every evaluation fails
     harness();
     // the analysis finishes with an all-null report — the guard refuses it
-    await waitFor(() => expect(screen.getByText(/engine could not analyze this game/)).toBeTruthy());
+    await waitFor(() => expect(screen.getByText(/did not complete for every position/)).toBeTruthy());
     // the damaged cache was NOT overwritten by the unusable all-null report
     const stored = JSON.parse(localStorage.getItem('gambit.review.g1') ?? 'null') as GameReport | null;
     expect(stored?.reviews[4]?.san).toBe('Qf3'); // still the (damaged) original — untouched
@@ -189,15 +192,32 @@ describe('Review cache-recovery flow (real page, mocked engine seam)', () => {
     });
   });
 
-  it('an INTERRUPTED reanalysis (unmount mid-run) leaves the cache untouched', async () => {
+  it('an INTERRUPTED reanalysis (unmount mid-run) leaves the cache untouched — proven by RESOLVING the deferred engine promises afterwards', async () => {
     seedGame();
     const damaged = healthyCache(true);
     localStorage.setItem('gambit.review.g1', JSON.stringify(damaged));
-    engineMock.evaluate.mockImplementation(() => new Promise(() => {})); // never resolves
+    // a CONTROLLED deferred: each evaluate() call exposes its resolver, so
+    // the pending operations can complete AFTER unmount — an implementation
+    // without cancellation protection would then run onComplete and write
+    // the report (this test failed exactly that way before the guards)
+    const deferred: { resolve: (v: { cp: number; mateIn: number | null; bestSan: string | null; depth: number }) => void }[] = [];
+    engineMock.evaluate.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          deferred.push({ resolve });
+        }),
+    );
     const { unmount } = harness();
-    await waitFor(() => expect(engineMock.evaluate).toHaveBeenCalled());
+    await waitFor(() => expect(deferred.length).toBeGreaterThan(0)); // the analysis pass is pending
     unmount(); // the player navigates away mid-analysis
-    await new Promise((r) => setTimeout(r, 50));
+    // NOW the pending engine operations resolve — a stale run must ignore
+    // them (each resolution may unblock the next sequential call, which
+    // also lands pending in `deferred`; keep draining until none remain)
+    for (let round = 0; round < 12 && deferred.length > 0; round++) {
+      const pending = deferred.splice(0, deferred.length);
+      for (const d of pending) d.resolve({ cp: 0, mateIn: null, bestSan: null, depth: 12 });
+      await new Promise((r) => setTimeout(r, 25)); // flush microtasks/callbacks
+    }
     const stored = JSON.parse(localStorage.getItem('gambit.review.g1') ?? 'null') as GameReport | null;
     expect(stored?.reviews[4]?.san).toBe('Qf3'); // nothing was written back
   });

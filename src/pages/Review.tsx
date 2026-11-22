@@ -16,7 +16,7 @@ import type { GameReport, MoveClass, PlyEval } from '../lib/review';
 import type { GameRecord } from '../lib/types';
 import { evalToUnit } from '../lib/review';
 import { runGameAnalysis, plyEvalFromEngineResult } from '../lib/reviewRunner';
-import { criticalMoments, isReportCacheUsable, refineGreatMoves, CLASSIFICATION_META, CLASSIFICATION_GLYPH, CRITICAL_CLASSES } from '../lib/review';
+import { criticalMoments, isReportCacheUsable, isReportComplete, refineGreatMoves, CLASSIFICATION_META, CLASSIFICATION_GLYPH, CRITICAL_CLASSES } from '../lib/review';
 import { harvestFromGame, loadLab, saveLab, sendGameToLab } from '../lib/mistakeLab';
 import { pressureCorrelation, timingStats } from '../lib/timeAnalytics';
 import { buildCoachLessons, type CoachLesson } from '../lib/coachEngine';
@@ -143,15 +143,16 @@ export default function Review() {
         },
         onComplete: (rep) => {
           if (isStale()) return;
-          // a run where the engine answered NOTHING (every evaluation
-          // failed) is a FAILED analysis, not a clean 100%-accuracy game:
-          // reporting it would be a false success and would overwrite the
-          // cached report with unusable data the Mistake Lab can never
-          // harvest. The old cache stays; the user is told to retry.
-          if (rep.evals.every((e) => e === null)) {
+          // the completeness contract: EVERY position must carry a real
+          // engine reading. A partially failed run would invent flattering
+          // classifications for the unanalysed moves (cpl 0) — reporting it
+          // would be a false success and would overwrite the cached report
+          // with data the Mistake Lab can never harvest. The old cache
+          // stays; the user is told to retry.
+          if (!isReportComplete(rep)) {
             setAnalyzing(false);
             setReport(null);
-            toast('The engine could not analyze this game — nothing was saved. Please try again.');
+            toast('The analysis did not complete for every position — nothing was saved. Please try again.');
             return;
           }
           setReport(rep);

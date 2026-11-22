@@ -322,6 +322,15 @@ export interface ReportVerification {
   fensBefore: string[] | null;
 }
 
+/** The honest report-completeness contract: EVERY evaluation entry is a
+    real engine reading. A single null means that position was never
+    analysed — `cplFor()` would silently treat it as zero loss and invent
+    a flattering classification, so an incomplete report is never
+    displayed, persisted, or trusted as a cache. */
+export function isReportComplete(report: GameReport): boolean {
+  return Array.isArray(report.evals) && report.evals.length > 0 && report.evals.every((e) => e !== null);
+}
+
 export function verifyReportAgainstGame(
   report: GameReport,
   moves: string[],
@@ -331,9 +340,9 @@ export function verifyReportAgainstGame(
     return { ok: false, fensBefore: null };
   }
   // the GameReport contract: an eval BEFORE each ply PLUS the final
-  // position's eval (length = moves.length + 1) — the last move's CPL
-  // cannot be computed without it, so a truncated report is damaged
-  if (!Array.isArray(report.evals) || report.evals.length !== moves.length + 1) {
+  // position's eval (length = moves.length + 1), and EVERY entry a real
+  // reading — a truncated or partially analysed report is damaged
+  if (!Array.isArray(report.evals) || report.evals.length !== moves.length + 1 || !isReportComplete(report)) {
     return { ok: false, fensBefore: null };
   }
   let game: Chess;
