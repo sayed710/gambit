@@ -17,7 +17,7 @@ import type { GameRecord } from '../lib/types';
 import { evalToUnit } from '../lib/review';
 import { runGameAnalysis, plyEvalFromEngineResult } from '../lib/reviewRunner';
 import { criticalMoments, refineGreatMoves, CLASSIFICATION_META, CLASSIFICATION_GLYPH, CRITICAL_CLASSES } from '../lib/review';
-import { harvestAll, loadLab, saveLab } from '../lib/mistakeLab';
+import { harvestFromGame, loadLab, saveLab, sendGameToLab } from '../lib/mistakeLab';
 import { pressureCorrelation, timingStats } from '../lib/timeAnalytics';
 import { buildCoachLessons, type CoachLesson } from '../lib/coachEngine';
 import { contributeGameMotifs, motifAnalysisForReport } from '../lib/motifReview';
@@ -816,11 +816,17 @@ export default function Review() {
                   className="btn btn-ghost btn-sm mt-2"
                   onClick={() => {
                     if (!report || !record) return;
-                    const result = saveLab(harvestAll({ games: [record] }, loadLab(), Date.now()).state);
+                    // single-game merge — never orphan-reconciles other games' exercises
+                    const harvest = sendGameToLab(loadLab(), harvestFromGame(record, report, Date.now()), Date.now());
+                    const saved = saveLab(harvest.state);
+                    if (!saved.ok) {
+                      toast('Could not save to the Lab — storage rejected the write. The storage banner has details.');
+                      return;
+                    }
                     toast(
-                      result.state.exercises.some((x) => x.gameId === record.id)
-                        ? 'Mistakes sent to the Lab — find them under Train → Mistake Lab.'
-                        : 'Nothing to send — the review found no critical decisions with a verified best move.',
+                      harvest.added > 0
+                        ? `Sent ${harvest.added} mistake${harvest.added === 1 ? '' : 's'} to the Lab — Train → Mistake Lab.`
+                        : 'Nothing new to send — this game’s review has no critical decisions with a verified best move (or they are already in the Lab).',
                     );
                   }}
                   disabled={!report || analyzing}

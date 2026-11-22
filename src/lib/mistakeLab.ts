@@ -251,8 +251,10 @@ export function harvestAll(profile: { games: GameRecord[] }, state: MistakeLabSt
   };
 }
 
-/** Drop session queue/results entries whose exercises no longer exist and
-    clamp the index so a reconciled session still points at a live item. */
+/** Drop session queue/results entries whose exercises no longer exist.
+    The cursor shifts back by the entries removed BEFORE it (so it still
+    points at the same exercise), and a COMPLETED session (cursor === old
+    length) stays completed — never reopened by sanitation. */
 export function sanitizeSession(
   session: MistakeLabState['session'],
   exercises: LabExercise[],
@@ -262,7 +264,10 @@ export function sanitizeSession(
   const queue = session.queue.filter((id) => ids.has(id));
   const results = session.results.filter((r) => ids.has(r.id));
   if (queue.length === 0) return null;
-  const index = Math.min(session.index, queue.length - 1);
+  const removedBefore = session.queue.slice(0, session.index).filter((id) => !ids.has(id)).length;
+  let index = session.index - removedBefore;
+  if (session.index >= session.queue.length) index = queue.length; // completed stays completed
+  index = Math.max(0, Math.min(index, queue.length));
   const flags: NonNullable<MistakeLabState['session']>['flags'] = {};
   for (const id of queue) if (session.flags[id]) flags[id] = session.flags[id];
   return { ...session, queue, results, index, flags };
@@ -274,6 +279,25 @@ export function purgeGame(state: MistakeLabState, gameId: string): MistakeLabSta
   const exercises = state.exercises.filter((x) => x.gameId !== gameId);
   if (exercises.length === state.exercises.length) return state;
   return { ...state, exercises, session: sanitizeSession(state.session, exercises) };
+}
+
+/** Merge ONE game's harvested exercises into the lab WITHOUT orphan
+    reconciliation — used by Review's single-game send, which must never
+    touch exercises belonging to other games. Pure. */
+export function sendGameToLab(
+  state: MistakeLabState,
+  harvested: LabExercise[],
+  now: number,
+): { state: MistakeLabState; added: number } {
+  const byId = new Map(state.exercises.map((x) => [x.id, x]));
+  let added = 0;
+  for (const ex of harvested) {
+    if (!byId.has(ex.id)) {
+      byId.set(ex.id, ex);
+      added += 1;
+    }
+  }
+  return { state: { ...state, exercises: [...byId.values()], lastHarvestAt: now }, added };
 }
 
 /** Clear the whole lab (profile reset). */
