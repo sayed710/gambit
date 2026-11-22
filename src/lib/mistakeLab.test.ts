@@ -265,6 +265,8 @@ describe('harvestAll + dedupe + reconcile', () => {
     const bad = makeRecord({ id: 'gbad', moves: ['e4'] });
     const result = harvestAll({ games: [bad, rec] }, emptyLabState(), NOW);
     expect(result.added).toBe(1); // the healthy game still harvested
+    expect(result.gamesScanned).toBe(2); // the malformed cache counts as scanned
+    expect(result.gamesRejected).toBe(1); // and is named as rejected
   });
 
   it('REGRESSION: deleted games leave the Lab (sync reconciles orphans + session refs)', () => {

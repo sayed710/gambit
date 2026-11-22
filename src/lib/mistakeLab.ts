@@ -254,8 +254,14 @@ export function harvestAll(profile: { games: GameRecord[] }, state: MistakeLabSt
   let gamesRejected = 0;
   for (const record of profile.games) {
     const report = loadJSON<unknown>(`review.${record.id}`, null) as GameReport | null;
-    if (!report || !Array.isArray(report.reviews) || !Array.isArray(report.evals)) continue;
+    if (!report) continue; // no cache — nothing to scan for this game
+    // a PRESENT cache counts as scanned even when malformed: the sync note
+    // must be able to name it as unusable instead of "no reviewed games"
     gamesScanned += 1;
+    if (!Array.isArray(report.reviews) || !Array.isArray(report.evals)) {
+      gamesRejected += 1; // malformed cache — skipped below by the type guard
+      continue;
+    }
     let harvest: GameHarvest;
     try {
       harvest = harvestFromGame(record, report, now);

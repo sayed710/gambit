@@ -109,9 +109,19 @@ export default function Review() {
 
   const runAnalysis = useCallback(async () => {
     if (plies.length === 0 || analyzing) return;
-    // finished games are immutable, cache the report so revisits are instant
+    // finished games are immutable, cache the report so revisits are instant.
+    // A cache is only trusted when it is STRUCTURALLY complete (reviews AND
+    // a full evaluations array): a damaged cache would otherwise be reloaded
+    // forever, and the Mistake Lab would reject it on every send with no
+    // way to refresh — ignore it and regenerate instead.
     const cached = loadJSON<GameReport | null>(`review.${record?.id}`, null);
-    if (cached && cached.reviews.length === plies.length) {
+    const cachedUsable =
+      cached &&
+      Array.isArray(cached.reviews) &&
+      cached.reviews.length === plies.length &&
+      Array.isArray(cached.evals) &&
+      cached.evals.length >= plies.length;
+    if (cached && cachedUsable) {
       setReport(cached);
       contributeMotifs(cached); // backfill caches saved before contributions existed (idempotent)
       return;
